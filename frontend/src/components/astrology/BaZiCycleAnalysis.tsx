@@ -1200,7 +1200,8 @@ export default function BaZiCycleAnalyzer() {
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     style={{ caretColor: 'transparent' }}
                   />
-                  <div className="flex items-center justify-between h-full px-3">
+                  <div className="flex items-center gap-2 h-full px-3">
+                    <Calendar className="w-4 h-4 text-muted-foreground" />
                     <span className="text-sm text-foreground">
                       {params.anchorDate ? new Date(params.anchorDate + "T00:00:00").toLocaleDateString('en-GB', { 
                         day: '2-digit', 
@@ -1208,7 +1209,6 @@ export default function BaZiCycleAnalyzer() {
                         year: 'numeric' 
                       }) : 'Select date'}
                     </span>
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
                   </div>
                 </div>
               </div>
@@ -1233,7 +1233,8 @@ export default function BaZiCycleAnalyzer() {
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-3">
+                <div className="flex items-center gap-2 h-full px-3">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm text-foreground">
                     {new Date(params.startDate + "T00:00:00").toLocaleDateString('en-GB', { 
                       day: '2-digit', 
@@ -1241,7 +1242,6 @@ export default function BaZiCycleAnalyzer() {
                       year: 'numeric' 
                     })}
                   </span>
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
             </div>
@@ -1266,7 +1266,8 @@ export default function BaZiCycleAnalyzer() {
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-3">
+                <div className="flex items-center gap-2 h-full px-3">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm text-foreground">
                     {new Date(params.endDate + "T00:00:00").toLocaleDateString('en-GB', { 
                       day: '2-digit', 
@@ -1274,7 +1275,6 @@ export default function BaZiCycleAnalyzer() {
                       year: 'numeric' 
                     })}
                   </span>
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
             </div>

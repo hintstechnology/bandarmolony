@@ -45,8 +45,8 @@ const GOVERNMENT_BROKERS = ['CC', 'NI', 'OD', 'DX'];
 // Minimum date that can be selected: 19/09/2025
 const MIN_DATE = '2025-09-19';
 
-// LocalStorage key for user preferences
-const PREFERENCES_STORAGE_KEY = 'broker_summary_user_preferences';
+// Page ID for menu preferences
+const PAGE_ID = 'broker-activity-summary';
 
 // Interface for user preferences
 interface UserPreferences {
@@ -57,25 +57,24 @@ interface UserPreferences {
   endDate?: string;
 }
 
-// Utility functions for saving/loading preferences
+// Import menu preferences service
+import { menuPreferencesService } from '../../services/menuPreferences';
+
+// Utility functions for saving/loading preferences (now using cookies)
 const loadPreferences = (): Partial<UserPreferences> | null => {
   try {
-    const stored = localStorage.getItem(PREFERENCES_STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored) as UserPreferences;
+    const cached = menuPreferencesService.getCachedPreferences(PAGE_ID);
+    if (cached) {
+      return cached as Partial<UserPreferences>;
     }
   } catch (error) {
-    console.warn('Failed to load user preferences:', error);
+    console.warn('Failed to load cached preferences:', error);
   }
   return null;
 };
 
 const savePreferences = (prefs: Partial<UserPreferences>) => {
-  try {
-    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
-  } catch (error) {
-    console.warn('Failed to save user preferences:', error);
-  }
+  menuPreferencesService.savePreferences(PAGE_ID, prefs);
 };
 
 const formatNumber = (value: number): string => {
@@ -133,8 +132,22 @@ interface BrokerSummaryPageProps {
 export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSummaryPageProps) {
   const { showToast } = useToast();
   
-  // Load preferences from localStorage on mount
+  // Load preferences from cookies on mount
   const savedPrefs = loadPreferences();
+  
+  // Load preferences from cookies on mount
+  useEffect(() => {
+    const prefs = menuPreferencesService.loadPreferences(PAGE_ID);
+    if (prefs.selectedTickers && prefs.selectedTickers.length > 0) {
+      setSelectedTickers(prefs.selectedTickers);
+    }
+    if (prefs.fdFilter) {
+      setFdFilter(prefs.fdFilter);
+    }
+    if (prefs.marketFilter) {
+      setMarketFilter(prefs.marketFilter);
+    }
+  }, []);
   
   // Default dates will be set from API (maxAvailableDate useEffect)
   // Using empty initial state - will be populated from API
@@ -3085,8 +3098,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           setHighlightedStockIndex(-1);
                         }
                       }}
-                      placeholder="Add ticker"
-                      className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
+                      placeholder={selectedTickers.length > 0 ? (selectedTickers.length === 1 ? formatStockDisplayName(selectedTickers[0]) : selectedTickers.map(t => formatStockDisplayName(t)).join(' | ')) : "Add ticker"}
+                      className={`w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedTickers.length > 0 ? 'placeholder:text-white' : ''}`}
                     />
                     {showStockSuggestions && (
                       <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-64">
@@ -3389,7 +3402,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-3">
+                <div className="flex items-center gap-2 h-full px-3">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm text-foreground">
                     {startDate ? new Date(startDate).toLocaleDateString('en-GB', { 
                       day: '2-digit', 
@@ -3397,7 +3411,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       year: 'numeric' 
                     }) : 'DD/MM/YYYY'}
                   </span>
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
                   <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
@@ -3546,7 +3559,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-3">
+                <div className="flex items-center gap-2 h-full px-3">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm text-foreground">
                     {endDate ? new Date(endDate).toLocaleDateString('en-GB', { 
                       day: '2-digit', 
@@ -3554,7 +3568,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       year: 'numeric' 
                     }) : 'DD/MM/YYYY'}
                   </span>
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
                 </div>
                 </div>

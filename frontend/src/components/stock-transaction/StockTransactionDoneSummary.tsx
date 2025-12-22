@@ -124,13 +124,13 @@ const calculateTotals = (data: PriceData[]) => {
 
 // Helper function to get all unique prices across all dates (no sorting, preserve CSV order)
 // Returns prices in the order they appear in CSV (first date's order)
-const getAllUniquePrices = (_stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }): number[] => {
+const getAllUniquePrices = (_stock: string, dates: string[], stockPriceDataByDate: { [date: string]: PriceData[] }): number[] => {
   const priceSet = new Set<number>();
   const priceOrder: number[] = []; // Preserve order from CSV
   
   // Collect prices from all dates, preserving order from first date
   dates.forEach(date => {
-    const data = priceDataByDate[date] || [];
+    const data = stockPriceDataByDate[date] || [];
     data.forEach(item => {
       if (item.price && !priceSet.has(item.price)) {
         priceSet.add(item.price);
@@ -143,18 +143,18 @@ const getAllUniquePrices = (_stock: string, dates: string[], priceDataByDate: { 
 };
 
 // Helper function to get data for specific price and date
-const getDataForPriceAndDate = (_stock: string, date: string, price: number, priceDataByDate: { [date: string]: PriceData[] }): PriceData | null => {
-  const data = priceDataByDate[date] || [];
+const getDataForPriceAndDate = (_stock: string, date: string, price: number, stockPriceDataByDate: { [date: string]: PriceData[] }): PriceData | null => {
+  const data = stockPriceDataByDate[date] || [];
   return data.find(item => item.price === price) || null;
 };
 
 
 // Helper function to find max values across all dates for horizontal layout
-const findMaxValuesHorizontal = (_stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }) => {
+const findMaxValuesHorizontal = (_stock: string, dates: string[], stockPriceDataByDate: { [date: string]: PriceData[] }) => {
   let maxBFreq = 0, maxBLot = 0, maxBOrd = 0, maxSLot = 0, maxSFreq = 0, maxSOrd = 0, maxTFreq = 0, maxTLot = 0, maxTOrd = 0;
   
   dates.forEach(date => {
-    const data = priceDataByDate[date] || [];
+    const data = stockPriceDataByDate[date] || [];
     data.forEach(item => {
       if (item.bFreq > maxBFreq) maxBFreq = item.bFreq;
       if (item.bLot > maxBLot) maxBLot = item.bLot;
@@ -299,12 +299,12 @@ const getLastThreeTradingDays = (): string[] => {
   return getTradingDays(3);
 };
 
-// LocalStorage key for user preferences
-const PREFERENCES_STORAGE_KEY = 'stock_transaction_done_summary_user_preferences';
+// Page ID for menu preferences
+const PAGE_ID = 'stock-transaction-done-summary';
 
 // Interface for user preferences
 interface UserPreferences {
-  selectedStock: string;
+  selectedStocks: string[];
   selectedBrokers: string[];
   invFilter: 'F' | 'D' | '';
   boardFilter: 'RG' | 'TN' | 'NG' | '';
@@ -314,25 +314,24 @@ interface UserPreferences {
   endDate?: string;
 }
 
-// Utility functions for saving/loading preferences
+// Import menu preferences service
+import { menuPreferencesService } from '../../services/menuPreferences';
+
+// Utility functions for saving/loading preferences (now using cookies)
 const loadPreferences = (): Partial<UserPreferences> | null => {
   try {
-    const stored = localStorage.getItem(PREFERENCES_STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored) as UserPreferences;
+    const cached = menuPreferencesService.getCachedPreferences(PAGE_ID);
+    if (cached) {
+      return cached as Partial<UserPreferences>;
     }
   } catch (error) {
-    console.warn('Failed to load user preferences:', error);
+    console.warn('Failed to load cached preferences:', error);
   }
   return null;
 };
 
 const savePreferences = (prefs: Partial<UserPreferences>) => {
-  try {
-    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
-  } catch (error) {
-    console.warn('Failed to save user preferences:', error);
-  }
+  menuPreferencesService.savePreferences(PAGE_ID, prefs);
 };
 
 interface StockTransactionDoneSummaryProps {
@@ -342,37 +341,49 @@ interface StockTransactionDoneSummaryProps {
 export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }: StockTransactionDoneSummaryProps) {
   const { showToast } = useToast();
   
-  // Load preferences from localStorage on mount
+  // Load preferences from cookies on mount
   const savedPrefs = loadPreferences();
   
+  // Load preferences from cookies on mount
+  useEffect(() => {
+    const prefs = menuPreferencesService.loadPreferences(PAGE_ID);
+    if (prefs['showFrequency'] !== undefined) {
+      setShowFrequency(prefs['showFrequency']);
+    }
+    if (prefs['showOrdColumns'] !== undefined) {
+      setShowOrdColumns(prefs['showOrdColumns']);
+    }
+    if (prefs['invFilter'] !== undefined) {
+      setInvFilter(prefs['invFilter']);
+    }
+    if (prefs['boardFilter'] !== undefined) {
+      setBoardFilter(prefs['boardFilter']);
+    }
+  }, []);
+  
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
-  const [selectedStock, setSelectedStock] = useState(() => {
+  const [selectedStocks, setSelectedStocks] = useState<string[]>(() => {
     // Try to load from preferences first
-    if (savedPrefs?.selectedStock) {
-      return savedPrefs.selectedStock;
+    if (savedPrefs?.selectedStocks && savedPrefs.selectedStocks.length > 0) {
+      return savedPrefs.selectedStocks;
     }
     // Fallback to prop or default
-    return propSelectedStock || 'BBCA';
+    if (propSelectedStock) {
+      return [propSelectedStock];
+    }
+    return ['BBCA'];
   });
   
-  // Real data states
-  const [priceDataByDate, setPriceDataByDate] = useState<{ [date: string]: PriceData[] }>({});
+  // Real data states - changed to store data per stock
+  const [priceDataByStockAndDate, setPriceDataByStockAndDate] = useState<{ [stock: string]: { [date: string]: PriceData[] } }>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [availableStocks] = useState<string[]>(STOCK_LIST);
   const [_availableDates] = useState<string[]>([]);
   const [shouldFetchData, setShouldFetchData] = useState<boolean>(false);
   const [isDataReady, setIsDataReady] = useState<boolean>(false);
   
   // UI states
-  const [stockInput, setStockInput] = useState(() => {
-    // Try to load from preferences first
-    if (savedPrefs?.selectedStock) {
-      return savedPrefs.selectedStock;
-    }
-    // Fallback to prop or default
-    return propSelectedStock || 'BBCA';
-  });
+  const [stockInput, setStockInput] = useState('');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -457,19 +468,20 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
 
   // Helper functions
   const handleStockSelect = (stock: string) => {
-    setSelectedStock(stock);
-    setStockInput(stock);
+    if (!selectedStocks.includes(stock)) {
+      setSelectedStocks([...selectedStocks, stock]);
+    }
+    setStockInput('');
     setShowStockSuggestions(false);
+  };
+
+  const handleRemoveStock = (stock: string) => {
+    setSelectedStocks(selectedStocks.filter(s => s !== stock));
   };
 
   const handleStockInputChange = (value: string) => {
     setStockInput(value);
     setShowStockSuggestions(true);
-
-    // If exact match, select it
-    if (STOCK_LIST.includes(value.toUpperCase())) {
-      setSelectedStock(value.toUpperCase());
-    }
   };
 
   const filteredStocks = searchStocks(stockInput);
@@ -528,7 +540,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
         resizeObserver.disconnect();
       }
     };
-  }, [selectedBrokers, selectedStock, startDate, endDate]);
+  }, [selectedBrokers, selectedStocks, startDate, endDate]);
 
 
   // Handle click outside to close dropdowns
@@ -551,18 +563,18 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
 
   // No need to load stocks from API anymore - using static list
 
-  // Update selectedStock when prop changes
+  // Update selectedStocks when prop changes
   useEffect(() => {
-    if (propSelectedStock && propSelectedStock !== selectedStock) {
-      setSelectedStock(propSelectedStock);
+    if (propSelectedStock && !selectedStocks.includes(propSelectedStock)) {
+      setSelectedStocks([propSelectedStock]);
     }
-  }, [propSelectedStock, selectedStock]);
+  }, [propSelectedStock, selectedStocks]);
 
   // Save preferences to localStorage with debounce to reduce write operations
   useEffect(() => {
     const timeout = setTimeout(() => {
       const preferences: Partial<UserPreferences> = {
-        selectedStock,
+        selectedStocks,
         selectedBrokers,
         invFilter,
         boardFilter,
@@ -580,7 +592,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
     }, 500); // Debounce 500ms to reduce localStorage writes
     
     return () => clearTimeout(timeout);
-  }, [selectedStock, selectedBrokers, invFilter, boardFilter, showFrequency, showOrdColumns, startDate, endDate]);
+  }, [selectedStocks, selectedBrokers, invFilter, boardFilter, showFrequency, showOrdColumns, startDate, endDate]);
   
   // Auto-load data from saved preferences on mount (after initial data is loaded)
   useEffect(() => {
@@ -655,13 +667,13 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
         return;
       }
       
-      if (!selectedStock || selectedDates.length === 0) {
-        console.log('Skipping fetch - missing stock or dates:', { selectedStock, selectedDates });
+      if (selectedStocks.length === 0 || selectedDates.length === 0) {
+        console.log('Skipping fetch - missing stocks or dates:', { selectedStocks, selectedDates });
         setShouldFetchData(false);
         return;
       }
 
-      console.log('Starting to fetch data for:', { selectedStock, selectedDates, selectedBrokers, invFilter, boardFilter });
+      console.log('Starting to fetch data for:', { selectedStocks, selectedDates, selectedBrokers, invFilter, boardFilter });
       setLoading(true);
       setError(null);
       setIsDataReady(false);
@@ -677,124 +689,137 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
         
         console.log('API parameters:', { brokersToFetch, fdParam, boardParam });
         
-        // Fetch broker breakdown data for all selected dates and all selected brokers
-        const allPromises: Array<{ date: string; broker: string; promise: Promise<any> }> = [];
+        // Fetch broker breakdown data for all selected stocks, dates and brokers
+        const allPromises: Array<{ stock: string; date: string; broker: string; promise: Promise<any> }> = [];
         
-        selectedDates.forEach(date => {
-          brokersToFetch.forEach(broker => {
-            allPromises.push({
-              date,
-              broker,
-              promise: api.getDoneSummaryBrokerBreakdown(selectedStock, date, broker, fdParam, boardParam)
+        selectedStocks.forEach(stock => {
+          selectedDates.forEach(date => {
+            brokersToFetch.forEach(broker => {
+              allPromises.push({
+                stock,
+                date,
+                broker,
+                promise: api.getDoneSummaryBrokerBreakdown(stock, date, broker, fdParam, boardParam)
+              });
             });
           });
         });
         
         const allResults = await Promise.allSettled(allPromises.map(p => p.promise));
         
-        // Store raw data per date and broker
-        const rawDataByDateAndBroker: { [date: string]: { [broker: string]: any[] } } = {};
+        // Store raw data per stock, date and broker
+        const rawDataByStockDateAndBroker: { [stock: string]: { [date: string]: { [broker: string]: any[] } } } = {};
         
         allResults.forEach((result, index) => {
           const promiseData = allPromises[index];
           if (!promiseData) return;
           
-          const { date, broker } = promiseData;
-          if (!date) return;
+          const { stock, date, broker } = promiseData;
+          if (!stock || !date) return;
           
-          if (!rawDataByDateAndBroker[date]) {
-            rawDataByDateAndBroker[date] = {};
+          if (!rawDataByStockDateAndBroker[stock]) {
+            rawDataByStockDateAndBroker[stock] = {};
+          }
+          if (!rawDataByStockDateAndBroker[stock][date]) {
+            rawDataByStockDateAndBroker[stock][date] = {};
           }
           
           if (result.status === 'fulfilled' && result.value.success && result.value.data?.records) {
-            rawDataByDateAndBroker[date][broker] = result.value.data.records;
+            rawDataByStockDateAndBroker[stock][date][broker] = result.value.data.records;
           } else {
-            rawDataByDateAndBroker[date][broker] = [];
+            rawDataByStockDateAndBroker[stock][date][broker] = [];
           }
         });
         
-        // Aggregate data from all brokers per date
-        const newPriceDataByDate: { [date: string]: PriceData[] } = {};
+        // Aggregate data from all brokers per stock and date
+        const newPriceDataByStockAndDate: { [stock: string]: { [date: string]: PriceData[] } } = {};
         
-        selectedDates.forEach(date => {
-          const brokerDataMap = rawDataByDateAndBroker[date] || {};
+        selectedStocks.forEach(stock => {
+          newPriceDataByStockAndDate[stock] = {};
           
-          // Aggregate data from all brokers by price level
-          const aggregatedByPrice = new Map<number, {
-            bFreq: number;
-            bLot: number;
-            bOrd: number;
-            sLot: number;
-            sFreq: number;
-            sOrd: number;
-          }>();
-          
-          // Collect all prices first to preserve order
-          const allPrices = new Set<number>();
-          
-          // Process data from each broker
-          Object.entries(brokerDataMap).forEach(([_broker, records]) => {
-            if (!Array.isArray(records)) return;
+          selectedDates.forEach(date => {
+            const brokerDataMap = rawDataByStockDateAndBroker[stock]?.[date] || {};
             
-            records.forEach((row: any) => {
-              const price = Number(row.Price) || 0;
-              if (price === 0) return;
+            // Aggregate data from all brokers by price level
+            const aggregatedByPrice = new Map<number, {
+              bFreq: number;
+              bLot: number;
+              bOrd: number;
+              sLot: number;
+              sFreq: number;
+              sOrd: number;
+            }>();
+            
+            // Collect all prices first to preserve order
+            const allPrices = new Set<number>();
+            
+            // Process data from each broker
+            Object.entries(brokerDataMap).forEach(([_broker, records]) => {
+              if (!Array.isArray(records)) return;
               
-              allPrices.add(price);
-              
-              if (!aggregatedByPrice.has(price)) {
-                aggregatedByPrice.set(price, {
-                  bFreq: 0,
-                  bLot: 0,
-                  bOrd: 0,
-                  sLot: 0,
-                  sFreq: 0,
-                  sOrd: 0
-                });
-              }
-              
-              const priceData = aggregatedByPrice.get(price)!;
-              
-              // Aggregate buy side - sum all values from all brokers
-              priceData.bFreq += Number(row.BFreq) || 0;
-              priceData.bLot += Number(row.BLot) || 0;
-              priceData.bOrd += Number(row.BOrd) || 0;
-              
-              // Aggregate sell side - sum all values from all brokers
-              priceData.sLot += Number(row.SLot) || 0;
-              priceData.sFreq += Number(row.SFreq) || 0;
-              priceData.sOrd += Number(row.SOrd) || 0;
+              records.forEach((row: any) => {
+                const price = Number(row.Price) || 0;
+                if (price === 0) return;
+                
+                allPrices.add(price);
+                
+                if (!aggregatedByPrice.has(price)) {
+                  aggregatedByPrice.set(price, {
+                    bFreq: 0,
+                    bLot: 0,
+                    bOrd: 0,
+                    sLot: 0,
+                    sFreq: 0,
+                    sOrd: 0
+                  });
+                }
+                
+                const priceData = aggregatedByPrice.get(price)!;
+                
+                // Aggregate buy side - sum all values from all brokers
+                priceData.bFreq += Number(row.BFreq) || 0;
+                priceData.bLot += Number(row.BLot) || 0;
+                priceData.bOrd += Number(row.BOrd) || 0;
+                
+                // Aggregate sell side - sum all values from all brokers
+                priceData.sLot += Number(row.SLot) || 0;
+                priceData.sFreq += Number(row.SFreq) || 0;
+                priceData.sOrd += Number(row.SOrd) || 0;
+              });
             });
-          });
-          
-          // Convert aggregated data to PriceData format
-          // Sort prices in descending order (highest first)
-          const sortedPrices = Array.from(allPrices).sort((a, b) => b - a);
-          
-          const priceData: PriceData[] = sortedPrices.map(price => {
-            const agg = aggregatedByPrice.get(price)!;
-            const tFreq = agg.bFreq + agg.sFreq;
-            const tLot = agg.bLot + agg.sLot;
-            const tOrd = agg.bOrd + agg.sOrd;
             
-            return {
-              price,
-              bFreq: agg.bFreq,
-              bLot: agg.bLot,
-              bOrd: agg.bOrd,
-              sLot: agg.sLot,
-              sFreq: agg.sFreq,
-              sOrd: agg.sOrd,
-              tFreq,
-              tLot,
-              tOrd
-            };
+            // Convert aggregated data to PriceData format
+            // Sort prices in descending order (highest first)
+            const sortedPrices = Array.from(allPrices).sort((a, b) => b - a);
+            
+            const priceData: PriceData[] = sortedPrices.map(price => {
+              const agg = aggregatedByPrice.get(price)!;
+              const tFreq = agg.bFreq + agg.sFreq;
+              const tLot = agg.bLot + agg.sLot;
+              const tOrd = agg.bOrd + agg.sOrd;
+              
+              return {
+                price,
+                bFreq: agg.bFreq,
+                bLot: agg.bLot,
+                bOrd: agg.bOrd,
+                sLot: agg.sLot,
+                sFreq: agg.sFreq,
+                sOrd: agg.sOrd,
+                tFreq,
+                tLot,
+                tOrd
+              };
+            });
+            
+            if (!newPriceDataByStockAndDate[stock]) {
+              newPriceDataByStockAndDate[stock] = {};
+            }
+            newPriceDataByStockAndDate[stock][date] = priceData;
           });
-          
-          newPriceDataByDate[date] = priceData;
         });
         
-        setPriceDataByDate(newPriceDataByDate);
+        setPriceDataByStockAndDate(newPriceDataByStockAndDate);
         setIsDataReady(true);
 
       } catch (error) {
@@ -813,7 +838,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
     };
 
     fetchData();
-  }, [shouldFetchData, selectedStock, selectedDates, selectedBrokers, invFilter, boardFilter, showToast]);
+  }, [shouldFetchData, selectedStocks, selectedDates, selectedBrokers, invFilter, boardFilter, showToast]);
 
 
   const formatDisplayDate = (dateString: string): string => {
@@ -823,18 +848,19 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
 
 
 
-  const renderHorizontalSummaryView = () => {
-    console.log('Rendering summary view with:', {
-      selectedStock,
+  const renderHorizontalSummaryView = (stock: string) => {
+    const stockPriceDataByDate = priceDataByStockAndDate[stock] || {};
+    
+    console.log('Rendering summary view for stock:', stock, {
       selectedDates,
-      priceDataByDate,
-      priceDataByDateKeys: Object.keys(priceDataByDate)
+      stockPriceDataByDate,
+      stockPriceDataByDateKeys: Object.keys(stockPriceDataByDate)
     });
     
-    const allPrices = getAllUniquePrices(selectedStock, selectedDates, priceDataByDate);
+    const allPrices = getAllUniquePrices(stock, selectedDates, stockPriceDataByDate);
     console.log('All prices found:', allPrices);
     
-    const maxValues = findMaxValuesHorizontal(selectedStock, selectedDates, priceDataByDate);
+    const maxValues = findMaxValuesHorizontal(stock, selectedDates, stockPriceDataByDate);
     console.log('Max values:', maxValues);
     
     // Calculate column span based on showFrequency and showOrdColumns
@@ -847,13 +873,13 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
     const colSpan = baseCols + freqCols + ordCols;
     
     return (
-      <Card>
+      <Card key={stock}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ChevronDown className="w-5 h-5" />
             {selectedBrokers.length > 0 
-              ? `${selectedStock} - ${selectedBrokers.join(', ')}`
-              : selectedStock}
+              ? `${stock} - ${selectedBrokers.join(', ')}`
+              : stock}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -938,7 +964,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                   <tr key={price} className="hover:bg-accent/50">
                     {selectedDates.map((date, dateIndex) => {
                       // Get data for this specific date and price (only if exists in CSV for this date)
-                      const dateData = priceDataByDate[date] || [];
+                      const dateData = stockPriceDataByDate[date] || [];
                       const data = dateData.find(item => item.price === price) || null;
                       
                       // If no data for this price in this date, show empty cells
@@ -1059,27 +1085,27 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                     {/* Grand Total Column for each row */}
                     {(() => {
                       const totalBFreq = selectedDates.reduce((sum, date) => {
-                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                         return sum + (data?.bFreq || 0);
                       }, 0);
                       const totalSFreq = selectedDates.reduce((sum, date) => {
-                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                         return sum + (data?.sFreq || 0);
                       }, 0);
                       const totalBLot = selectedDates.reduce((sum, date) => {
-                          const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                          const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                           return sum + (data?.bLot || 0);
                       }, 0);
                       const totalSLot = selectedDates.reduce((sum, date) => {
-                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                         return sum + (data?.sLot || 0);
                       }, 0);
                       const totalBOrd = selectedDates.reduce((sum, date) => {
-                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                         return sum + (data?.bOrd || 0);
                       }, 0);
                       const totalSOrd = selectedDates.reduce((sum, date) => {
-                          const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                          const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                         return sum + (data?.sOrd || 0);
                       }, 0);
                       const totalBLotPerFreq = totalBFreq > 0 ? totalBLot / totalBFreq : 0;
@@ -1141,7 +1167,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                           {showFrequency && (
                             <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                               {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
-                                const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                                const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                                 return sum + (data?.tFreq || 0);
                               }, 0))}
                             </td>
@@ -1150,13 +1176,13 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                             <>
                               <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
-                                  const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                                  const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                                   return sum + (data?.tLot || 0);
                                 }, 0))}
                               </td>
                               <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
-                                  const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                                  const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                                   return sum + (data?.tOrd || 0);
                                 }, 0))}
                               </td>
@@ -1164,7 +1190,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                           ) : (
                             <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                               {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
-                                const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                                const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                                 return sum + (data?.tLot || 0);
                               }, 0))}
                             </td>
@@ -1178,7 +1204,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                 {/* Total Row */}
                 <tr className="border-t-2 border-white font-bold">
                   {selectedDates.map((date, dateIndex) => {
-                    const dateData = priceDataByDate[date] || [];
+                    const dateData = stockPriceDataByDate[date] || [];
                     const totals = calculateTotals(dateData);
                     return (
                       <React.Fragment key={date}>
@@ -1264,32 +1290,32 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                   {/* Grand Total Column */}
                   {(() => {
                     const grandTotalBFreq = selectedDates.reduce((sum, date) => {
-                      const dateData = priceDataByDate[date] || [];
+                      const dateData = stockPriceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.bFreq;
                     }, 0);
                     const grandTotalSFreq = selectedDates.reduce((sum, date) => {
-                      const dateData = priceDataByDate[date] || [];
+                      const dateData = stockPriceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.sFreq;
                     }, 0);
                     const grandTotalBLot = selectedDates.reduce((sum, date) => {
-                        const dateData = priceDataByDate[date] || [];
+                        const dateData = stockPriceDataByDate[date] || [];
                         const totals = calculateTotals(dateData);
                         return sum + totals.bLot;
                     }, 0);
                     const grandTotalSLot = selectedDates.reduce((sum, date) => {
-                      const dateData = priceDataByDate[date] || [];
+                      const dateData = stockPriceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.sLot;
                     }, 0);
                     const grandTotalBOrd = selectedDates.reduce((sum, date) => {
-                      const dateData = priceDataByDate[date] || [];
+                      const dateData = stockPriceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.bOrd;
                     }, 0);
                     const grandTotalSOrd = selectedDates.reduce((sum, date) => {
-                      const dateData = priceDataByDate[date] || [];
+                      const dateData = stockPriceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.sOrd;
                     }, 0);
@@ -1298,17 +1324,17 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                     const grandTotalBLotPerOrd = grandTotalBOrd > 0 ? grandTotalBLot / grandTotalBOrd : 0;
                     const grandTotalSLotPerOrd = grandTotalSOrd > 0 ? grandTotalSLot / grandTotalSOrd : 0;
                     const grandTotalTFreq = selectedDates.reduce((sum, date) => {
-                      const dateData = priceDataByDate[date] || [];
+                      const dateData = stockPriceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.tFreq;
                     }, 0);
                     const grandTotalTLot = selectedDates.reduce((sum, date) => {
-                      const dateData = priceDataByDate[date] || [];
+                      const dateData = stockPriceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.tLot;
                     }, 0);
                     const grandTotalTOrd = selectedDates.reduce((sum, date) => {
-                      const dateData = priceDataByDate[date] || [];
+                      const dateData = stockPriceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.tOrd;
                   }, 0);
@@ -1425,7 +1451,10 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                 onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
                 onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
                 onKeyDown={(e) => {
-                  const suggestions = (stockInput === '' ? availableStocks : filteredStocks).slice(0, 10);
+                  const availableSuggestions = stockInput === '' 
+                    ? STOCK_LIST.filter(s => !selectedStocks.includes(s))
+                    : filteredStocks.filter(s => !selectedStocks.includes(s));
+                  const suggestions = availableSuggestions.slice(0, 10);
                   if (!suggestions.length) return;
                   if (e.key === 'ArrowDown') {
                     e.preventDefault();
@@ -1443,88 +1472,114 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                     setHighlightedStockIndex(-1);
                   }
                 }}
-                placeholder="Enter stock code..."
-                className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
+                placeholder={selectedStocks.length > 0 ? (selectedStocks.length === 1 ? selectedStocks[0] : selectedStocks.join(' | ')) : "Enter stock code..."}
+                className={`w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedStocks.length > 0 ? 'placeholder:text-white' : ''}`}
                 role="combobox"
                 aria-expanded={showStockSuggestions}
                 aria-controls="stock-suggestions"
                 aria-autocomplete="list"
               />
               {showStockSuggestions && (
-                <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                  {stockInput === '' ? (
-                    <>
-                      <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                        Available Stocks ({STOCK_LIST.length})
-                      </div>
-                      {STOCK_LIST.slice(0, 20).map(stock => (
-                        <div
-                          key={stock}
-                          onClick={() => handleStockSelect(stock)}
-                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                        >
-                          {stock}
+                <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col">
+                  <>
+                    {/* Selected Items Section */}
+                    {selectedStocks.length > 0 && (
+                      <div className="border-b border-[#3a4252] overflow-y-auto" style={{ minHeight: '120px', maxHeight: `${Math.min(selectedStocks.length * 24 + 30, 250)}px` }}>
+                        <div className="px-3 py-1 text-xs text-muted-foreground sticky top-0 bg-popover flex items-center justify-between">
+                          <span>Selected ({selectedStocks.length})</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedStocks([]);
+                            }}
+                            className="text-xs text-destructive hover:text-destructive/80 font-medium"
+                          >
+                            Clear
+                          </button>
                         </div>
-                      ))}
-                      {STOCK_LIST.length > 20 && (
-                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-t border-[#3a4252]">
-                          ... and {STOCK_LIST.length - 20} more stocks
+                        {selectedStocks.map(stock => (
+                          <div
+                            key={`selected-stock-${stock}`}
+                            className="px-3 py-1 hover:bg-muted flex items-center justify-between min-h-[24px]"
+                          >
+                            <span className="text-sm text-primary">{stock}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemoveStock(stock);
+                              }}
+                              className="text-muted-foreground hover:text-destructive text-sm"
+                              aria-label={`Remove ${stock}`}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Search Results Section */}
+                    <div className="overflow-y-auto flex-1">
+                      {stockInput === '' ? (
+                        <>
+                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                            Available Stocks ({STOCK_LIST.filter(s => !selectedStocks.includes(s)).length})
+                          </div>
+                          {STOCK_LIST.filter(s => !selectedStocks.includes(s)).slice(0, 20).map((stock, idx) => (
+                            <div
+                              key={stock}
+                              onClick={() => handleStockSelect(stock)}
+                              className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedStockIndex ? 'bg-accent' : ''}`}
+                              onMouseEnter={() => setHighlightedStockIndex(idx)}
+                            >
+                              {stock}
+                            </div>
+                          ))}
+                          {STOCK_LIST.filter(s => !selectedStocks.includes(s)).length > 20 && (
+                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-t border-[#3a4252]">
+                              ... and {STOCK_LIST.filter(s => !selectedStocks.includes(s)).length - 20} more stocks
+                            </div>
+                          )}
+                        </>
+                      ) : filteredStocks.filter(s => !selectedStocks.includes(s)).length > 0 ? (
+                        <>
+                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                            {filteredStocks.filter(s => !selectedStocks.includes(s)).length} stocks found
+                          </div>
+                          {filteredStocks.filter(s => !selectedStocks.includes(s)).slice(0, 20).map((stock, idx) => (
+                            <div
+                              key={stock}
+                              onClick={() => handleStockSelect(stock)}
+                              className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedStockIndex ? 'bg-accent' : ''}`}
+                              onMouseEnter={() => setHighlightedStockIndex(idx)}
+                            >
+                              {stock}
+                            </div>
+                          ))}
+                          {filteredStocks.filter(s => !selectedStocks.includes(s)).length > 20 && (
+                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-t border-[#3a4252]">
+                              ... and {filteredStocks.filter(s => !selectedStocks.includes(s)).length - 20} more results
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
+                          No stocks found
                         </div>
                       )}
-                    </>
-                  ) : filteredStocks.length > 0 ? (
-                    <>
-                      <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                        {filteredStocks.length} stocks found
-                      </div>
-                      {filteredStocks.slice(0, 20).map(stock => (
-                        <div
-                          key={stock}
-                          onClick={() => handleStockSelect(stock)}
-                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                        >
-                          {stock}
-                        </div>
-                      ))}
-                      {filteredStocks.length > 20 && (
-                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-t border-[#3a4252]">
-                          ... and {filteredStocks.length - 20} more results
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                      No stocks found
                     </div>
-                  )}
+                  </>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Broker Selection - Multi-select with chips */}
+          {/* Broker Selection - Multi-select with dropdown only */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-              {/* Selected Broker Chips */}
-              {selectedBrokers.map(broker => (
-                <div
-                  key={broker}
-                  className="flex items-center gap-1 px-2 h-9 bg-primary/20 text-primary rounded-md text-sm"
-                >
-                  <span>{broker}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveBroker(broker)}
-                    className="hover:bg-primary/30 rounded px-1"
-                    aria-label={`Remove ${broker}`}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              {/* Broker Input */}
-              <div className="relative flex-1 md:flex-none" ref={dropdownBrokerRef}>
+            <div className="relative flex-1 md:flex-none" ref={dropdownBrokerRef}>
+                <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                 <input
                   type="text"
                   value={brokerInput}
@@ -1560,68 +1615,112 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                       setHighlightedBrokerIndex(-1);
                     }
                   }}
-                  placeholder="Add broker"
-                  className="w-full md:w-32 h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground"
+                  placeholder={selectedBrokers.length > 0 ? (selectedBrokers.length === 1 ? selectedBrokers[0] : selectedBrokers.join(' | ')) : "Add broker"}
+                  className={`w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedBrokers.length > 0 ? 'placeholder:text-white' : ''}`}
                   role="combobox"
                   aria-expanded={showBrokerSuggestions}
                   aria-controls="broker-suggestions"
                   aria-autocomplete="list"
                 />
                 {showBrokerSuggestions && (
-                  <div id="broker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                  <div id="broker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col">
                     {availableBrokers.length === 0 ? (
                       <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                         <Loader2 className="w-4 h-4 animate-spin mr-2" />
                         Loading brokers...
                       </div>
-                    ) : brokerInput === '' ? (
+                    ) : (
                       <>
-                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                          Available Brokers ({availableBrokers.filter(b => !selectedBrokers.includes(b)).length})
-                        </div>
-                        {availableBrokers.filter(b => !selectedBrokers.includes(b)).map(broker => (
-                          <div
-                            key={broker}
-                            onClick={() => handleBrokerSelect(broker)}
-                            className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                          >
-                            {broker}
-                          </div>
-                        ))}
-                      </>
-                    ) : (() => {
-                      const filteredBrokers = availableBrokers.filter(b => 
-                        b.toLowerCase().includes(brokerInput.toLowerCase()) && 
-                        !selectedBrokers.includes(b)
-                      );
-                      return (
-                        <>
-                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                            {filteredBrokers.length} broker(s) found
-                          </div>
-                          {filteredBrokers.length > 0 ? (
-                            filteredBrokers.map((broker, idx) => (
-                              <div
-                                key={broker}
-                                onClick={() => handleBrokerSelect(broker)}
-                                className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedBrokerIndex ? 'bg-accent' : ''}`}
-                                onMouseEnter={() => setHighlightedBrokerIndex(idx)}
+                        {/* Selected Items Section */}
+                        {selectedBrokers.length > 0 && (
+                          <div className="border-b border-[#3a4252] overflow-y-auto" style={{ minHeight: '120px', maxHeight: `${Math.min(selectedBrokers.length * 24 + 30, 250)}px` }}>
+                            <div className="px-3 py-1 text-xs text-muted-foreground sticky top-0 bg-popover flex items-center justify-between">
+                              <span>Selected ({selectedBrokers.length})</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedBrokers([]);
+                                }}
+                                className="text-xs text-destructive hover:text-destructive/80 font-medium"
                               >
-                                {broker}
-                              </div>
-                            ))
-                          ) : (
-                            <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                              No brokers found
+                                Clear
+                              </button>
                             </div>
-                          )}
-                        </>
-                      );
-                    })()}
+                            {selectedBrokers.map(broker => (
+                              <div
+                                key={`selected-broker-${broker}`}
+                                className="px-3 py-1 hover:bg-muted flex items-center justify-between min-h-[24px]"
+                              >
+                                <span className="text-sm text-primary">{broker}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveBroker(broker);
+                                  }}
+                                  className="text-muted-foreground hover:text-destructive text-sm"
+                                  aria-label={`Remove ${broker}`}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Search Results Section */}
+                        <div className="overflow-y-auto flex-1">
+                          {brokerInput === '' ? (
+                            <>
+                              <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                Available Brokers ({availableBrokers.filter(b => !selectedBrokers.includes(b)).length})
+                              </div>
+                              {availableBrokers.filter(b => !selectedBrokers.includes(b)).map((broker, idx) => (
+                                <div
+                                  key={broker}
+                                  onClick={() => handleBrokerSelect(broker)}
+                                  className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedBrokerIndex ? 'bg-accent' : ''}`}
+                                  onMouseEnter={() => setHighlightedBrokerIndex(idx)}
+                                >
+                                  {broker}
+                                </div>
+                              ))}
+                            </>
+                          ) : (() => {
+                            const filteredBrokers = availableBrokers.filter(b => 
+                              b.toLowerCase().includes(brokerInput.toLowerCase()) && 
+                              !selectedBrokers.includes(b)
+                            );
+                            return (
+                              <>
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                  {filteredBrokers.length} broker(s) found
+                                </div>
+                                {filteredBrokers.length > 0 ? (
+                                  filteredBrokers.map((broker, idx) => (
+                                    <div
+                                      key={broker}
+                                      onClick={() => handleBrokerSelect(broker)}
+                                      className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedBrokerIndex ? 'bg-accent' : ''}`}
+                                      onMouseEnter={() => setHighlightedBrokerIndex(idx)}
+                                    >
+                                      {broker}
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
+                                    No brokers found
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
-            </div>
           </div>
 
           {/* Date Range */}
@@ -1659,7 +1758,8 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-3">
+                <div className="flex items-center gap-2 h-full px-3">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm text-foreground">
                     {startDate ? new Date(startDate).toLocaleDateString('en-GB', { 
                       day: '2-digit', 
@@ -1667,7 +1767,6 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                       year: 'numeric' 
                     }) : 'DD/MM/YYYY'}
                   </span>
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
               <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
@@ -1703,7 +1802,8 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-3">
+                <div className="flex items-center gap-2 h-full px-3">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm text-foreground">
                     {endDate ? new Date(endDate).toLocaleDateString('en-GB', { 
                       day: '2-digit', 
@@ -1711,7 +1811,6 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                       year: 'numeric' 
                     }) : 'DD/MM/YYYY'}
                   </span>
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
             </div>
@@ -1814,13 +1913,13 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
               setSelectedDates(datesToUse);
               
               // Clear existing data before fetching new data
-              setPriceDataByDate({});
+              setPriceDataByStockAndDate({});
               setIsDataReady(false);
               
               // Trigger fetch
               setShouldFetchData(true);
             }}
-            disabled={loading || !selectedStock || !startDate || !endDate}
+            disabled={loading || selectedStocks.length === 0 || !startDate || !endDate}
             className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
           >
             Show
@@ -1849,8 +1948,8 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
       )}
 
       {/* Main Data Display */}
-      <div className="pt-2">
-        {!loading && !error && isDataReady && renderHorizontalSummaryView()}
+      <div className="pt-2 space-y-6">
+        {!loading && !error && isDataReady && selectedStocks.map(stock => renderHorizontalSummaryView(stock))}
       </div>
     </div>
   );
