@@ -2244,5 +2244,119 @@ router.get('/scheduler/status', requireDeveloper, async (_req, res) => {
   }
 });
 
+/**
+ * GET /api/developer/test-ticmi-index
+ * Test TICMI API for index data (e.g., IDXBASIC)
+ * Query params: indexCode (default: IDXBASIC), startDate, endDate
+ */
+router.get('/test-ticmi-index', requireDeveloper, async (req, res) => {
+  try {
+    const { indexCode = 'IDXBASIC', startDate, endDate } = req.query;
+    
+    // Calculate date range (7 days ago to today if not provided)
+    const today = new Date();
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const endDateStr = endDate ? String(endDate) : today.toISOString().split('T')[0];
+    const startDateStr = startDate ? String(startDate) : sevenDaysAgo.toISOString().split('T')[0];
+    
+    const jwtToken = process.env['TICMI_JWT_TOKEN'] || '';
+    const baseUrl = `${process.env['TICMI_API_BASE_URL'] || ''}/dp/ix/`;
+    
+    if (!jwtToken || !baseUrl || baseUrl === '/dp/ix/') {
+      return res.status(400).json(createErrorResponse(
+        'TICMI API configuration missing. Check TICMI_JWT_TOKEN and TICMI_API_BASE_URL environment variables.',
+        'MISSING_CONFIG',
+        undefined,
+        400
+      ));
+    }
+    
+    console.log(`🧪 Testing TICMI API for index: ${indexCode}`);
+    console.log(`🧪 Base URL: ${baseUrl}`);
+    console.log(`🧪 Date range: ${startDateStr} to ${endDateStr}`);
+    
+    // Import OptimizedHttpClient
+    const { OptimizedHttpClient } = await import('../services/dataUpdateService');
+    const httpClient = new OptimizedHttpClient(baseUrl, jwtToken);
+    
+    const params = {
+      indexCode: String(indexCode),
+      startDate: startDateStr,
+      endDate: endDateStr,
+      granularity: "daily",
+    };
+    
+    console.log(`🧪 Request params:`, params);
+    
+    let response;
+    let errorDetails: any = null;
+    
+    try {
+      response = await httpClient.get('', params);
+      console.log(`✅ TICMI API Response Status: ${response.status}`);
+      console.log(`✅ TICMI API Response Data:`, JSON.stringify(response.data, null, 2).substring(0, 1000));
+    } catch (error: any) {
+      errorDetails = {
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        code: error.code,
+      };
+      console.error(`❌ TICMI API Error:`, errorDetails);
+    }
+    
+    if (errorDetails) {
+      return res.status(errorDetails.status || 500).json(createErrorResponse(
+        `TICMI API request failed: ${errorDetails.message}`,
+        'TICMI_API_ERROR',
+        {
+          indexCode,
+          params,
+          error: errorDetails,
+          config: {
+            baseUrl,
+            hasToken: !!jwtToken,
+            tokenLength: jwtToken.length
+          }
+        },
+        errorDetails.status || 500
+      ));
+    }
+    
+    const payload = response.data;
+    const data = payload?.data || payload;
+    
+    return res.json(createSuccessResponse({
+      indexCode,
+      params,
+      response: {
+        status: response.status,
+        statusText: response.statusText,
+        data: data,
+        dataType: Array.isArray(data) ? 'array' : typeof data,
+        dataLength: Array.isArray(data) ? data.length : (data ? 1 : 0),
+        sampleData: Array.isArray(data) ? data.slice(0, 3) : (data ? [data] : []),
+      },
+      config: {
+        baseUrl,
+        hasToken: !!jwtToken,
+        tokenLength: jwtToken.length
+      }
+    }, `TICMI API test for ${indexCode} completed`));
+    
+  } catch (error) {
+    console.error('Test TICMI index error:', error);
+    return res.status(500).json(createErrorResponse(
+      `Test failed: ${error instanceof Error ? error.message : String(error)}`,
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
 export default router;
 
