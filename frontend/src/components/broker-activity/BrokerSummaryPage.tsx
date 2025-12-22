@@ -45,6 +45,39 @@ const GOVERNMENT_BROKERS = ['CC', 'NI', 'OD', 'DX'];
 // Minimum date that can be selected: 19/09/2025
 const MIN_DATE = '2025-09-19';
 
+// LocalStorage key for user preferences
+const PREFERENCES_STORAGE_KEY = 'broker_summary_user_preferences';
+
+// Interface for user preferences
+interface UserPreferences {
+  selectedTickers: string[];
+  fdFilter: 'All' | 'Foreign' | 'Domestic';
+  marketFilter: 'RG' | 'TN' | 'NG' | '';
+  startDate?: string;
+  endDate?: string;
+}
+
+// Utility functions for saving/loading preferences
+const loadPreferences = (): Partial<UserPreferences> | null => {
+  try {
+    const stored = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+    if (stored) {
+      return JSON.parse(stored) as UserPreferences;
+    }
+  } catch (error) {
+    console.warn('Failed to load user preferences:', error);
+  }
+  return null;
+};
+
+const savePreferences = (prefs: Partial<UserPreferences>) => {
+  try {
+    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
+  } catch (error) {
+    console.warn('Failed to save user preferences:', error);
+  }
+};
+
 const formatNumber = (value: number): string => {
   const absValue = Math.abs(value);
   const sign = value < 0 ? '-' : '';
@@ -99,16 +132,55 @@ interface BrokerSummaryPageProps {
 
 export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSummaryPageProps) {
   const { showToast } = useToast();
+  
+  // Load preferences from localStorage on mount
+  const savedPrefs = loadPreferences();
+  
   // Default dates will be set from API (maxAvailableDate useEffect)
   // Using empty initial state - will be populated from API
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
-  const [selectedTickers, setSelectedTickers] = useState<string[]>(propSelectedStock ? [propSelectedStock] : ['BBCA']);
+  const [startDate, setStartDate] = useState<string>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.startDate) {
+      return savedPrefs.startDate;
+    }
+    // Fallback to empty (will be set from API)
+    return '';
+  });
+  const [endDate, setEndDate] = useState<string>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.endDate) {
+      return savedPrefs.endDate;
+    }
+    // Fallback to empty (will be set from API)
+    return '';
+  });
+  const [selectedTickers, setSelectedTickers] = useState<string[]>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.selectedTickers && savedPrefs.selectedTickers.length > 0) {
+      return savedPrefs.selectedTickers;
+    }
+    // Fallback to prop or default
+    return propSelectedStock ? [propSelectedStock] : ['BBCA'];
+  });
   const [tickerInput, setTickerInput] = useState<string>('');
-  const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Temporary filter (can be changed before Show button clicked)
+  const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.fdFilter) {
+      return savedPrefs.fdFilter;
+    }
+    // Fallback to default
+    return 'All';
+  }); // Temporary filter (can be changed before Show button clicked)
   const [displayedFdFilter, setDisplayedFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Actual filter used for data display (updated when Show button clicked)
-  const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG
+  const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.marketFilter) {
+      return savedPrefs.marketFilter;
+    }
+    // Fallback to default
+    return 'RG';
+  }); // Default to RG
   const [displayedTickers, setDisplayedTickers] = useState<string[]>(propSelectedStock ? [propSelectedStock] : ['BBCA']); // Tickers displayed in header (updated when Show button clicked)
   const [displayedMarket, setDisplayedMarket] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Market/Board displayed in header (updated when Show button clicked)
   
@@ -298,9 +370,47 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           // Set semua state sekaligus
           // NO auto-fetch - user must click Show button to fetch data
           setMaxAvailableDate(formattedDate);
-          setSelectedDates(lastThreeDates);
-          setStartDate(lastThreeDates[0]);
-          setEndDate(lastThreeDates[lastThreeDates.length - 1]);
+          
+          // Only set dates if no preferences exist (don't overwrite saved preferences)
+          if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
+            setSelectedDates(lastThreeDates);
+            setStartDate(lastThreeDates[0]);
+            setEndDate(lastThreeDates[lastThreeDates.length - 1]);
+          } else {
+            // Use saved dates and generate selectedDates from them
+            const savedStart = savedPrefs.startDate;
+            const savedEnd = savedPrefs.endDate;
+            
+            // Generate trading days between saved dates
+            const startParts = savedStart.split('-').map(Number);
+            const endParts = savedEnd.split('-').map(Number);
+            
+            if (startParts.length === 3 && endParts.length === 3) {
+              const start = new Date(startParts[0], startParts[1] - 1, startParts[2]);
+              const end = new Date(endParts[0], endParts[1] - 1, endParts[2]);
+              
+              if (start <= end) {
+                const dateArray: string[] = [];
+                const currentDate = new Date(start);
+                
+                while (currentDate <= end) {
+                  const dayOfWeek = currentDate.getDay();
+                  // Skip weekends
+                  if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                    const year = currentDate.getFullYear();
+                    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                    const day = String(currentDate.getDate()).padStart(2, '0');
+                    const dateString = `${year}-${month}-${day}`;
+                    dateArray.push(dateString);
+                  }
+                  currentDate.setDate(currentDate.getDate() + 1);
+                }
+                
+                const datesToUse = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+                setSelectedDates(datesToUse);
+              }
+            }
+          }
         } else {
           console.warn('[BrokerSummary] No dates available from API', result);
           // Show error toast
@@ -325,9 +435,94 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     loadMaxDate();
   }, []); // IMPORTANT: Empty dependency array - only run once on mount
   
-  // REMOVED: Auto-fetch effect - now triggered directly from loadMaxDate after all states are set
-  // This ensures no re-runs when user changes dates (which would trigger auto-fetch again)
-  // Initial auto-fetch is now handled directly in loadMaxDate useEffect
+  // Save preferences to localStorage with debounce to reduce write operations
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      const preferences: Partial<UserPreferences> = {
+        selectedTickers,
+        fdFilter,
+        marketFilter,
+      };
+      // Only include dates if they have values
+      if (startDate) {
+        preferences.startDate = startDate;
+      }
+      if (endDate) {
+        preferences.endDate = endDate;
+      }
+      savePreferences(preferences);
+    }, 500); // Debounce 500ms to reduce localStorage writes
+    
+    return () => clearTimeout(timeout);
+  }, [selectedTickers, fdFilter, marketFilter, startDate, endDate]);
+  
+  // Auto-load data from saved preferences on mount (after initial data is loaded)
+  useEffect(() => {
+    // Only auto-load if we have saved preferences with dates
+    if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
+      return; // No saved preferences, don't auto-load
+    }
+    
+    const savedStartDate = savedPrefs.startDate;
+    const savedEndDate = savedPrefs.endDate;
+    
+    // Wait a bit to ensure initial data (stocks, dates) are loaded
+    const timer = setTimeout(() => {
+      // Generate date array from saved startDate and endDate (only trading days)
+      const startParts = savedStartDate.split('-').map(Number);
+      const endParts = savedEndDate.split('-').map(Number);
+      
+      if (startParts.length === 3 && endParts.length === 3) {
+        const startYear = startParts[0];
+        const startMonth = startParts[1];
+        const startDay = startParts[2];
+        const endYear = endParts[0];
+        const endMonth = endParts[1];
+        const endDay = endParts[2];
+        
+        if (startYear !== undefined && startMonth !== undefined && startDay !== undefined &&
+            endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
+          const start = new Date(startYear, startMonth - 1, startDay);
+          const end = new Date(endYear, endMonth - 1, endDay);
+          
+          // Check if range is valid
+          if (start <= end) {
+            // Generate date array (only trading days)
+            const dateArray: string[] = [];
+            const currentDate = new Date(start);
+            
+            while (currentDate <= end) {
+              const dayOfWeek = currentDate.getDay();
+              // Skip weekends (Saturday = 6, Sunday = 0)
+              if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                // Format as YYYY-MM-DD in local timezone
+                const year = currentDate.getFullYear();
+                const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                const day = String(currentDate.getDate()).padStart(2, '0');
+                const dateString = `${year}-${month}-${day}`;
+                dateArray.push(dateString);
+              }
+              // Move to next day
+              currentDate.setDate(currentDate.getDate() + 1);
+            }
+            
+            // Sort by date (oldest first) for display
+            const datesToUse = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+            
+            // Update selectedDates
+            setSelectedDates(datesToUse);
+            
+            // Trigger auto-load by setting shouldFetchData to true
+            // Use ref first (synchronous), then state (async)
+            shouldFetchDataRef.current = true;
+            setShouldFetchData(true);
+          }
+        }
+      }
+    }, 500); // Small delay to ensure initial data is loaded
+    
+    return () => clearTimeout(timer);
+  }, []); // Only run once on mount
 
   // Update selectedTickers when prop changes
   useEffect(() => {

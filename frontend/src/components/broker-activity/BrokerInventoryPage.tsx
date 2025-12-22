@@ -114,6 +114,45 @@ const formatLotNumber = (value: number): string => {
 
 // Removed generateTopBrokersData - now using real data from API
 
+// LocalStorage key for user preferences
+const PREFERENCES_STORAGE_KEY = 'broker_inventory_user_preferences';
+
+// Interface for user preferences
+interface UserPreferences {
+  selectedTicker: string;
+  selectedBrokers: string[];
+  fdFilter: 'All' | 'Foreign' | 'Domestic';
+  marketFilter: 'RG' | 'TN' | 'NG' | '';
+  brokerSelectionMode: {
+    top5buy: boolean;
+    top5sell: boolean;
+    custom: boolean;
+  };
+  startDate?: string;
+  endDate?: string;
+}
+
+// Utility functions for saving/loading preferences
+const loadPreferences = (): Partial<UserPreferences> | null => {
+  try {
+    const stored = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+    if (stored) {
+      return JSON.parse(stored) as UserPreferences;
+    }
+  } catch (error) {
+    console.warn('Failed to load user preferences:', error);
+  }
+  return null;
+};
+
+const savePreferences = (prefs: Partial<UserPreferences>) => {
+  try {
+    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
+  } catch (error) {
+    console.warn('Failed to save user preferences:', error);
+  }
+};
+
 
 const BrokerLegend = ({
   title,
@@ -1305,18 +1344,47 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
 }) {
   const { showToast } = useToast();
   
+  // Load preferences from localStorage on mount
+  const savedPrefs = loadPreferences();
+  
   // State management
   // Always default to BBCA if no propSelectedStock or if it's empty
   const [selectedTicker, setSelectedTicker] = useState<string>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.selectedTicker) {
+      return savedPrefs.selectedTicker;
+    }
+    // Fallback to prop or default
     return propSelectedStock && propSelectedStock.trim() !== '' ? propSelectedStock : 'BBCA';
   });
   // Displayed ticker - only changes when new data is successfully loaded (after Show button clicked)
   const [displayedTicker, setDisplayedTicker] = useState<string>(() => {
     return propSelectedStock && propSelectedStock.trim() !== '' ? propSelectedStock : 'BBCA';
   });
-  const [selectedBrokers, setSelectedBrokers] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
+  const [selectedBrokers, setSelectedBrokers] = useState<string[]>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.selectedBrokers && savedPrefs.selectedBrokers.length > 0) {
+      return savedPrefs.selectedBrokers;
+    }
+    // Fallback to empty
+    return [];
+  });
+  const [startDate, setStartDate] = useState<string>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.startDate) {
+      return savedPrefs.startDate;
+    }
+    // Fallback to empty (will be set from API)
+    return '';
+  });
+  const [endDate, setEndDate] = useState<string>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.endDate) {
+      return savedPrefs.endDate;
+    }
+    // Fallback to empty (will be set from API)
+    return '';
+  });
   const [brokerSearch, setBrokerSearch] = useState('');
   const [debouncedBrokerSearch, setDebouncedBrokerSearch] = useState('');
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
@@ -1325,7 +1393,14 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     top5buy: boolean;
     top5sell: boolean;
     custom: boolean;
-  }>({ top5buy: false, top5sell: false, custom: false });
+  }>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.brokerSelectionMode) {
+      return savedPrefs.brokerSelectionMode;
+    }
+    // Fallback to default
+    return { top5buy: false, top5sell: false, custom: false };
+  });
   const [tickerInput, setTickerInput] = useState<string>('');
   const [debouncedTickerInput, setDebouncedTickerInput] = useState<string>('');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
@@ -1521,6 +1596,93 @@ const visibleBrokers = useMemo(
       setSelectedTicker('BBCA');
     }
   }, [selectedTicker]);
+  
+  // Save preferences to localStorage with debounce to reduce write operations
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      const preferences: Partial<UserPreferences> = {
+        selectedTicker,
+        selectedBrokers,
+        fdFilter,
+        marketFilter,
+        brokerSelectionMode,
+      };
+      // Only include dates if they have values
+      if (startDate) {
+        preferences.startDate = startDate;
+      }
+      if (endDate) {
+        preferences.endDate = endDate;
+      }
+      savePreferences(preferences);
+    }, 500); // Debounce 500ms to reduce localStorage writes
+    
+    return () => clearTimeout(timeout);
+  }, [selectedTicker, selectedBrokers, fdFilter, marketFilter, brokerSelectionMode, startDate, endDate]);
+  
+  // Auto-load data from saved preferences on mount (after initial data is loaded)
+  useEffect(() => {
+    // Only auto-load if we have saved preferences with dates
+    if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
+      return; // No saved preferences, don't auto-load
+    }
+    
+    const savedStartDate = savedPrefs.startDate;
+    const savedEndDate = savedPrefs.endDate;
+    
+    // Wait a bit to ensure initial data (stocks, dates) are loaded
+    const timer = setTimeout(() => {
+      // Generate date array from saved startDate and endDate (only trading days)
+      const startParts = savedStartDate.split('-').map(Number);
+      const endParts = savedEndDate.split('-').map(Number);
+      
+      if (startParts.length === 3 && endParts.length === 3) {
+        const startYear = startParts[0];
+        const startMonth = startParts[1];
+        const startDay = startParts[2];
+        const endYear = endParts[0];
+        const endMonth = endParts[1];
+        const endDay = endParts[2];
+        
+        if (startYear !== undefined && startMonth !== undefined && startDay !== undefined &&
+            endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
+          const start = new Date(startYear, startMonth - 1, startDay);
+          const end = new Date(endYear, endMonth - 1, endDay);
+          
+          // Check if range is valid
+          if (start <= end) {
+            // Generate date array (only trading days)
+            const dateArray: string[] = [];
+            const currentDate = new Date(start);
+            
+            while (currentDate <= end) {
+              const dayOfWeek = currentDate.getDay();
+              // Skip weekends (Saturday = 6, Sunday = 0)
+              if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                // Format as YYYY-MM-DD in local timezone
+                const year = currentDate.getFullYear();
+                const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                const day = String(currentDate.getDate()).padStart(2, '0');
+                const dateString = `${year}-${month}-${day}`;
+                dateArray.push(dateString);
+              }
+              // Move to next day
+              currentDate.setDate(currentDate.getDate() + 1);
+            }
+            
+            // Sort by date (oldest first) for display
+            const datesToUse = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+            
+            // Trigger auto-load by setting shouldFetchData to true
+            // Use ref if available, otherwise use state directly
+            setShouldFetchData(true);
+          }
+        }
+      }
+    }, 500); // Small delay to ensure initial data is loaded
+    
+    return () => clearTimeout(timer);
+  }, []); // Only run once on mount
 
   // Track previous ticker to detect changes
   const prevTickerForAutoFetchRef = useRef<string>('');
@@ -1683,20 +1845,43 @@ const visibleBrokers = useMemo(
         
         if (latestDate) {
           // Set end date to latest date
-          setEndDate(latestDate);
-          
-          // Set start date to 1 month before latest date
-          const latest = new Date(latestDate);
-          const oneMonthAgo = new Date(latest);
-          oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-          const startDateStr = oneMonthAgo.toISOString().split('T')[0];
-          if (startDateStr) {
-            setStartDate(startDateStr);
+          // Only set dates if no preferences exist (don't overwrite saved preferences)
+          if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
+            setEndDate(latestDate);
+            
+            // Set start date to 1 month before latest date
+            const latest = new Date(latestDate);
+            const oneMonthAgo = new Date(latest);
+            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+            const startDateStr = oneMonthAgo.toISOString().split('T')[0];
+            if (startDateStr) {
+              setStartDate(startDateStr);
+            }
+            
+            console.log(`📊 Default date range set for ${actualTicker}: ${startDateStr} to ${latestDate}`);
+          } else {
+            console.log(`📊 Using saved preferences for dates: ${savedPrefs.startDate} to ${savedPrefs.endDate}`);
           }
-          
-          console.log(`📊 Default date range set for ${actualTicker}: ${startDateStr} to ${latestDate}`);
         } else {
           // Fallback: use today if latest date not available
+          // Only set dates if no preferences exist (don't overwrite saved preferences)
+          if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
+            const today = new Date();
+            const oneMonthAgo = new Date(today);
+            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+            const todayStr = today.toISOString().split('T')[0];
+            const oneMonthAgoStr = oneMonthAgo.toISOString().split('T')[0];
+            if (todayStr) setEndDate(todayStr);
+            if (oneMonthAgoStr) setStartDate(oneMonthAgoStr);
+            console.log(`📊 Using fallback date range for ${actualTicker}`);
+          }
+        }
+        
+      } catch (error) {
+        console.error(`Error loading latest date for ${actualTicker}:`, error);
+        // Fallback to current date
+        // Only set dates if no preferences exist (don't overwrite saved preferences)
+        if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
           const today = new Date();
           const oneMonthAgo = new Date(today);
           oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
@@ -1704,19 +1889,7 @@ const visibleBrokers = useMemo(
           const oneMonthAgoStr = oneMonthAgo.toISOString().split('T')[0];
           if (todayStr) setEndDate(todayStr);
           if (oneMonthAgoStr) setStartDate(oneMonthAgoStr);
-          console.log(`📊 Using fallback date range for ${actualTicker}`);
         }
-        
-      } catch (error) {
-        console.error(`Error loading latest date for ${actualTicker}:`, error);
-        // Fallback to current date
-        const today = new Date();
-        const oneMonthAgo = new Date(today);
-        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-        const todayStr = today.toISOString().split('T')[0];
-        const oneMonthAgoStr = oneMonthAgo.toISOString().split('T')[0];
-        if (todayStr) setEndDate(todayStr);
-        if (oneMonthAgoStr) setStartDate(oneMonthAgoStr);
       } finally {
         console.log(`[BrokerInventory] Finished loading latest date for ticker: ${actualTicker}`);
       }

@@ -77,9 +77,44 @@ const formatDisplayDate = (dateString: string): string => {
   return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
 };
 
+// LocalStorage key for user preferences
+const PREFERENCES_STORAGE_KEY = 'stock_transaction_done_detail_user_preferences';
+
+// Interface for user preferences
+interface UserPreferences {
+  selectedStock: string;
+  pivotMode: string;
+  itemsPerPage: number;
+  startDate?: string;
+  endDate?: string;
+}
+
+// Utility functions for saving/loading preferences
+const loadPreferences = (): Partial<UserPreferences> | null => {
+  try {
+    const stored = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+    if (stored) {
+      return JSON.parse(stored) as UserPreferences;
+    }
+  } catch (error) {
+    console.warn('Failed to load user preferences:', error);
+  }
+  return null;
+};
+
+const savePreferences = (prefs: Partial<UserPreferences>) => {
+  try {
+    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
+  } catch (error) {
+    console.warn('Failed to save user preferences:', error);
+  }
+};
 
 export function StockTransactionDoneDetail() {
   const { showToast } = useToast();
+  
+  // Load preferences from localStorage on mount
+  const savedPrefs = loadPreferences();
   
   // Helper function to get previous business day (skip weekends)
   const getPreviousBusinessDay = (): string => {
@@ -104,10 +139,38 @@ export function StockTransactionDoneDetail() {
   
   // Set default date - will be updated when user selects dates
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState(defaultDate);
-  const [endDate, setEndDate] = useState(defaultDate);
-  const [selectedStock, setSelectedStock] = useState('PTRO');
-  const [stockInput, setStockInput] = useState('PTRO');
+  const [startDate, setStartDate] = useState(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.startDate) {
+      return savedPrefs.startDate;
+    }
+    // Fallback to default
+    return defaultDate;
+  });
+  const [endDate, setEndDate] = useState(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.endDate) {
+      return savedPrefs.endDate;
+    }
+    // Fallback to default
+    return defaultDate;
+  });
+  const [selectedStock, setSelectedStock] = useState(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.selectedStock) {
+      return savedPrefs.selectedStock;
+    }
+    // Fallback to default
+    return 'PTRO';
+  });
+  const [stockInput, setStockInput] = useState(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.selectedStock) {
+      return savedPrefs.selectedStock;
+    }
+    // Fallback to default
+    return 'PTRO';
+  });
   
   // Real data state
   const [_availableStocks] = useState<string[]>(STOCK_LIST);
@@ -126,8 +189,22 @@ export function StockTransactionDoneDetail() {
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(100); // Limit to 100 items per page
-  const [pivotMode, setPivotMode] = useState<string>('custom');
+  const [itemsPerPage, setItemsPerPage] = useState(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.itemsPerPage) {
+      return savedPrefs.itemsPerPage;
+    }
+    // Fallback to default
+    return 100;
+  }); // Limit to 100 items per page
+  const [pivotMode, setPivotMode] = useState<string>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.pivotMode) {
+      return savedPrefs.pivotMode;
+    }
+    // Fallback to default
+    return 'custom';
+  });
   const dropdownRef = useRef<HTMLDivElement>(null);
   // const [infoOpen, setInfoOpen] = useState(false); // collapsible info, default minimized (currently unused)
 
@@ -289,6 +366,95 @@ export function StockTransactionDoneDetail() {
     fetchData();
   }, [selectedStock, selectedDates, showToast]);
 
+  // Save preferences to localStorage with debounce to reduce write operations
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      const preferences: Partial<UserPreferences> = {
+        selectedStock,
+        pivotMode,
+        itemsPerPage,
+      };
+      // Only include dates if they have values
+      if (startDate) {
+        preferences.startDate = startDate;
+      }
+      if (endDate) {
+        preferences.endDate = endDate;
+      }
+      savePreferences(preferences);
+    }, 500); // Debounce 500ms to reduce localStorage writes
+    
+    return () => clearTimeout(timeout);
+  }, [selectedStock, pivotMode, itemsPerPage, startDate, endDate]);
+  
+  // Auto-load data from saved preferences on mount (after initial data is loaded)
+  useEffect(() => {
+    // Only auto-load if we have saved preferences with dates
+    if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
+      return; // No saved preferences, don't auto-load
+    }
+    
+    const savedStartDate = savedPrefs.startDate;
+    const savedEndDate = savedPrefs.endDate;
+    
+    // Wait a bit to ensure initial data is loaded
+    const timer = setTimeout(() => {
+      // Generate date array from saved startDate and endDate (only trading days)
+      const startParts = savedStartDate.split('-').map(Number);
+      const endParts = savedEndDate.split('-').map(Number);
+      
+      if (startParts.length === 3 && endParts.length === 3) {
+        const startYear = startParts[0];
+        const startMonth = startParts[1];
+        const startDay = startParts[2];
+        const endYear = endParts[0];
+        const endMonth = endParts[1];
+        const endDay = endParts[2];
+        
+        if (startYear !== undefined && startMonth !== undefined && startDay !== undefined &&
+            endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
+          const start = new Date(startYear, startMonth - 1, startDay);
+          const end = new Date(endYear, endMonth - 1, endDay);
+          
+          // Check if range is valid
+          if (start <= end) {
+            // Generate date array (only trading days)
+            const dateArray: string[] = [];
+            const currentDate = new Date(start);
+            
+            while (currentDate <= end) {
+              const dayOfWeek = currentDate.getDay();
+              // Skip weekends (Saturday = 6, Sunday = 0)
+              if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                // Format as YYYY-MM-DD in local timezone
+                const year = currentDate.getFullYear();
+                const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                const day = String(currentDate.getDate()).padStart(2, '0');
+                const dateString = `${year}-${month}-${day}`;
+                dateArray.push(dateString);
+              }
+              // Move to next day
+              currentDate.setDate(currentDate.getDate() + 1);
+            }
+            
+            // Sort by date (oldest first) for display
+            const datesToUse = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+            
+            // Check if total trading dates exceed 7
+            if (datesToUse.length > 7) {
+              console.warn('Saved preferences have more than 7 trading days, skipping auto-load');
+              return;
+            }
+            
+            // Update selectedDates to trigger auto-load
+            setSelectedDates(datesToUse);
+          }
+        }
+      }
+    }, 500); // Small delay to ensure initial data is loaded
+    
+    return () => clearTimeout(timer);
+  }, []); // Only run once on mount
 
   // Handle click outside to close dropdowns
   useEffect(() => {
