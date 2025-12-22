@@ -299,14 +299,61 @@ const getLastThreeTradingDays = (): string[] => {
   return getTradingDays(3);
 };
 
+// LocalStorage key for user preferences
+const PREFERENCES_STORAGE_KEY = 'stock_transaction_done_summary_user_preferences';
+
+// Interface for user preferences
+interface UserPreferences {
+  selectedStock: string;
+  selectedBrokers: string[];
+  invFilter: 'F' | 'D' | '';
+  boardFilter: 'RG' | 'TN' | 'NG' | '';
+  showFrequency: boolean;
+  showOrdColumns: boolean;
+  startDate?: string;
+  endDate?: string;
+}
+
+// Utility functions for saving/loading preferences
+const loadPreferences = (): Partial<UserPreferences> | null => {
+  try {
+    const stored = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+    if (stored) {
+      return JSON.parse(stored) as UserPreferences;
+    }
+  } catch (error) {
+    console.warn('Failed to load user preferences:', error);
+  }
+  return null;
+};
+
+const savePreferences = (prefs: Partial<UserPreferences>) => {
+  try {
+    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
+  } catch (error) {
+    console.warn('Failed to save user preferences:', error);
+  }
+};
+
 interface StockTransactionDoneSummaryProps {
   selectedStock?: string;
 }
 
 export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }: StockTransactionDoneSummaryProps) {
   const { showToast } = useToast();
+  
+  // Load preferences from localStorage on mount
+  const savedPrefs = loadPreferences();
+  
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
-  const [selectedStock, setSelectedStock] = useState(propSelectedStock || 'BBCA');
+  const [selectedStock, setSelectedStock] = useState(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.selectedStock) {
+      return savedPrefs.selectedStock;
+    }
+    // Fallback to prop or default
+    return propSelectedStock || 'BBCA';
+  });
   
   // Real data states
   const [priceDataByDate, setPriceDataByDate] = useState<{ [date: string]: PriceData[] }>({});
@@ -318,11 +365,23 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
   const [isDataReady, setIsDataReady] = useState<boolean>(false);
   
   // UI states
-  const [stockInput, setStockInput] = useState(propSelectedStock || 'BBCA');
+  const [stockInput, setStockInput] = useState(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.selectedStock) {
+      return savedPrefs.selectedStock;
+    }
+    // Fallback to prop or default
+    return propSelectedStock || 'BBCA';
+  });
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [startDate, setStartDate] = useState(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.startDate) {
+      return savedPrefs.startDate;
+    }
+    // Fallback to default
     const threeDays = getLastThreeTradingDays();
     if (threeDays.length > 0) {
       const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
@@ -331,6 +390,11 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
     return '';
   });
   const [endDate, setEndDate] = useState(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.endDate) {
+      return savedPrefs.endDate;
+    }
+    // Fallback to default
     const threeDays = getLastThreeTradingDays();
     if (threeDays.length > 0) {
       const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
@@ -340,17 +404,52 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
   });
   // Broker selection states
   const [brokerInput, setBrokerInput] = useState('');
-  const [selectedBrokers, setSelectedBrokers] = useState<string[]>([]);
+  const [selectedBrokers, setSelectedBrokers] = useState<string[]>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.selectedBrokers && savedPrefs.selectedBrokers.length > 0) {
+      return savedPrefs.selectedBrokers;
+    }
+    // Fallback to empty
+    return [];
+  });
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
   const [highlightedBrokerIndex, setHighlightedBrokerIndex] = useState<number>(-1);
   const [availableBrokers, setAvailableBrokers] = useState<string[]>([]);
   const dropdownBrokerRef = useRef<HTMLDivElement>(null);
   
   // Filter states - Default: F/D=All, Board=RG
-  const [invFilter, setInvFilter] = useState<'F' | 'D' | ''>(''); // Default: All (empty = all)
-  const [boardFilter, setBoardFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default: RG
-  const [showFrequency, setShowFrequency] = useState<boolean>(true); // Show/hide Frequency columns (BFreq, SFreq, TFreq, BLot/F, SLot/F)
-  const [showOrdColumns, setShowOrdColumns] = useState<boolean>(true); // Show/hide Ord columns
+  const [invFilter, setInvFilter] = useState<'F' | 'D' | ''>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.invFilter !== undefined) {
+      return savedPrefs.invFilter;
+    }
+    // Fallback to default
+    return '';
+  }); // Default: All (empty = all)
+  const [boardFilter, setBoardFilter] = useState<'RG' | 'TN' | 'NG' | ''>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.boardFilter) {
+      return savedPrefs.boardFilter;
+    }
+    // Fallback to default
+    return 'RG';
+  }); // Default: RG
+  const [showFrequency, setShowFrequency] = useState<boolean>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.showFrequency !== undefined) {
+      return savedPrefs.showFrequency;
+    }
+    // Fallback to default
+    return true;
+  }); // Show/hide Frequency columns (BFreq, SFreq, TFreq, BLot/F, SLot/F)
+  const [showOrdColumns, setShowOrdColumns] = useState<boolean>(() => {
+    // Try to load from preferences first
+    if (savedPrefs?.showOrdColumns !== undefined) {
+      return savedPrefs.showOrdColumns;
+    }
+    // Fallback to default
+    return true;
+  }); // Show/hide Ord columns
   
   // Menu container ref for responsive layout
   const menuContainerRef = useRef<HTMLDivElement>(null);
@@ -458,6 +557,96 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
       setSelectedStock(propSelectedStock);
     }
   }, [propSelectedStock, selectedStock]);
+
+  // Save preferences to localStorage with debounce to reduce write operations
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      const preferences: Partial<UserPreferences> = {
+        selectedStock,
+        selectedBrokers,
+        invFilter,
+        boardFilter,
+        showFrequency,
+        showOrdColumns,
+      };
+      // Only include dates if they have values
+      if (startDate) {
+        preferences.startDate = startDate;
+      }
+      if (endDate) {
+        preferences.endDate = endDate;
+      }
+      savePreferences(preferences);
+    }, 500); // Debounce 500ms to reduce localStorage writes
+    
+    return () => clearTimeout(timeout);
+  }, [selectedStock, selectedBrokers, invFilter, boardFilter, showFrequency, showOrdColumns, startDate, endDate]);
+  
+  // Auto-load data from saved preferences on mount (after initial data is loaded)
+  useEffect(() => {
+    // Only auto-load if we have saved preferences with dates
+    if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
+      return; // No saved preferences, don't auto-load
+    }
+    
+    const savedStartDate = savedPrefs.startDate;
+    const savedEndDate = savedPrefs.endDate;
+    
+    // Wait a bit to ensure initial data (stocks, brokers) are loaded
+    const timer = setTimeout(() => {
+      // Generate date array from saved startDate and endDate (only trading days)
+      const startParts = savedStartDate.split('-').map(Number);
+      const endParts = savedEndDate.split('-').map(Number);
+      
+      if (startParts.length === 3 && endParts.length === 3) {
+        const startYear = startParts[0];
+        const startMonth = startParts[1];
+        const startDay = startParts[2];
+        const endYear = endParts[0];
+        const endMonth = endParts[1];
+        const endDay = endParts[2];
+        
+        if (startYear !== undefined && startMonth !== undefined && startDay !== undefined &&
+            endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
+          const start = new Date(startYear, startMonth - 1, startDay);
+          const end = new Date(endYear, endMonth - 1, endDay);
+          
+          // Check if range is valid
+          if (start <= end) {
+            // Generate date array (only trading days)
+            const dateArray: string[] = [];
+            const currentDate = new Date(start);
+            
+            while (currentDate <= end) {
+              const dayOfWeek = currentDate.getDay();
+              // Skip weekends (Saturday = 6, Sunday = 0)
+              if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                // Format as YYYY-MM-DD in local timezone
+                const year = currentDate.getFullYear();
+                const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                const day = String(currentDate.getDate()).padStart(2, '0');
+                const dateString = `${year}-${month}-${day}`;
+                dateArray.push(dateString);
+              }
+              // Move to next day
+              currentDate.setDate(currentDate.getDate() + 1);
+            }
+            
+            // Sort by date (oldest first) for display
+            const datesToUse = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+            
+            // Update selectedDates
+            setSelectedDates(datesToUse);
+            
+            // Trigger auto-load by setting shouldFetchData to true
+            setShouldFetchData(true);
+          }
+        }
+      }
+    }, 500); // Small delay to ensure initial data is loaded
+    
+    return () => clearTimeout(timer);
+  }, []); // Only run once on mount
 
   // Fetch data when shouldFetchData is true
   useEffect(() => {
@@ -1562,7 +1751,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
           </div>
 
           {/* Frequency and Ord Toggles */}
-          <div className="flex flex-col gap-1 items-center">
+          <div className="flex flex-col gap-1 items-start">
             <label className="flex items-center gap-1.5 cursor-pointer">
               <input
                 type="checkbox"
