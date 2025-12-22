@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Loader2, Calendar, Search } from 'lucide-react';
 import { api } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
+import { menuPreferencesService } from '../../services/menuPreferences';
 
 interface BrokerTransactionData {
   Emiten: string;
@@ -233,8 +234,8 @@ const getLastThreeDays = (): string[] => {
 // Note: Sector filter is now used instead of F/D filter
 // Sector mapping is loaded from backend API
 
-// LocalStorage key for user preferences
-const PREFERENCES_STORAGE_KEY = 'broker_transaction_user_preferences';
+// Page ID for menu preferences
+const PAGE_ID = 'broker-activity-transaction';
 
 // Interface for user preferences
 interface UserPreferences {
@@ -250,25 +251,23 @@ interface UserPreferences {
   endDate?: string;
 }
 
-// Utility functions for saving/loading preferences
+// Utility functions for saving/loading preferences (now using backend)
 const loadPreferences = (): Partial<UserPreferences> | null => {
   try {
-    const stored = localStorage.getItem(PREFERENCES_STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored) as UserPreferences;
+    // Try to load from cache first (synchronous)
+    const cached = menuPreferencesService.getCachedPreferences(PAGE_ID);
+    if (cached) {
+      return cached as Partial<UserPreferences>;
     }
   } catch (error) {
-    console.warn('Failed to load user preferences:', error);
+    console.warn('Failed to load cached preferences:', error);
   }
   return null;
 };
 
 const savePreferences = (prefs: Partial<UserPreferences>) => {
-  try {
-    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
-  } catch (error) {
-    console.warn('Failed to save user preferences:', error);
-  }
+  // Save to cookies (synchronous)
+  menuPreferencesService.savePreferences(PAGE_ID, prefs);
 };
 
 export function BrokerTransaction() {
@@ -302,7 +301,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   return getTradingDays(count);
 };
 
-  // Load preferences from localStorage on mount
+  // Load preferences from cookies on mount
   const savedPrefs = loadPreferences();
 
   const [startDate, setStartDate] = useState(() => {
@@ -5120,6 +5119,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             <div className="flex items-center gap-2 w-full md:w-auto">
               {/* Broker Input with selected count */}
               <div className="relative flex-1 md:flex-none" ref={dropdownBrokerRef}>
+                  <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                   <input
                     type="text"
                     value={brokerInput}
@@ -5149,8 +5149,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         setHighlightedIndex(-1);
                       }
                     }}
-                  placeholder={selectedBrokers.length > 0 ? `${selectedBrokers.length} selected` : "Add broker"}
-                  className="w-full md:w-32 h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground"
+                  placeholder={selectedBrokers.length > 0 ? (selectedBrokers.length === 1 ? selectedBrokers[0] : selectedBrokers.join(' | ')) : "Add broker"}
+                  className={`w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedBrokers.length > 0 ? 'placeholder:text-white' : ''}`}
                     role="combobox"
                     aria-expanded={showBrokerSuggestions}
                     aria-controls="broker-suggestions"
@@ -5298,7 +5298,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                 <input
                   type="text"
-                  placeholder={selectedTickers.length > 0 ? `${selectedTickers.length} selected` : "Add ticker"}
+                  placeholder={selectedTickers.length > 0 ? (selectedTickers.length === 1 ? selectedTickers[0] : selectedTickers.join(' | ')) : "Add ticker"}
                   value={tickerInput}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -5307,6 +5307,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     setHighlightedTickerIndex(0);
                   }}
                   onFocus={() => setShowTickerSuggestions(true)}
+                  className={`w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedTickers.length > 0 ? 'placeholder:text-white' : ''}`}
                   onKeyDown={(e) => {
                     // Combine suggestions: tickers first, then sectors
                     const allSuggestions: Array<{ type: 'ticker' | 'sector'; value: string }> = [
@@ -5336,7 +5337,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       setHighlightedTickerIndex(-1);
                     }
                   }}
-                  className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
                 />
               {showTickerSuggestions && (
                 <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-64">
@@ -5584,7 +5584,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 style={{ caretColor: 'transparent' }}
               />
-              <div className="flex items-center justify-between h-full px-3">
+              <div className="flex items-center gap-2 h-full px-3">
+                <Calendar className="w-4 h-4 text-muted-foreground" />
                 <span className="text-sm text-foreground">
                   {startDate ? new Date(startDate).toLocaleDateString('en-GB', { 
                     day: '2-digit', 
@@ -5592,7 +5593,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     year: 'numeric' 
                   }) : 'DD/MM/YYYY'}
                 </span>
-                <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
             <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
@@ -5636,7 +5636,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 style={{ caretColor: 'transparent' }}
               />
-              <div className="flex items-center justify-between h-full px-3">
+              <div className="flex items-center gap-2 h-full px-3">
+                <Calendar className="w-4 h-4 text-muted-foreground" />
                 <span className="text-sm text-foreground">
                   {endDate ? new Date(endDate).toLocaleDateString('en-GB', { 
                     day: '2-digit', 
@@ -5644,7 +5645,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     year: 'numeric' 
                   }) : 'DD/MM/YYYY'}
                 </span>
-                <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
                 </div>
               </div>

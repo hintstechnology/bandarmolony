@@ -114,8 +114,8 @@ const formatLotNumber = (value: number): string => {
 
 // Removed generateTopBrokersData - now using real data from API
 
-// LocalStorage key for user preferences
-const PREFERENCES_STORAGE_KEY = 'broker_inventory_user_preferences';
+// Page ID for menu preferences
+const PAGE_ID = 'broker-activity-inventory';
 
 // Interface for user preferences
 interface UserPreferences {
@@ -132,25 +132,24 @@ interface UserPreferences {
   endDate?: string;
 }
 
-// Utility functions for saving/loading preferences
+// Import menu preferences service
+import { menuPreferencesService } from '../../services/menuPreferences';
+
+// Utility functions for saving/loading preferences (now using cookies)
 const loadPreferences = (): Partial<UserPreferences> | null => {
   try {
-    const stored = localStorage.getItem(PREFERENCES_STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored) as UserPreferences;
+    const cached = menuPreferencesService.getCachedPreferences(PAGE_ID);
+    if (cached) {
+      return cached as Partial<UserPreferences>;
     }
   } catch (error) {
-    console.warn('Failed to load user preferences:', error);
+    console.warn('Failed to load cached preferences:', error);
   }
   return null;
 };
 
 const savePreferences = (prefs: Partial<UserPreferences>) => {
-  try {
-    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
-  } catch (error) {
-    console.warn('Failed to save user preferences:', error);
-  }
+  menuPreferencesService.savePreferences(PAGE_ID, prefs);
 };
 
 
@@ -1344,8 +1343,25 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
 }) {
   const { showToast } = useToast();
   
-  // Load preferences from localStorage on mount
+  // Load preferences from cookies on mount
   const savedPrefs = loadPreferences();
+  
+  // Load preferences from cookies on mount
+  useEffect(() => {
+    const prefs = menuPreferencesService.loadPreferences(PAGE_ID);
+    if (prefs.selectedTicker) {
+      setSelectedTicker(prefs.selectedTicker);
+    }
+    if (prefs.fdFilter) {
+      setFdFilter(prefs.fdFilter);
+    }
+    if (prefs.marketFilter) {
+      setMarketFilter(prefs.marketFilter);
+    }
+    if (prefs.brokerSelectionMode) {
+      setBrokerSelectionMode(prefs.brokerSelectionMode);
+    }
+  }, []);
   
   // State management
   // Always default to BBCA if no propSelectedStock or if it's empty
@@ -2326,6 +2342,14 @@ const visibleBrokers = useMemo(
           setAvailableBrokersForStock(prev => {
             if (uniqueBrokersFromSummary.length > 0) {
               const merged = [...new Set([...prev, ...uniqueBrokersFromSummary])].sort();
+              // Ensure "ALL" is first
+              if (merged.includes('ALL')) {
+                const allIndex = merged.indexOf('ALL');
+                merged.splice(allIndex, 1);
+                merged.unshift('ALL');
+              } else {
+                merged.unshift('ALL');
+              }
               if (merged.length > prev.length) {
                 console.log(`📊 Merged brokers from brokerSummaryData: ${prev.length} -> ${merged.length} brokers`, {
                   prev: prev.length,
@@ -2383,8 +2407,18 @@ const visibleBrokers = useMemo(
         
         if (cachedBrokers) {
           console.log(`📊 Using cached brokers for ${actualTicker}:`, cachedBrokers.length);
-          setAvailableBrokersForStock(cachedBrokers);
-          syncSelectedBrokersWithAvailable(cachedBrokers);
+          // Ensure "ALL" is first in cached brokers
+          const brokersWithAll = cachedBrokers.includes('ALL') 
+            ? (() => {
+                const sorted = [...cachedBrokers];
+                const allIndex = sorted.indexOf('ALL');
+                sorted.splice(allIndex, 1);
+                sorted.unshift('ALL');
+                return sorted;
+              })()
+            : ['ALL', ...cachedBrokers];
+          setAvailableBrokersForStock(brokersWithAll);
+          syncSelectedBrokersWithAvailable(brokersWithAll);
           return;
         }
         
@@ -2397,13 +2431,18 @@ const visibleBrokers = useMemo(
         if (response.success && response.data?.brokers) {
           const uniqueBrokers = response.data.brokers.sort() as string[];
           
-          // Cache the brokers
-          cache.set(cacheKey, uniqueBrokers, cache.brokers);
+          // Ensure "ALL" is in the list and at the beginning
+          const brokersWithAll = uniqueBrokers.includes('ALL') 
+            ? uniqueBrokers 
+            : ['ALL', ...uniqueBrokers];
           
-          if (uniqueBrokers.length > 0) {
-            console.log(`✅ Found ${uniqueBrokers.length} brokers for ${actualTicker} from broker_inventory:`, uniqueBrokers);
-            setAvailableBrokersForStock(uniqueBrokers);
-            syncSelectedBrokersWithAvailable(uniqueBrokers);
+          // Cache the brokers
+          cache.set(cacheKey, brokersWithAll, cache.brokers);
+          
+          if (brokersWithAll.length > 0) {
+            console.log(`✅ Found ${brokersWithAll.length} brokers for ${actualTicker} from broker_inventory:`, brokersWithAll);
+            setAvailableBrokersForStock(brokersWithAll);
+            syncSelectedBrokersWithAvailable(brokersWithAll);
           } else {
             console.log(`⚠️ No brokers found for ${actualTicker} in broker_inventory - will use fallback from brokerSummaryData`);
             // Don't clear availableBrokersForStock here - let brokerSummaryData populate it as fallback
@@ -3686,12 +3725,16 @@ const visibleBrokers = useMemo(
       .filter((broker) => !selectedBrokers.includes(broker))
       .filter((broker) => broker.toLowerCase().includes(searchTerm));
 
-    // Sort recommended brokers: Top 5 Buy/Sell first (in their original order), then by top brokers order from last date
+    // Sort recommended brokers: "ALL" first, then Top 5 Buy/Sell (in their original order), then by top brokers order from last date
     const sortedRecommended = [...recommended].sort((a, b) => {
+      // "ALL" always comes first
+      if (a === 'ALL') return -1;
+      if (b === 'ALL') return 1;
+      
       const aIsTop5 = top5BuySellSet.has(a);
       const bIsTop5 = top5BuySellSet.has(b);
       
-      // Top 5 Buy/Sell brokers always come first
+      // Top 5 Buy/Sell brokers always come after "ALL"
       if (aIsTop5 && !bIsTop5) return -1;
       if (!aIsTop5 && bIsTop5) return 1;
       
@@ -3726,6 +3769,10 @@ const visibleBrokers = useMemo(
 
     // Sort other brokers by top brokers order from last date
     const sortedOthers = [...others].sort((a, b) => {
+      // "ALL" always comes first
+      if (a === 'ALL') return -1;
+      if (b === 'ALL') return 1;
+      
       const aOrder = topBrokersOrderMap.has(a) ? topBrokersOrderMap.get(a)! : Infinity;
       const bOrder = topBrokersOrderMap.has(b) ? topBrokersOrderMap.get(b)! : Infinity;
       
@@ -3742,11 +3789,27 @@ const visibleBrokers = useMemo(
       return 0;
     });
 
+    // Ensure "ALL" is first in recommended brokers if it exists
+    const sortedRecommendedWithAll = [...sortedRecommended].sort((a, b) => {
+      if (a === 'ALL') return -1;
+      if (b === 'ALL') return 1;
+      return 0;
+    });
+
     // Display all brokers (no limit) - ensure all brokers are shown in dropdown
+    // Combine and ensure "ALL" is first
+    const allBrokers = [...sortedRecommendedWithAll, ...sortedOthers];
+    const allIndex = allBrokers.indexOf('ALL');
+    if (allIndex > 0) {
+      // Move "ALL" to first position
+      allBrokers.splice(allIndex, 1);
+      allBrokers.unshift('ALL');
+    }
+
     return {
-      recommendedBrokers: sortedRecommended,
+      recommendedBrokers: sortedRecommendedWithAll,
       otherBrokers: sortedOthers,
-      filteredBrokers: [...sortedRecommended, ...sortedOthers],
+      filteredBrokers: allBrokers,
       totalOtherBrokersCount: sortedOthers.length,
     };
   }, [availableBrokersForStock, defaultBrokers, debouncedBrokerSearch, selectedBrokers, brokerNetStats, topBrokersData]);
@@ -3809,7 +3872,7 @@ const visibleBrokers = useMemo(
                           }
                         }}
                         placeholder={selectedTicker ? formatStockDisplayName(selectedTicker) : "Select ticker"}
-                        className="w-full sm:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
+                        className={`w-full sm:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedTicker ? 'placeholder:text-white' : ''}`}
                       />
                       {showStockSuggestions && (
                         <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]">
@@ -3945,15 +4008,40 @@ const visibleBrokers = useMemo(
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
                     <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
                     <div className="relative flex-1 sm:flex-none w-full sm:w-auto">
+                      <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                       <input
                         type="text"
-                        placeholder={isLoadingBrokersForStock ? "Loading..." : getActualTicker ? `Broker for ${getActualTicker}...` : "Select ticker first..."}
+                        placeholder={(() => {
+                          if (isLoadingBrokersForStock) return "Loading...";
+                          if (!getActualTicker) return "Select ticker first...";
+                          
+                          // Get quick select labels that are active
+                          const quickSelectLabels: string[] = [];
+                          if (brokerSelectionMode.top5buy) {
+                            quickSelectLabels.push('Top 5 Buy');
+                          }
+                          if (brokerSelectionMode.top5sell) {
+                            quickSelectLabels.push('Top 5 Sell');
+                          }
+                          
+                          // If quick select is active, show quick select labels
+                          if (quickSelectLabels.length > 0) {
+                            return quickSelectLabels.join(' | ');
+                          }
+                          
+                          // Otherwise show selected brokers
+                          if (selectedBrokers.length > 0) {
+                            return selectedBrokers.length === 1 ? selectedBrokers[0] : selectedBrokers.join(' | ');
+                          }
+                          
+                          return `Broker for ${getActualTicker}...`;
+                        })()}
                         value={brokerSearch}
                         disabled={!getActualTicker || isLoadingBrokersForStock}
                         onChange={(e) => { handleBrokerSearchChange(e); }}
                         onFocus={handleBrokerFocus}
                         onKeyDown={handleBrokerKeyDown}
-                        className="w-full sm:w-32 h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground"
+                        className={`w-full sm:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${(brokerSelectionMode.top5buy || brokerSelectionMode.top5sell || selectedBrokers.length > 0) ? 'placeholder:text-white' : ''}`}
                         role="combobox"
                         aria-expanded={showBrokerSuggestions}
                         aria-controls="broker-suggestions"
@@ -4345,7 +4433,8 @@ const visibleBrokers = useMemo(
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         style={{ caretColor: 'transparent' }}
                       />
-                      <div className="flex items-center justify-between h-full px-3">
+                      <div className="flex items-center gap-2 h-full px-3">
+                        <Calendar className="w-4 h-4 text-muted-foreground" />
                         <span className="text-sm text-foreground">
                           {startDate ? new Date(startDate).toLocaleDateString('en-GB', { 
                             day: '2-digit', 
@@ -4353,7 +4442,6 @@ const visibleBrokers = useMemo(
                             year: 'numeric' 
                           }) : 'DD/MM/YYYY'}
                         </span>
-                        <Calendar className="w-4 h-4 text-muted-foreground" />
                       </div>
                     </div>
                     <span className="text-sm text-muted-foreground whitespace-nowrap hidden sm:inline">to</span>
@@ -4401,7 +4489,8 @@ const visibleBrokers = useMemo(
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         style={{ caretColor: 'transparent' }}
                       />
-                      <div className="flex items-center justify-between h-full px-3">
+                      <div className="flex items-center gap-2 h-full px-3">
+                        <Calendar className="w-4 h-4 text-muted-foreground" />
                         <span className="text-sm text-foreground">
                           {endDate ? new Date(endDate).toLocaleDateString('en-GB', { 
                             day: '2-digit', 
@@ -4409,7 +4498,6 @@ const visibleBrokers = useMemo(
                             year: 'numeric' 
                           }) : 'DD/MM/YYYY'}
                         </span>
-                        <Calendar className="w-4 h-4 text-muted-foreground" />
                       </div>
                     </div>
                   </div>

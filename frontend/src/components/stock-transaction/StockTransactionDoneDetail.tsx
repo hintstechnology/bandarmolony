@@ -6,6 +6,7 @@ import { Calendar, Grid3X3, Search, Loader2, GripVertical, X, Settings, Info } f
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../services/api';
 import { STOCK_LIST, searchStocks } from '../../data/stockList';
+import { menuPreferencesService } from '../../services/menuPreferences';
 
 interface DoneDetailData {
   STK_CODE: string;   // Stock code (not in CSV, but we'll add it from context)
@@ -77,8 +78,8 @@ const formatDisplayDate = (dateString: string): string => {
   return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
 };
 
-// LocalStorage key for user preferences
-const PREFERENCES_STORAGE_KEY = 'stock_transaction_done_detail_user_preferences';
+// Page ID for menu preferences
+const PAGE_ID = 'stock-transaction-done-detail';
 
 // Interface for user preferences
 interface UserPreferences {
@@ -89,31 +90,27 @@ interface UserPreferences {
   endDate?: string;
 }
 
-// Utility functions for saving/loading preferences
+// Utility functions for saving/loading preferences (now using cookies)
 const loadPreferences = (): Partial<UserPreferences> | null => {
   try {
-    const stored = localStorage.getItem(PREFERENCES_STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored) as UserPreferences;
+    const cached = menuPreferencesService.getCachedPreferences(PAGE_ID);
+    if (cached) {
+      return cached as Partial<UserPreferences>;
     }
   } catch (error) {
-    console.warn('Failed to load user preferences:', error);
+    console.warn('Failed to load cached preferences:', error);
   }
   return null;
 };
 
 const savePreferences = (prefs: Partial<UserPreferences>) => {
-  try {
-    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
-  } catch (error) {
-    console.warn('Failed to save user preferences:', error);
-  }
+  menuPreferencesService.savePreferences(PAGE_ID, prefs);
 };
 
 export function StockTransactionDoneDetail() {
   const { showToast } = useToast();
   
-  // Load preferences from localStorage on mount
+  // Load preferences from cookies on mount
   const savedPrefs = loadPreferences();
   
   // Helper function to get previous business day (skip weekends)
@@ -1828,8 +1825,8 @@ export function StockTransactionDoneDetail() {
                       setHighlightedStockIndex(-1);
                     }
                   }}
-                  placeholder="Enter stock code..."
-                className="w-full md:w-32 h-9 min-h-[36px] max-h-[36px] pl-10 pr-4 text-sm border border-input rounded-md bg-background text-foreground box-border flex items-center leading-none"
+                  placeholder={selectedStock ? selectedStock : "Enter stock code..."}
+                className={`w-full md:w-32 h-9 min-h-[36px] max-h-[36px] pl-10 pr-4 text-sm border border-input rounded-md bg-background text-foreground box-border flex items-center leading-none ${selectedStock ? 'placeholder:text-white' : ''}`}
                 style={{ height: '36px', lineHeight: '36px' }}
                 role="combobox"
                 aria-expanded={showStockSuggestions}
@@ -1924,7 +1921,8 @@ export function StockTransactionDoneDetail() {
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-4">
+                <div className="flex items-center gap-2 h-full px-4">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm text-foreground leading-none">
                     {startDate ? new Date(startDate).toLocaleDateString('en-GB', {
                       day: '2-digit',
@@ -1932,7 +1930,6 @@ export function StockTransactionDoneDetail() {
                       year: 'numeric'
                     }) : 'DD/MM/YYYY'}
                   </span>
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
               <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
@@ -1969,7 +1966,8 @@ export function StockTransactionDoneDetail() {
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-4">
+                <div className="flex items-center gap-2 h-full px-4">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm text-foreground leading-none">
                     {endDate ? new Date(endDate).toLocaleDateString('en-GB', {
                       day: '2-digit',
@@ -1977,7 +1975,6 @@ export function StockTransactionDoneDetail() {
                       year: 'numeric'
                     }) : 'DD/MM/YYYY'}
                   </span>
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
             </div>

@@ -6,6 +6,9 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { X, Search, Plus, Loader2, Calendar } from 'lucide-react';
 import { api } from '@/services/api';
 import { useToast } from '../../contexts/ToastContext';
+import { menuPreferencesService } from '../../services/menuPreferences';
+
+const PAGE_ID = 'market-rotation-rrc';
 
 interface ChartDataPoint {
   date: string;          // display label for XAxis
@@ -88,10 +91,22 @@ const RrcTooltip = ({ active, payload, label }: any) => {
 };
 export default function MarketRotationRRC() {
   const { showToast } = useToast();
-  const [viewMode, setViewMode] = useState<'sector' | 'stock'>('sector');
-  const [selectedIndex, setSelectedIndex] = useState<string>('COMPOSITE');
-  const [selectedIndexes, setSelectedIndexes] = useState<string[]>(['COMPOSITE']);
-  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  
+  // Load preferences from cookies
+  const cachedPrefs = menuPreferencesService.getCachedPreferences(PAGE_ID);
+  
+  const [viewMode, setViewMode] = useState<'sector' | 'stock'>(() => {
+    return cachedPrefs?.viewMode || 'sector';
+  });
+  const [selectedIndex, setSelectedIndex] = useState<string>(() => {
+    return cachedPrefs?.selectedIndex || 'COMPOSITE';
+  });
+  const [selectedIndexes, setSelectedIndexes] = useState<string[]>(() => {
+    return cachedPrefs?.selectedIndexes || ['COMPOSITE'];
+  });
+  const [selectedItems, setSelectedItems] = useState<string[]>(() => {
+    return cachedPrefs?.selectedItems || [];
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [indexSearchQuery, setIndexSearchQuery] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -655,6 +670,8 @@ export default function MarketRotationRRC() {
         });
         return prev; // Don't remove if it would leave 0 items
       }
+      // Save preferences immediately when item is removed
+      menuPreferencesService.savePreferences(PAGE_ID, { selectedItems: newItems });
       return newItems;
     });
   };
@@ -667,6 +684,9 @@ export default function MarketRotationRRC() {
     setShowSearchDropdown(false);
     setShowIndexSearchDropdown(false);
     
+    // Save preferences to cookies
+    menuPreferencesService.savePreferences(PAGE_ID, { viewMode: mode });
+    
     // TIDAK clear data chart - tetap tampilkan data saat ini
     // TIDAK set isDataReady - tetap tampilkan chart jika sudah ada data
     // TIDAK set error - biarkan error tetap ada jika ada
@@ -677,6 +697,20 @@ export default function MarketRotationRRC() {
     
     // NO PROCESSING - Completely sterile, no backend/frontend activity
   };
+  
+  // Save preferences to cookies with debounce
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      menuPreferencesService.savePreferences(PAGE_ID, {
+        viewMode,
+        selectedIndex,
+        selectedIndexes,
+        selectedItems
+      });
+    }, 500);
+    
+    return () => clearTimeout(timeout);
+  }, [viewMode, selectedIndex, selectedIndexes, selectedItems]);
 
   const handleGenerateData = async () => {
     // User sudah klik Show - langsung set loading state SEBELUM clear data
@@ -976,7 +1010,8 @@ export default function MarketRotationRRC() {
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-3">
+                <div className="flex items-center gap-2 h-full px-3">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm text-foreground">
                     {startDate.toLocaleDateString('en-GB', { 
                       day: '2-digit', 
@@ -984,7 +1019,6 @@ export default function MarketRotationRRC() {
                       year: 'numeric' 
                     })}
                   </span>
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
               <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
@@ -1005,7 +1039,8 @@ export default function MarketRotationRRC() {
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-3">
+                <div className="flex items-center gap-2 h-full px-3">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm text-foreground">
                     {endDate.toLocaleDateString('en-GB', { 
                       day: '2-digit', 
@@ -1013,7 +1048,6 @@ export default function MarketRotationRRC() {
                       year: 'numeric' 
                     })}
                   </span>
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
             </div>
