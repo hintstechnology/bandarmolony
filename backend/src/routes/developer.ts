@@ -2309,10 +2309,13 @@ router.get('/test-ticmi-index', requireDeveloper, async (req, res) => {
     }
     
     if (errorDetails) {
-      return res.status(errorDetails.status || 500).json(createErrorResponse(
-        `TICMI API request failed: ${errorDetails.message}`,
-        'TICMI_API_ERROR',
-        {
+      return res.status(errorDetails.status || 500).json({
+        ok: false,
+        error: `TICMI API request failed: ${errorDetails.message}`,
+        code: 'TICMI_API_ERROR',
+        timestamp: new Date().toISOString(),
+        statusCode: errorDetails.status || 500,
+        details: {
           indexCode,
           params,
           error: errorDetails,
@@ -2321,9 +2324,8 @@ router.get('/test-ticmi-index', requireDeveloper, async (req, res) => {
             hasToken: !!jwtToken,
             tokenLength: jwtToken.length
           }
-        },
-        errorDetails.status || 500
-      ));
+        }
+      });
     }
     
     const payload = response.data;
