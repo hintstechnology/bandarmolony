@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Calendar, Grid3X3, Search, Loader2, GripVertical, X, Settings, Info } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../services/api';
@@ -88,6 +87,21 @@ interface UserPreferences {
   itemsPerPage: number;
   startDate?: string;
   endDate?: string;
+  pivotConfig?: {
+    rows: string[];
+    columns: string[];
+    valueField: string;
+    aggregations: Array<'SUM' | 'COUNT' | 'AVG' | 'MIN' | 'MAX'>;
+    filters: Array<{
+      field: string;
+      values: string[];
+      filterType?: 'list' | 'timeRange';
+      timeRange?: { start: string; end: string };
+    }>;
+    sort?: { field: string; direction: 'asc' | 'desc' };
+  };
+  filterSearchTerms?: { [key: string]: string };
+  openFilterDropdowns?: { [key: string]: boolean };
 }
 
 // Utility functions for saving/loading preferences (now using cookies)
@@ -236,17 +250,30 @@ export function StockTransactionDoneDetail() {
       timeRange?: { start: string; end: string };
     }>;
     sort?: { field: string; direction: 'asc' | 'desc' };
-  }>({
-    rows: [],
-    columns: [],
-    valueField: 'STK_VOLM', // Default: Volume
-    aggregations: ['COUNT'], // Default: Count
-    filters: [],
+  }>(() => {
+    // Load from preferences if available
+    if (savedPrefs?.pivotConfig) {
+      return savedPrefs.pivotConfig;
+    }
+    // Default values
+    return {
+      rows: [],
+      columns: [],
+      valueField: 'STK_VOLM', // Default: Volume
+      aggregations: ['COUNT'], // Default: Count
+      filters: [],
+    };
   });
 
   // Filter search states
-  const [filterSearchTerms, setFilterSearchTerms] = useState<{ [key: string]: string }>({});
-  const [openFilterDropdowns, setOpenFilterDropdowns] = useState<{ [key: string]: boolean }>({});
+  const [filterSearchTerms, setFilterSearchTerms] = useState<{ [key: string]: string }>(() => {
+    // Load from preferences if available
+    return savedPrefs?.filterSearchTerms || {};
+  });
+  const [openFilterDropdowns, setOpenFilterDropdowns] = useState<{ [key: string]: boolean }>(() => {
+    // Load from preferences if available
+    return savedPrefs?.openFilterDropdowns || {};
+  });
 
   // Modal state for pivot builder
   const [isPivotBuilderOpen, setIsPivotBuilderOpen] = useState(false);
@@ -370,6 +397,9 @@ export function StockTransactionDoneDetail() {
         selectedStock,
         pivotMode,
         itemsPerPage,
+        pivotConfig,
+        filterSearchTerms,
+        openFilterDropdowns,
       };
       // Only include dates if they have values
       if (startDate) {
@@ -382,7 +412,7 @@ export function StockTransactionDoneDetail() {
     }, 500); // Debounce 500ms to reduce localStorage writes
     
     return () => clearTimeout(timeout);
-  }, [selectedStock, pivotMode, itemsPerPage, startDate, endDate]);
+  }, [selectedStock, pivotMode, itemsPerPage, startDate, endDate, pivotConfig, filterSearchTerms, openFilterDropdowns]);
   
   // Auto-load data from saved preferences on mount (after initial data is loaded)
   useEffect(() => {
@@ -1791,7 +1821,7 @@ export function StockTransactionDoneDetail() {
 
 
   return (
-  <div className="w-full">
+    <div className="w-full">
       {/* Top Controls - Compact without Card, similar to DoneSummary */}
       {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
@@ -1980,19 +2010,25 @@ export function StockTransactionDoneDetail() {
             </div>
           </div>
 
-          {/* Customize Field Button */}
+          {/* Customize Field Button - Toggle Side Panel */}
           <button
             onClick={() => {
-              setTempPivotConfig(pivotConfig);
-              setTempFilterSearchTerms(filterSearchTerms);
-              setTempOpenFilterDropdowns(openFilterDropdowns);
-              setIsPivotBuilderOpen(true);
+              if (!isPivotBuilderOpen) {
+                setTempPivotConfig(pivotConfig);
+                setTempFilterSearchTerms(filterSearchTerms);
+                setTempOpenFilterDropdowns(openFilterDropdowns);
+              }
+              setIsPivotBuilderOpen(!isPivotBuilderOpen);
             }}
-            className="h-9 min-h-[36px] max-h-[36px] px-4 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/90 transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto box-border leading-none"
+            className={`h-9 min-h-[36px] max-h-[36px] px-4 rounded-md transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto box-border leading-none ${
+              isPivotBuilderOpen 
+                ? 'bg-primary text-primary-foreground hover:bg-primary/90' 
+                : 'bg-secondary text-secondary-foreground hover:bg-secondary/90'
+            }`}
             style={{ height: '36px' }}
           >
             <Settings className="w-4 h-4" />
-            Customize Field
+            {isPivotBuilderOpen ? 'Close Panel' : 'Customize Field'}
           </button>
 
           {/* Show Button - Generate date array and fetch from Azure */}
@@ -2049,19 +2085,56 @@ export function StockTransactionDoneDetail() {
       {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
       <div className="h-0 lg:h-[38px]"></div>
 
-      {/* Pivot Builder Dialog */}
-      <Dialog open={isPivotBuilderOpen} onOpenChange={setIsPivotBuilderOpen}>
-        <DialogContent className="max-w-[90vw] sm:max-w-[80vw] md:max-w-[70vw] lg:max-w-[60vw] max-h-[90vh] flex flex-col p-0 overflow-hidden">
-          <DialogHeader className="flex-shrink-0 bg-background border-b px-4 py-3">
-            <DialogTitle className="text-base">Customize Pivot Table Fields</DialogTitle>
-          </DialogHeader>
+      {/* Pivot Builder Side Panel */}
+      <React.Fragment>
+        {/* Overlay */}
+        {isPivotBuilderOpen && (
+          <div
+            className="fixed inset-0 bg-black/50 z-40 transition-opacity"
+            onClick={() => setIsPivotBuilderOpen(false)}
+          />
+        )}
+        
+        {/* Side Panel */}
+        <div
+          className={`fixed top-0 right-0 h-full w-full sm:w-[400px] md:w-[450px] bg-background border-l border-border shadow-2xl z-50 transition-transform duration-300 ease-in-out flex flex-col ${
+            isPivotBuilderOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        >
+          {/* Header */}
+          <div className="flex-shrink-0 bg-background border-b px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-semibold">Customize Pivot Table Fields</h2>
+              <div className="relative group">
+                <Info className="w-4 h-4 text-muted-foreground cursor-help hover:text-foreground transition-colors" />
+                <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                  <div className="text-xs font-semibold text-popover-foreground mb-2">💡 Contoh Penggunaan:</div>
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <div><strong>Rows:</strong> Price → Setiap baris = harga yang berbeda</div>
+                    <div><strong>Values:</strong> Volume (SUM) → Jumlah total volume per harga</div>
+                    <div><strong>Filters:</strong> Buyer Broker = "YP" → Hanya hitung transaksi dari buyer broker YP</div>
+                    <div className="mt-2 text-foreground">Hasil: Tabel dengan kolom Price dan Sum Volume, hanya untuk buyer broker YP</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsPivotBuilderOpen(false)}
+              className="p-1 hover:bg-accent rounded-md transition-colors"
+              aria-label="Close panel"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          
+          {/* Content */}
           <div className="flex-1 overflow-y-auto min-h-0">
-          <div className="py-3">
+            <div className="py-3">
       {/* Drag and Drop Pivot Builder Section */}
-      <div className="px-3 py-3 border-b border-[#3a4252] bg-[#0a0f20]">
+      <div className="px-3 py-2 border-b border-[#3a4252] bg-[#0a0f20]">
 
-        <div className="flex flex-col lg:flex-row gap-3">
-          {/* Field List (Left Sidebar) */}
+        <div className="flex flex-col gap-2">
+          {/* Available Fields - At the top */}
           <div 
             data-drop-zone="available"
             onDragOver={(e) => {
@@ -2077,14 +2150,14 @@ export function StockTransactionDoneDetail() {
               setDraggedFromSource(null);
               setDraggedIndex(null);
             }}
-            className={`w-full lg:w-1/3 border border-[#3a4252] rounded-lg p-2 bg-[#1a1f30] transition-colors ${
+            className={`w-full border border-[#3a4252] rounded-lg p-1.5 bg-[#1a1f30] transition-colors ${
               dropZoneHighlight === 'available' 
                 ? 'border-primary bg-primary/10' 
                 : ''
             }`}
           >
-            <div className="text-xs font-semibold text-foreground mb-2">Available Fields</div>
-            <div className="space-y-1 max-h-80 overflow-y-auto">
+            <div className="text-xs font-semibold text-foreground mb-1">Available Fields</div>
+            <div className="space-y-0.5 max-h-48 overflow-y-auto">
               {availableFields.map(field => (
                 <div
                   key={field.id}
@@ -2113,7 +2186,7 @@ export function StockTransactionDoneDetail() {
                       currentY: touch.clientY
                     });
                   }}
-                  className="flex items-center gap-1.5 p-1.5 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 active:bg-accent transition-colors touch-none"
+                  className="flex items-center gap-1 p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 active:bg-accent transition-colors touch-none"
                   style={{
                     opacity: touchDragState?.isDragging && draggedField === field.id ? 0.5 : 1
                   }}
@@ -2128,8 +2201,8 @@ export function StockTransactionDoneDetail() {
             </div>
           </div>
 
-          {/* Pivot Configuration Areas */}
-          <div className="w-full lg:w-2/3 grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Pivot Configuration Areas - Below Available Fields */}
+          <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-3">
             {/* Rows */}
             <div
               data-drop-zone="rows"
@@ -2146,13 +2219,13 @@ export function StockTransactionDoneDetail() {
                 setDraggedFromSource(null);
                 setDraggedIndex(null);
               }}
-              className={`border rounded-lg p-2 bg-[#1a1f30] min-h-[100px] transition-colors ${
+              className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${
                 dropZoneHighlight === 'rows' 
                   ? 'border-primary bg-primary/10' 
                   : 'border-[#3a4252]'
               }`}
             >
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-1.5 mb-1">
                 <div className="text-xs font-semibold text-muted-foreground uppercase">Rows</div>
                 <div className="relative group">
                   <Info className="w-3 h-3 text-muted-foreground cursor-help" />
@@ -2196,11 +2269,11 @@ export function StockTransactionDoneDetail() {
                           currentY: touch.clientY
                         });
                       }}
-                       className={`p-1.5 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
+                       className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
                          isDragging ? 'opacity-50' : ''
                        }`}
                      >
-                       <div className="flex items-center gap-1.5">
+                       <div className="flex items-center gap-1">
                         <GripVertical className="w-3 h-3 text-muted-foreground" />
                          <span className="text-xs text-foreground flex-1">{field.label}</span>
                         {isPrice && (
@@ -2243,7 +2316,7 @@ export function StockTransactionDoneDetail() {
                   ) : null;
                 })}
                 {tempPivotConfig.rows.length === 0 && (
-                  <div className="text-xs text-muted-foreground italic py-4 text-center">Drop fields here</div>
+                  <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
                 )}
             </div>
           </div>
@@ -2264,13 +2337,13 @@ export function StockTransactionDoneDetail() {
                 setDraggedFromSource(null);
                 setDraggedIndex(null);
               }}
-              className={`border rounded-lg p-2 bg-[#1a1f30] min-h-[100px] transition-colors ${
+              className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${
                 dropZoneHighlight === 'columns' 
                   ? 'border-primary bg-primary/10' 
                   : 'border-[#3a4252]'
               }`}
             >
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-1.5 mb-1">
                 <div className="text-xs font-semibold text-muted-foreground uppercase">Columns</div>
                 <div className="relative group">
                   <Info className="w-3 h-3 text-muted-foreground cursor-help" />
@@ -2313,7 +2386,7 @@ export function StockTransactionDoneDetail() {
                           currentY: touch.clientY
                         });
                       }}
-                      className={`flex items-center gap-1.5 p-1.5 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
+                      className={`flex items-center gap-1 p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
                         isDragging ? 'opacity-50' : ''
                       }`}
                     >
@@ -2333,14 +2406,14 @@ export function StockTransactionDoneDetail() {
                   ) : null;
                 })}
                 {tempPivotConfig.columns.length === 0 && (
-                  <div className="text-xs text-muted-foreground italic py-4 text-center">Drop fields here</div>
+                  <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
                 )}
               </div>
             </div>
 
             {/* Values */}
-            <div className="border border-[#3a4252] rounded-lg p-2 bg-[#1a1f30] min-h-[100px]">
-              <div className="flex items-center gap-2 mb-1.5">
+            <div className="border border-[#3a4252] rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px]">
+              <div className="flex items-center gap-1.5 mb-1">
                 <div className="text-xs font-semibold text-muted-foreground uppercase">Values</div>
                 <div className="relative group">
                   <Info className="w-3 h-3 text-muted-foreground cursor-help" />
@@ -2350,10 +2423,10 @@ export function StockTransactionDoneDetail() {
               </div>
               </div>
               </div>
-              <div className="space-y-1.5">
-                <div className="p-1.5 bg-background rounded border border-[#3a4252]">
-                  <div className="text-xs text-foreground font-medium mb-1.5">Volume</div>
-                  <div className="space-y-1.5">
+              <div className="space-y-1">
+                <div className="p-1 bg-background rounded border border-[#3a4252]">
+                  <div className="text-xs text-foreground font-medium mb-1">Volume</div>
+                  <div className="space-y-1">
                     {(['COUNT', 'SUM', 'AVG', 'MIN', 'MAX'] as const).map((agg) => (
                       <label key={agg} className="flex items-center gap-1.5 cursor-pointer">
                         <input
@@ -2410,13 +2483,13 @@ export function StockTransactionDoneDetail() {
                 setDraggedFromSource(null);
                 setDraggedIndex(null);
               }}
-              className={`border rounded-lg p-2 bg-[#1a1f30] min-h-[100px] transition-colors ${
+              className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${
                 dropZoneHighlight === 'filters' 
                   ? 'border-primary bg-primary/10' 
                   : 'border-[#3a4252]'
               }`}
             >
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-1.5 mb-1">
                 <div className="text-xs font-semibold text-muted-foreground uppercase">Filters</div>
                 <div className="relative group">
                   <Info className="w-3 h-3 text-muted-foreground cursor-help" />
@@ -2426,7 +2499,7 @@ export function StockTransactionDoneDetail() {
               </div>
                 </div>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {tempPivotConfig.filters.map((filterConfig, idx) => {
                   const field = availableFields.find(f => f.id === filterConfig.field);
                   if (!field) return null;
@@ -2463,11 +2536,11 @@ export function StockTransactionDoneDetail() {
                             currentY: touch.clientY
                           });
                         }}
-                        className={`p-1.5 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
+                        className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
                           isDragging ? 'opacity-50' : ''
                         }`}
                       >
-                        <div className="flex items-center gap-1.5 mb-1.5">
+                        <div className="flex items-center gap-1 mb-1">
                           <GripVertical className="w-3 h-3 text-muted-foreground" />
                           <span className="text-xs text-foreground flex-1 font-medium">{field.label}</span>
                           <button
@@ -2580,11 +2653,11 @@ export function StockTransactionDoneDetail() {
                           currentY: touch.clientY
                         });
                       }}
-                      className={`p-2 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
+                      className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
                         isDragging ? 'opacity-50' : ''
                       }`}
                     >
-                      <div className="flex items-center gap-2 mb-2">
+                      <div className="flex items-center gap-1.5 mb-1.5">
                         <GripVertical className="w-3 h-3 text-muted-foreground" />
                         <span className="text-sm text-foreground flex-1 font-medium">{field.label}</span>
                         {filterConfig.values.length > 0 && (
@@ -2729,7 +2802,7 @@ export function StockTransactionDoneDetail() {
                   );
                 })}
                 {tempPivotConfig.filters.length === 0 && (
-                  <div className="text-xs text-muted-foreground italic py-4 text-center">Drop fields here</div>
+                  <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
                 )}
               </div>
                       </div>
@@ -2739,56 +2812,59 @@ export function StockTransactionDoneDetail() {
       </div>
           </div>
           
-          {/* Help/Example Section - Moved to bottom */}
-          <div className="px-3 py-3 border-t border-[#3a4252] bg-[#0a0f20]">
-            <div className="p-2 bg-blue-900/20 border border-blue-700/30 rounded-lg">
-              <div className="text-xs font-semibold text-blue-300 mb-1.5">💡 Contoh Penggunaan:</div>
-              <div className="text-xs text-blue-200 space-y-1">
-                <div><strong>Rows:</strong> Price → Setiap baris = harga yang berbeda</div>
-                <div><strong>Values:</strong> Volume (SUM) → Jumlah total volume per harga</div>
-                <div><strong>Filters:</strong> Buyer Broker = "YP" → Hanya hitung transaksi dari buyer broker YP</div>
-                <div className="mt-2 text-blue-300">Hasil: Tabel dengan kolom Price dan Sum Volume, hanya untuk buyer broker YP</div>
-              </div>
-            </div>
-          </div>
-          </div>
-          <DialogFooter className="flex-shrink-0 bg-background border-t px-4 py-3 flex items-center justify-between sm:justify-between">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setTempPivotConfig({ rows: [], columns: [], valueField: 'STK_VOLM', aggregations: ['COUNT'], filters: [] });
-                setTempFilterSearchTerms({});
-                setTempOpenFilterDropdowns({});
-              }}
-            >
-              Reset
-            </Button>
-            <div className="flex gap-2">
+          {/* Action Buttons */}
+          <div className="px-3 py-3 border-t border-[#3a4252] bg-[#0a0f20] sticky bottom-0 z-10">
+            <div className="flex items-center justify-between gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setIsPivotBuilderOpen(false);
+                  setTempPivotConfig({ rows: [], columns: [], valueField: 'STK_VOLM', aggregations: ['COUNT'], filters: [] });
+                  setTempFilterSearchTerms({});
+                  setTempOpenFilterDropdowns({});
                 }}
               >
-                Cancel
+                Reset
               </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setPivotConfig(tempPivotConfig);
-                  setFilterSearchTerms(tempFilterSearchTerms);
-                  setOpenFilterDropdowns(tempOpenFilterDropdowns);
-                  setIsPivotBuilderOpen(false);
-                }}
-              >
-                Save
-            </Button>
-      </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setIsPivotBuilderOpen(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setPivotConfig(tempPivotConfig);
+                    setFilterSearchTerms(tempFilterSearchTerms);
+                    setOpenFilterDropdowns(tempOpenFilterDropdowns);
+                    // Don't close panel on Apply
+                  }}
+                >
+                  Apply
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setPivotConfig(tempPivotConfig);
+                    setFilterSearchTerms(tempFilterSearchTerms);
+                    setOpenFilterDropdowns(tempOpenFilterDropdowns);
+                    setIsPivotBuilderOpen(false);
+                  }}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          </div>
+            </div>
+          </div>
+      </React.Fragment>
 
       {/* Loading State */}
       {isLoading && (
