@@ -257,11 +257,11 @@ export function StockTransactionDoneDetail() {
     }
     // Default values
     return {
-      rows: [],
-      columns: [],
-      valueField: 'STK_VOLM', // Default: Volume
-      aggregations: ['COUNT'], // Default: Count
-      filters: [],
+    rows: [],
+    columns: [],
+    valueField: 'STK_VOLM', // Default: Volume
+    aggregations: ['COUNT'], // Default: Count
+    filters: [],
     };
   });
 
@@ -1821,7 +1821,7 @@ export function StockTransactionDoneDetail() {
 
 
   return (
-    <div className="w-full">
+  <div className="w-full">
       {/* Top Controls - Compact without Card, similar to DoneSummary */}
       {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
@@ -2014,9 +2014,9 @@ export function StockTransactionDoneDetail() {
           <button
             onClick={() => {
               if (!isPivotBuilderOpen) {
-                setTempPivotConfig(pivotConfig);
-                setTempFilterSearchTerms(filterSearchTerms);
-                setTempOpenFilterDropdowns(openFilterDropdowns);
+              setTempPivotConfig(pivotConfig);
+              setTempFilterSearchTerms(filterSearchTerms);
+              setTempOpenFilterDropdowns(openFilterDropdowns);
               }
               setIsPivotBuilderOpen(!isPivotBuilderOpen);
             }}
@@ -2085,19 +2085,81 @@ export function StockTransactionDoneDetail() {
       {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
       <div className="h-0 lg:h-[38px]"></div>
 
-      {/* Pivot Builder Side Panel */}
-      <React.Fragment>
-        {/* Overlay */}
-        {isPivotBuilderOpen && (
-          <div
-            className="fixed inset-0 bg-black/50 z-40 transition-opacity"
-            onClick={() => setIsPivotBuilderOpen(false)}
-          />
-        )}
-        
-        {/* Side Panel */}
+      {/* Main Content Area with Table and Side Panel */}
+      <div className="flex flex-row relative">
+        {/* Table Container - will shrink when side panel is open */}
+        <div className={`flex-1 transition-all duration-300 ease-in-out ${isPivotBuilderOpen ? 'mr-[400px] md:mr-[450px]' : 'mr-0'}`}>
+          {/* Loading State */}
+          {isLoading && (
+            <div className="flex items-center justify-center py-16 pt-4">
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                <span className="text-sm text-muted-foreground">Loading transaction data...</span>
+              </div>
+            </div>
+          )}
+
+          {/* Error State */}
+          {error && !isLoading && (
+            <div className="flex items-center justify-center py-8 pt-4">
+              <div className="text-sm text-destructive">{error}</div>
+            </div>
+          )}
+
+          {/* Main Data Display */}
+          <div className="pt-2">
+            {!isLoading && !error && isDataReady && (
+              <>
+                {/* Loading indicator for custom pivot */}
+                {pivotMode === 'custom' && isProcessingPivot && (
+                  <Card>
+                    <CardContent className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin mr-2" />
+                      <span>Processing pivot table...</span>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {pivotMode === 'buyer_seller_cross' ? (
+                  pivotDataFromBackend && renderBuyerSellerCrossPivot()
+                ) : pivotMode === 'custom' ? (
+                  // Custom pivot from drag and drop config
+                  customPivotData ? (
+                    renderCustomPivotTable(customPivotData)
+                  ) : (
+                    <Card>
+                      <CardContent className="text-center py-8 text-muted-foreground">
+                        {pivotConfig.rows.length === 0 && pivotConfig.columns.length === 0 && pivotConfig.aggregations.length === 0
+                          ? 'Drag fields to Rows, Columns, or Values to create a pivot table'
+                          : 'No data available'}
+                      </CardContent>
+                    </Card>
+                  )
+                ) : (
+                  pivotDataFromBackend ? (
+                    (() => {
+                      const label = pivotMode;
+                      const showAvgPrice = pivotMode !== 'price';
+                      const showOrdNum = pivotMode === 'buyer_broker' ||
+                        pivotMode === 'seller_broker' ||
+                        pivotMode.includes('buyer_broker') ||
+                        pivotMode.includes('seller_broker') ||
+                        pivotMode.includes('inv_type_broker') ||
+                        pivotMode.includes('trx_type_buyer') ||
+                        pivotMode.includes('trx_type_seller');
+
+                      return renderPivotTable(pivotDataFromBackend, label, showAvgPrice, showOrdNum);
+                    })()
+                  ) : null
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Side Panel - Fixed position on the right, but part of layout flow */}
         <div
-          className={`fixed top-0 right-0 h-full w-full sm:w-[400px] md:w-[450px] bg-background border-l border-border shadow-2xl z-50 transition-transform duration-300 ease-in-out flex flex-col ${
+          className={`fixed top-14 right-0 h-[calc(100vh-3.5rem)] w-full sm:w-[400px] md:w-[450px] bg-background border-l border-border shadow-2xl z-40 transition-transform duration-300 ease-in-out flex flex-col ${
             isPivotBuilderOpen ? 'translate-x-0' : 'translate-x-full'
           }`}
         >
@@ -2130,13 +2192,12 @@ export function StockTransactionDoneDetail() {
           {/* Content */}
           <div className="flex-1 overflow-y-auto min-h-0">
             <div className="py-3">
-      {/* Drag and Drop Pivot Builder Section */}
-      <div className="px-3 py-2 border-b border-[#3a4252] bg-[#0a0f20]">
-
-        <div className="flex flex-col gap-2">
-          {/* Available Fields - At the top */}
-          <div 
-            data-drop-zone="available"
+              {/* Drag and Drop Pivot Builder Section */}
+              <div className="px-3 py-2 border-b border-[#3a4252] bg-[#0a0f20]">
+                <div className="flex flex-col gap-2">
+                  {/* Available Fields - At the top */}
+                  <div 
+                    data-drop-zone="available"
             onDragOver={(e) => {
               e.preventDefault();
               e.dataTransfer.dropEffect = 'move';
@@ -2805,132 +2866,64 @@ export function StockTransactionDoneDetail() {
                   <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
                 )}
               </div>
-                      </div>
                     </div>
+                  </div>
+                </div>
 
-          </div>
-      </div>
-          </div>
-          
-          {/* Action Buttons */}
-          <div className="px-3 py-3 border-t border-[#3a4252] bg-[#0a0f20] sticky bottom-0 z-10">
-            <div className="flex items-center justify-between gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setTempPivotConfig({ rows: [], columns: [], valueField: 'STK_VOLM', aggregations: ['COUNT'], filters: [] });
-                  setTempFilterSearchTerms({});
-                  setTempOpenFilterDropdowns({});
-                }}
-              >
-                Reset
-              </Button>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setIsPivotBuilderOpen(false);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setPivotConfig(tempPivotConfig);
-                    setFilterSearchTerms(tempFilterSearchTerms);
-                    setOpenFilterDropdowns(tempOpenFilterDropdowns);
-                    // Don't close panel on Apply
-                  }}
-                >
-                  Apply
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setPivotConfig(tempPivotConfig);
-                    setFilterSearchTerms(tempFilterSearchTerms);
-                    setOpenFilterDropdowns(tempOpenFilterDropdowns);
-                    setIsPivotBuilderOpen(false);
-                  }}
-                >
-                  Save
-                </Button>
+                {/* Action Buttons */}
+                <div className="px-3 py-3 border-t border-[#3a4252] bg-[#0a0f20] sticky bottom-0 z-10">
+                  <div className="flex items-center justify-between gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setTempPivotConfig({ rows: [], columns: [], valueField: 'STK_VOLM', aggregations: ['COUNT'], filters: [] });
+                        setTempFilterSearchTerms({});
+                        setTempOpenFilterDropdowns({});
+                      }}
+                    >
+                      Reset
+                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setIsPivotBuilderOpen(false);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPivotConfig(tempPivotConfig);
+                          setFilterSearchTerms(tempFilterSearchTerms);
+                          setOpenFilterDropdowns(tempOpenFilterDropdowns);
+                          // Don't close panel on Apply
+                        }}
+                      >
+                        Apply
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setPivotConfig(tempPivotConfig);
+                          setFilterSearchTerms(tempFilterSearchTerms);
+                          setOpenFilterDropdowns(tempOpenFilterDropdowns);
+                          setIsPivotBuilderOpen(false);
+                        }}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-            </div>
-          </div>
-      </React.Fragment>
-
-      {/* Loading State */}
-      {isLoading && (
-        <div className="flex items-center justify-center py-16 pt-4">
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            <span className="text-sm text-muted-foreground">Loading transaction data...</span>
-          </div>
         </div>
-      )}
-
-      {/* Error State */}
-      {error && !isLoading && (
-        <div className="flex items-center justify-center py-8 pt-4">
-          <div className="text-sm text-destructive">{error}</div>
-        </div>
-      )}
-
-      {/* Main Data Display */}
-      <div className="pt-2">
-        {!isLoading && !error && isDataReady && (
-          <>
-            {/* Loading indicator for custom pivot */}
-            {pivotMode === 'custom' && isProcessingPivot && (
-              <Card>
-                <CardContent className="flex items-center justify-center py-8">
-                  <Loader2 className="w-6 h-6 animate-spin mr-2" />
-                  <span>Processing pivot table...</span>
-          </CardContent>
-              </Card>
-            )}
-
-            {pivotMode === 'buyer_seller_cross' ? (
-              pivotDataFromBackend && renderBuyerSellerCrossPivot()
-            ) : pivotMode === 'custom' ? (
-              // Custom pivot from drag and drop config
-              customPivotData ? (
-                renderCustomPivotTable(customPivotData)
-              ) : (
-                <Card>
-                  <CardContent className="text-center py-8 text-muted-foreground">
-                    {pivotConfig.rows.length === 0 && pivotConfig.columns.length === 0 && pivotConfig.aggregations.length === 0
-                      ? 'Drag fields to Rows, Columns, or Values to create a pivot table'
-                      : 'No data available'}
-                  </CardContent>
-      </Card>
-              )
-            ) : (
-              pivotDataFromBackend ? (
-                (() => {
-                  const label = pivotMode;
-                  const showAvgPrice = pivotMode !== 'price';
-                  const showOrdNum = pivotMode === 'buyer_broker' ||
-                    pivotMode === 'seller_broker' ||
-                    pivotMode.includes('buyer_broker') ||
-                    pivotMode.includes('seller_broker') ||
-                    pivotMode.includes('inv_type_broker') ||
-                    pivotMode.includes('trx_type_buyer') ||
-                    pivotMode.includes('trx_type_seller');
-
-                  return renderPivotTable(pivotDataFromBackend, label, showAvgPrice, showOrdNum);
-                })()
-              ) : null
-            )}
-          </>
-        )}
       </div>
     </div>
   );
