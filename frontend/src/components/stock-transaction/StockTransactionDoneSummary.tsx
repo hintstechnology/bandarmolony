@@ -336,9 +336,10 @@ const savePreferences = (prefs: Partial<UserPreferences>) => {
 
 interface StockTransactionDoneSummaryProps {
   selectedStock?: string;
+  disableTickerSelection?: boolean; // When true, only use propSelectedStock and hide ticker selection UI
 }
 
-export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }: StockTransactionDoneSummaryProps) {
+export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, disableTickerSelection = false }: StockTransactionDoneSummaryProps) {
   const { showToast } = useToast();
   
   // Load preferences from cookies on mount
@@ -468,6 +469,10 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
 
   // Helper functions
   const handleStockSelect = (stock: string) => {
+    if (disableTickerSelection) {
+      // Ignore selection if ticker selection is disabled
+      return;
+    }
     if (!selectedStocks.includes(stock)) {
       setSelectedStocks([...selectedStocks, stock]);
     }
@@ -476,6 +481,10 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
   };
 
   const handleRemoveStock = (stock: string) => {
+    if (disableTickerSelection) {
+      // Ignore removal if ticker selection is disabled
+      return;
+    }
     setSelectedStocks(selectedStocks.filter(s => s !== stock));
   };
 
@@ -564,11 +573,15 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
   // No need to load stocks from API anymore - using static list
 
   // Update selectedStocks when prop changes
+  // If disableTickerSelection is true, always force selectedStocks to match propSelectedStock
   useEffect(() => {
-    if (propSelectedStock && !selectedStocks.includes(propSelectedStock)) {
+    if (disableTickerSelection && propSelectedStock) {
+      // Force to use only propSelectedStock
+      setSelectedStocks([propSelectedStock]);
+    } else if (propSelectedStock && !selectedStocks.includes(propSelectedStock)) {
       setSelectedStocks([propSelectedStock]);
     }
-  }, [propSelectedStock, selectedStocks]);
+  }, [propSelectedStock, selectedStocks, disableTickerSelection]);
 
   // Save preferences to localStorage with debounce to reduce write operations
   useEffect(() => {
@@ -885,6 +898,10 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
         <CardContent>
           <div className="overflow-x-auto -mx-4 sm:mx-0">
             <div className="min-w-full px-4 sm:px-0">
+              {/* Ticker label at top left of table */}
+              <div className="mb-2">
+                <span className="text-sm font-semibold text-foreground">{stock}</span>
+              </div>
               <table className="w-full text-[12px] border-collapse" style={{ tableLayout: 'auto', width: 'auto' }}>
               <thead>
                 {/* Main Header Row - Dates */}
@@ -1444,43 +1461,49 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
             <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
-              <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-              <input
-                type="text"
-                value={stockInput}
-                onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
-                onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
-                onKeyDown={(e) => {
-                  const availableSuggestions = stockInput === '' 
-                    ? STOCK_LIST.filter(s => !selectedStocks.includes(s))
-                    : filteredStocks.filter(s => !selectedStocks.includes(s));
-                  const suggestions = availableSuggestions.slice(0, 10);
-                  if (!suggestions.length) return;
-                  if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
-                  } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-                  } else if (e.key === 'Enter' && showStockSuggestions) {
-                    e.preventDefault();
-                    const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
-                    const choice = suggestions[idx];
-                    if (choice) handleStockSelect(choice);
-                  } else if (e.key === 'Escape') {
-                    setShowStockSuggestions(false);
-                    setHighlightedStockIndex(-1);
-                  }
-                }}
-                placeholder={selectedStocks.length > 0 ? (selectedStocks.length === 1 ? selectedStocks[0] : selectedStocks.join(' | ')) : "Enter stock code..."}
-                className={`w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedStocks.length > 0 ? 'placeholder:text-white' : ''}`}
-                role="combobox"
-                aria-expanded={showStockSuggestions}
-                aria-controls="stock-suggestions"
-                aria-autocomplete="list"
-              />
-              {showStockSuggestions && (
-                <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col">
+              {!disableTickerSelection && <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />}
+              {disableTickerSelection ? (
+                <div className="w-full md:w-32 h-9 pl-3 pr-3 flex items-center text-sm border border-input rounded-md bg-muted text-foreground">
+                  {propSelectedStock || selectedStocks[0] || 'No ticker selected'}
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    value={stockInput}
+                    onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                    onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
+                    onKeyDown={(e) => {
+                      const availableSuggestions = stockInput === '' 
+                        ? STOCK_LIST.filter(s => !selectedStocks.includes(s))
+                        : filteredStocks.filter(s => !selectedStocks.includes(s));
+                      const suggestions = availableSuggestions.slice(0, 10);
+                      if (!suggestions.length) return;
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                      } else if (e.key === 'Enter' && showStockSuggestions) {
+                        e.preventDefault();
+                        const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                        const choice = suggestions[idx];
+                        if (choice) handleStockSelect(choice);
+                      } else if (e.key === 'Escape') {
+                        setShowStockSuggestions(false);
+                        setHighlightedStockIndex(-1);
+                      }
+                    }}
+                    placeholder={selectedStocks.length > 0 ? (selectedStocks.length === 1 ? selectedStocks[0] : selectedStocks.join(' | ')) : "Enter stock code..."}
+                    className={`w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedStocks.length > 0 ? 'placeholder:text-white' : ''}`}
+                    role="combobox"
+                    aria-expanded={showStockSuggestions}
+                    aria-controls="stock-suggestions"
+                    aria-autocomplete="list"
+                  />
+                  {showStockSuggestions && (
+                  <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col">
                   <>
                     {/* Selected Items Section */}
                     {selectedStocks.length > 0 && (
@@ -1571,6 +1594,8 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                     </div>
                   </>
                 </div>
+                  )}
+                </>
               )}
             </div>
           </div>

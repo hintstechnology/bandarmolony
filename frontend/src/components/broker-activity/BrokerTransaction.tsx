@@ -113,12 +113,19 @@ const fetchBrokerTransactionData = async (
       
       return data;
     }
+    
+    // If response is not successful, log error for debugging
+    if (!response.success) {
+      console.warn(`[BrokerTransaction] API returned error for ${code}-${date}:`, response.error);
+    }
+    
     return [];
   } catch (error: any) {
     if (error?.message === 'Fetch aborted' || abortSignal?.aborted) {
       throw error;
     }
-    // Silently return empty array on error to not slow down with console.error
+    // Log error for debugging (especially for sector_ALL files)
+    console.error(`[BrokerTransaction] Error fetching ${code}-${date}:`, error);
     return [];
   }
 };
@@ -985,54 +992,82 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 return selectedTickers.map((code: string) => ({ code, date, type: 'stock' as const }));
               }
               
-              // If sectors are selected, fetch sector CSV directly (already aggregated in backend)
-              // This is much faster than fetching all individual stock files
+              // If sectors are selected, fetch individual stock files for stocks in that sector
+              // CRITICAL: Sector is used to FILTER stocks by sector (not to fetch sector CSV)
+              // - IDX Composite = fetch all stocks from availableStocksFromAPI
+              // - Other sectors = fetch stocks from that sector only
               if (selectedSectors.length > 0) {
-                // Fetch sector CSV directly for each selected sector
-                // Backend already aggregated all stocks in sector into one CSV file
-                return selectedSectors.map((sector: string) => ({ code: sector, date, type: 'stock' as const }));
+                // Get stocks from selected sectors
+                let stocksToFetch: string[] = [];
+                
+                if (selectedSectors.includes('IDX')) {
+                  // IDX Composite = fetch all stocks
+                  stocksToFetch = availableStocksFromAPI.length > 0 
+                    ? availableStocksFromAPI 
+                    : availableTickers;
+                } else {
+                  // Other sectors = filter stocks by sector
+                  const allStocks = availableStocksFromAPI.length > 0 
+                    ? availableStocksFromAPI 
+                    : availableTickers;
+                  stocksToFetch = allStocks.filter(ticker => {
+                    const tickerSector = stockToSectorMap[ticker.toUpperCase()];
+                    return tickerSector && selectedSectors.includes(tickerSector);
+                  });
+                }
+                
+                if (stocksToFetch.length === 0) {
+                  // No stocks found for selected sectors
+                  return [];
+                }
+                
+                // Fetch individual stock files for stocks in selected sectors
+                return stocksToFetch.map((code: string) => ({ code, date, type: 'stock' as const }));
               }
               
               return [];
             })
           : selectedDates.flatMap(date => {
               // For Broker pivot: 
-              // - If broker "ALL" is selected with sector: fetch {sector}_ALL.csv (already aggregated in backend)
-              // - If broker "ALL" is selected without sector: skip (don't fetch all broker files - too many)
-              // - If specific broker(s) selected with sector: fetch individual broker files, then filter by sector in frontend
-              // - If specific broker(s) selected without sector: fetch individual broker files
-              // - If sector selected but no broker selected: fetch {sector}_ALL.csv
+              // CRITICAL: Sector is used to FILTER stocks by sector (not to fetch sector_ALL.csv)
+              // - IDX Composite = show all stocks (no filter)
+              // - Other sectors = filter stocks by that sector
+              // - Broker "ALL" = fetch all broker files
+              // - Specific broker(s) = fetch those broker files
+              // - After fetch, filter stocks by sector in frontend
               const hasSpecificBrokers = selectedBrokers.length > 0 && !selectedBrokers.includes('ALL');
               const hasAllBroker = selectedBrokers.includes('ALL');
               
-              if (selectedSectors.length > 0 && hasAllBroker) {
-                // Sector + "ALL" broker: fetch {sector}_ALL.csv (already aggregated in backend)
-                return selectedSectors.map((sector: string) => ({ code: `${sector}_ALL`, date, type: 'broker' as const }));
-              } else if (selectedSectors.length > 0 && hasSpecificBrokers) {
-                // Sector + specific broker(s): fetch individual broker files, then filter by sector in frontend
-                const brokersToFetch = selectedBrokers.filter(b => b !== 'ALL');
-                if (brokersToFetch.length === 0) {
-                  return [];
+              // Determine which brokers to fetch
+              let brokersToFetch: string[] = [];
+              
+              if (hasAllBroker) {
+                // Broker "ALL" selected: fetch all available broker files
+                // CRITICAL: Fetch all available brokers instead of ALL.csv (which may not exist)
+                // This ensures data is always available when "ALL" is selected
+                if (availableBrokers.length === 0) {
+                  // If brokers not loaded yet, try to fetch ALL.csv as fallback
+                  return [{ code: 'ALL', date, type: 'broker' as const }];
                 }
-                return brokersToFetch.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
-              } else if (selectedSectors.length > 0) {
-                // Sector selected but no broker selected: fetch {sector}_ALL.csv
-                return selectedSectors.map((sector: string) => ({ code: `${sector}_ALL`, date, type: 'broker' as const }));
-              } else if (hasAllBroker) {
-                // Broker "ALL" selected but no sector: fetch ALL.csv (aggregate all emitens from all brokers)
-                // This file is generated by broker_transaction_ALL.ts generateALLWithoutSector()
-                return [{ code: 'ALL', date, type: 'broker' as const }];
+                // Filter out 'ALL' from broker list and fetch all individual broker files
+                brokersToFetch = availableBrokers.filter(b => b !== 'ALL');
+                if (brokersToFetch.length === 0) {
+                  // Fallback: if no brokers available, try ALL.csv
+                  return [{ code: 'ALL', date, type: 'broker' as const }];
+                }
               } else if (hasSpecificBrokers) {
-                // Fetch individual broker files (specific brokers selected, no sector)
-                const brokersToFetch = selectedBrokers.filter(b => b !== 'ALL');
+                // Specific broker(s) selected: fetch those broker files
+                brokersToFetch = selectedBrokers.filter(b => b !== 'ALL');
                 if (brokersToFetch.length === 0) {
                   return [];
                 }
-                return brokersToFetch.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
               } else {
-                // No broker and no sector selected
+                // No broker selected
                 return [];
               }
+              
+              // Fetch individual broker files (sector filtering will be done in frontend after fetch)
+              return brokersToFetch.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
             });
         
         // Check cache first and separate cached vs uncached requests
@@ -1104,11 +1139,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         
               // Process chunk results
               chunkResults.forEach((result) => {
-                if (result.success && 'data' in result && result.data && result.data.length > 0) {
-                  allDataResults.push({ date: result.date, code: result.code, data: result.data });
-                  completedCount++;
+                if (result.success && 'data' in result && result.data) {
+                  // CRITICAL: Include data even if empty array (for sector_ALL files that might be empty)
+                  // This ensures we don't lose track of which codes were fetched
+                  if (result.data.length > 0) {
+                    allDataResults.push({ date: result.date, code: result.code, data: result.data });
+                    completedCount++;
+                  } else {
+                    // Log empty data for debugging
+                    console.warn(`[BrokerTransaction] Empty data for ${result.code}-${result.date} (file may not exist or be empty)`);
+                  }
                 } else if (!result.success && 'error' in result) {
-                  console.warn(`[BrokerTransaction] Failed to fetch data for ${result.code}-${result.date}:`, result.error);
+                  console.error(`[BrokerTransaction] Failed to fetch data for ${result.code}-${result.date}:`, result.error);
                 }
               });
               
@@ -1228,8 +1270,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             stockDataMap.forEach((rows, stockCode) => {
               let filteredRows = rows;
             
-            // Priority 1: Filter by broker (if selectedBrokers is provided)
-            if (selectedBrokers.length > 0) {
+            // Priority 1: Filter by broker (if selectedBrokers is provided and not "ALL")
+            // CRITICAL: If "ALL" is selected, don't filter - show all brokers
+            if (selectedBrokers.length > 0 && !selectedBrokers.includes('ALL')) {
               const normalizedSelectedBrokers = selectedBrokers.map(b => b.toUpperCase());
               filteredRows = filteredRows.filter(row => {
                 const emiten = (row.Emiten || '').toUpperCase();
@@ -1768,32 +1811,31 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             });
           } else if (selectedSectors.length > 0) {
             // Priority 2: Filter by sector (only if no ticker selected)
+            // CRITICAL: Sector is used to FILTER stocks by sector (not to fetch sector_ALL.csv)
+            // - IDX Composite = show all stocks (no filter)
+            // - Other sectors = filter stocks by that sector
+            // For Broker pivot: Emiten is the stock code - check Emiten sector
+            // For Stock pivot: Emiten is also the stock code (not broker code)
+            // BCode, SCode, NBCode, NSCode are broker codes, so don't check them for sector filtering
             allRows = allRows.filter(row => {
-              // Check if any stock code in row belongs to selected sectors
-              // For Broker pivot: Emiten is the stock code
-              // For Stock pivot: BCode, SCode, NBCode, NSCode are broker codes (not stock codes)
+              // Check Emiten field - this is the stock code for both Broker and Stock pivot
               const emiten = row.Emiten || '';
-              const bCode = row.BCode || '';
-              const sCode = row.SCode || '';
-              const nbCode = row.NBCode || '';
-              const nsCode = row.NSCode || '';
+              if (!emiten) return false;
               
-              // Check Emiten first (for Broker pivot)
-              const emitenSector = emiten ? stockToSectorMap[emiten.toUpperCase()] : null;
+              // Special case: IDX Composite = show all stocks (no filter)
+              if (selectedSectors.includes('IDX')) {
+                // If IDX is selected, show all stocks (no filtering)
+                return true;
+              }
+              
+              // For other sectors, filter by sector
+              const emitenSector = stockToSectorMap[emiten.toUpperCase()];
               if (emitenSector && selectedSectors.includes(emitenSector)) {
                 return true;
               }
               
-              // Check other codes (for Stock pivot or additional filtering)
-              const bCodeSector = bCode ? stockToSectorMap[bCode.toUpperCase()] : null;
-              const sCodeSector = sCode ? stockToSectorMap[sCode.toUpperCase()] : null;
-              const nbCodeSector = nbCode ? stockToSectorMap[nbCode.toUpperCase()] : null;
-              const nsCodeSector = nsCode ? stockToSectorMap[nsCode.toUpperCase()] : null;
-              
-              return (bCodeSector && selectedSectors.includes(bCodeSector)) ||
-                     (sCodeSector && selectedSectors.includes(sCodeSector)) ||
-                     (nbCodeSector && selectedSectors.includes(nbCodeSector)) ||
-                     (nsCodeSector && selectedSectors.includes(nsCodeSector));
+              // If Emiten doesn't match, exclude this row
+              return false;
             });
           }
           
@@ -3683,21 +3725,32 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   }, [transactionData]); // CRITICAL: Only depend on transactionData - sector filtering will be applied at render time, not during computation
 
   // Memoize stock color cache for O(1) lookup (moved outside render for better performance)
+  // Sector colors mapping (shared for stock colors and sector display)
+  const sectorColors: { [sector: string]: string } = useMemo(() => ({
+    'Financials': '#FFFFFF', // White
+    'Energy': '#4169E1', // Royal Blue
+    'Basic Materials': '#00BFFF', // Sky Blue
+    'Consumer Cyclicals': '#800080', // Deep Purple
+    'Consumer Non-Cyclicals': '#FFD700', // Gold
+    'Healthcare': '#FF8C00', // Orange
+    'Industrials': '#00FFFF', // Cyan
+    'Infrastructures': '#8B4513', // Brown
+    'Properties & Real Estate': '#708090', // Slate Gray
+    'Technology': '#FF69B4', // Hot Pink
+    'Transportation & Logistic': '#C3B091' // Khaki
+  }), []);
+
+  // Helper function to get sector color
+  const getSectorColor = useCallback((sector: string): string => {
+    if (sector === 'IDX') {
+      // IDX Composite uses a special color (can be customized)
+      return '#4169E1'; // Royal Blue (same as Energy for now)
+    }
+    return sectorColors[sector] || '#FFFFFF';
+  }, [sectorColors]);
+
   const stockColorCache = useMemo(() => {
     const cache = new Map<string, { color: string; className: string }>();
-    const sectorColors: { [sector: string]: string } = {
-      'Financials': '#FFFFFF', // White
-      'Energy': '#4169E1', // Royal Blue
-      'Basic Materials': '#00BFFF', // Sky Blue
-      'Consumer Cyclicals': '#800080', // Deep Purple
-      'Consumer Non-Cyclicals': '#FFD700', // Gold
-      'Healthcare': '#FF8C00', // Orange
-      'Industrials': '#00FFFF', // Cyan
-      'Infrastructures': '#8B4513', // Brown
-      'Properties & Real Estate': '#708090', // Slate Gray
-      'Technology': '#FF69B4', // Hot Pink
-      'Transportation & Logistic': '#C3B091' // Khaki
-    };
     
     return {
       get: (stockCode: string, stockToSectorMap: { [stock: string]: string }): { color: string; className: string } => {
@@ -3718,7 +3771,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         return result;
       }
     };
-  }, []);
+  }, [sectorColors]);
 
   // Memoize sorted stocks for Total column to avoid recalculating on every render
   const sortedTotalBuyStocksMemo = useMemo(() => {
@@ -4869,71 +4922,90 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       );
     };
 
-    // Total Table - Per Date Totals with 4 columns
+    // Total Table - Per Date Totals with 8 columns (Buy and Sell separate)
     const renderAggregateSummaryTable = () => {
       const showOnlyTotal = selectedDates.length > 7;
       
-      // Calculate totals per date
+      // Calculate totals per date - separate Buy and Sell
       const totalsByDate = new Map<string, {
-        totalValue: number;
-        foreignNetValue: number;
-        totalLot: number;
-        avgPrice: number;
+        // Buy side
+        buyTotalValue: number;
+        buyForeignValue: number;
+        buyTotalLot: number;
+        buyAvgPrice: number;
+        // Sell side
+        sellTotalValue: number;
+        sellForeignValue: number;
+        sellTotalLot: number;
+        sellAvgPrice: number;
       }>();
 
-      // Grand totals across all dates
-      let grandTotalValue = 0;
-      let grandForeignBuyValue = 0;
-      let grandForeignSellValue = 0;
-      let grandTotalLot = 0;
+      // Grand totals across all dates - separate Buy and Sell
+      let grandBuyTotalValue = 0;
+      let grandBuyForeignValue = 0;
+      let grandBuyTotalLot = 0;
+      let grandSellTotalValue = 0;
+      let grandSellForeignValue = 0;
+      let grandSellTotalLot = 0;
 
       selectedDates.forEach((date: string) => {
         const dateData = transactionData.get(date) || [];
-        let dateTotalValue = 0;
-        let dateTotalLot = 0;
-        let dateForeignBuyValue = 0;
-        let dateForeignSellValue = 0;
+        let dateBuyTotalValue = 0;
+        let dateBuyTotalLot = 0;
+        let dateBuyForeignValue = 0;
+        let dateSellTotalValue = 0;
+        let dateSellTotalLot = 0;
+        let dateSellForeignValue = 0;
 
         dateData.forEach(item => {
           const buyVal = Number(item.BuyerValue) || 0;
           const sellVal = Number(item.SellerValue) || 0;
-          
-          // TVal: Only count buyer value (not buyer + seller, that would be double counting)
-          // Since every transaction has a buyer and seller with same value
-          dateTotalValue += buyVal;
-
           const buyLot = Number(item.BLot) || 0;
-          dateTotalLot += buyLot;
+          const sellLot = Number(item.SLot) || 0;
+          
+          // Buy side totals
+          dateBuyTotalValue += buyVal;
+          dateBuyTotalLot += buyLot;
+
+          // Sell side totals
+          dateSellTotalValue += sellVal;
+          dateSellTotalLot += sellLot;
 
           const bCode = (item.BCode || '').toUpperCase();
           const sCode = (item.SCode || '').toUpperCase();
           if (bCode && FOREIGN_BROKERS.includes(bCode)) {
-            dateForeignBuyValue += buyVal;
+            dateBuyForeignValue += buyVal;
           }
           if (sCode && FOREIGN_BROKERS.includes(sCode)) {
-            dateForeignSellValue += sellVal;
+            dateSellForeignValue += sellVal;
           }
         });
 
-        const dateForeignNetValue = dateForeignBuyValue - dateForeignSellValue;
-        const dateAvgPrice = dateTotalLot > 0 ? dateTotalValue / (dateTotalLot * 100) : 0;
+        const dateBuyAvgPrice = dateBuyTotalLot > 0 ? dateBuyTotalValue / (dateBuyTotalLot * 100) : 0;
+        const dateSellAvgPrice = dateSellTotalLot > 0 ? dateSellTotalValue / (dateSellTotalLot * 100) : 0;
 
         totalsByDate.set(date, {
-          totalValue: dateTotalValue,
-          foreignNetValue: dateForeignNetValue,
-          totalLot: dateTotalLot,
-          avgPrice: dateAvgPrice
+          buyTotalValue: dateBuyTotalValue,
+          buyForeignValue: dateBuyForeignValue,
+          buyTotalLot: dateBuyTotalLot,
+          buyAvgPrice: dateBuyAvgPrice,
+          sellTotalValue: dateSellTotalValue,
+          sellForeignValue: dateSellForeignValue,
+          sellTotalLot: dateSellTotalLot,
+          sellAvgPrice: dateSellAvgPrice
         });
 
-        grandTotalValue += dateTotalValue;
-        grandTotalLot += dateTotalLot;
-        grandForeignBuyValue += dateForeignBuyValue;
-        grandForeignSellValue += dateForeignSellValue;
+        grandBuyTotalValue += dateBuyTotalValue;
+        grandBuyTotalLot += dateBuyTotalLot;
+        grandBuyForeignValue += dateBuyForeignValue;
+        grandSellTotalValue += dateSellTotalValue;
+        grandSellTotalLot += dateSellTotalLot;
+        grandSellForeignValue += dateSellForeignValue;
       });
 
       // Calculate grand totals
-      const grandForeignNetValue = grandForeignBuyValue - grandForeignSellValue;
-      const grandAvgPrice = grandTotalLot > 0 ? grandTotalValue / (grandTotalLot * 100) : 0;
+      const grandBuyAvgPrice = grandBuyTotalLot > 0 ? grandBuyTotalValue / (grandBuyTotalLot * 100) : 0;
+      const grandSellAvgPrice = grandSellTotalLot > 0 ? grandSellTotalValue / (grandSellTotalLot * 100) : 0;
 
       return (
         <div className="w-full max-w-full mt-2">
@@ -4948,7 +5020,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         <th 
                           key={date} 
                           className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
-                          colSpan={4} 
+                          colSpan={8} 
                           style={{ 
                             textAlign: 'center', 
                             width: dateWidth ? `${dateWidth}px` : undefined, 
@@ -4962,7 +5034,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     })}
                     <th 
                       className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} 
-                      colSpan={4} 
+                      colSpan={8} 
                       style={{ 
                         textAlign: 'center', 
                         width: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined, 
@@ -4976,25 +5048,37 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   <tr className="bg-[#3a4252]">
                     {!showOnlyTotal && selectedDates.map((date, dateIndex) => {
                       const dateWidth = dateColumnWidthsRef.current.get(date);
-                      const colWidth = dateWidth ? dateWidth / 4 : undefined;
+                      const colWidth = dateWidth ? dateWidth / 8 : undefined;
                       return (
                         <React.Fragment key={`detail-${date}`}>
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TVal</th>
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>FNVal</th>
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TLot</th>
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>Avg</th>
+                          {/* Buy columns */}
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TVal Buy</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>FNVal Buy</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TLot Buy</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>Avg Buy</th>
+                          {/* Sell columns */}
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TVal Sell</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>FNVal Sell</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TLot Sell</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>Avg Sell</th>
                         </React.Fragment>
                       );
                     })}
                     {/* Total Columns */}
                     {(() => {
-                      const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
+                      const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 8 : undefined;
                       return (
                         <>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TVal</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>FNVal</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TLot</th>
-                          <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>Avg</th>
+                          {/* Buy columns */}
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TVal Buy</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>FNVal Buy</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TLot Buy</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>Avg Buy</th>
+                          {/* Sell columns */}
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TVal Sell</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>FNVal Sell</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TLot Sell</th>
+                          <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>Avg Sell</th>
                         </>
                       );
                     })()}
@@ -5005,12 +5089,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     {!showOnlyTotal && selectedDates.map((date, dateIndex) => {
                       const dateTotals = totalsByDate.get(date);
                       const dateWidth = dateColumnWidthsRef.current.get(date);
-                      const colWidth = dateWidth ? dateWidth / 4 : undefined;
+                      const colWidth = dateWidth ? dateWidth / 8 : undefined;
                       
                       if (!dateTotals) {
                         return (
                           <React.Fragment key={date}>
+                            {/* Buy columns */}
                             <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                            <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                            <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                            <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                            {/* Sell columns */}
+                            <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
                             <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
                             <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
                             <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
@@ -5018,43 +5108,73 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         );
                       }
 
-                      const foreignNetClass = dateTotals.foreignNetValue > 0 ? 'text-green-500' : dateTotals.foreignNetValue < 0 ? 'text-red-500' : 'text-white';
+                      const buyForeignClass = dateTotals.buyForeignValue > 0 ? 'text-green-500' : dateTotals.buyForeignValue < 0 ? 'text-red-500' : 'text-white';
+                      const sellForeignClass = dateTotals.sellForeignValue > 0 ? 'text-green-500' : dateTotals.sellForeignValue < 0 ? 'text-red-500' : 'text-white';
 
                       return (
                         <React.Fragment key={date}>
+                          {/* Buy columns */}
                           <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
-                            {formatValue(dateTotals.totalValue)}
+                            {formatValue(dateTotals.buyTotalValue)}
                           </td>
-                          <td className={`text-center py-[1px] px-[6px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
-                            {formatValue(dateTotals.foreignNetValue)}
+                          <td className={`text-center py-[1px] px-[6px] font-bold ${buyForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatValue(dateTotals.buyForeignValue)}
                           </td>
                           <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
-                            {formatLot(dateTotals.totalLot)}
+                            {formatLot(dateTotals.buyTotalLot)}
+                          </td>
+                          <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatAverage(dateTotals.buyAvgPrice)}
+                          </td>
+                          {/* Sell columns */}
+                          <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatValue(dateTotals.sellTotalValue)}
+                          </td>
+                          <td className={`text-center py-[1px] px-[6px] font-bold ${sellForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatValue(dateTotals.sellForeignValue)}
+                          </td>
+                          <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatLot(dateTotals.sellTotalLot)}
                           </td>
                           <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
-                            {formatAverage(dateTotals.avgPrice)}
+                            {formatAverage(dateTotals.sellAvgPrice)}
                           </td>
                         </React.Fragment>
                       );
                     })}
                     {/* Grand Total Column */}
                     {(() => {
-                      const grandForeignNetClass = grandForeignNetValue > 0 ? 'text-green-500' : grandForeignNetValue < 0 ? 'text-red-500' : 'text-white';
-                      const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
+                      const grandBuyForeignClass = grandBuyForeignValue > 0 ? 'text-green-500' : grandBuyForeignValue < 0 ? 'text-red-500' : 'text-white';
+                      const grandSellForeignClass = grandSellForeignValue > 0 ? 'text-green-500' : grandSellForeignValue < 0 ? 'text-red-500' : 'text-white';
+                      const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 8 : undefined;
 
                       return (
                         <React.Fragment>
+                          {/* Buy columns */}
                           <td className={`text-center py-[1px] px-[5px] text-white font-bold ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
-                            {formatValue(grandTotalValue)}
+                            {formatValue(grandBuyTotalValue)}
                           </td>
-                          <td className={`text-center py-[1px] px-[5px] font-bold ${grandForeignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
-                            {formatValue(grandForeignNetValue)}
+                          <td className={`text-center py-[1px] px-[5px] font-bold ${grandBuyForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatValue(grandBuyForeignValue)}
                           </td>
                           <td className="text-center py-[1px] px-[5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
-                            {formatLot(grandTotalLot)}
+                            {formatLot(grandBuyTotalLot)}
+                          </td>
+                          <td className="text-center py-[1px] px-[5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatAverage(grandBuyAvgPrice)}
+                          </td>
+                          {/* Sell columns */}
+                          <td className="text-center py-[1px] px-[5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatValue(grandSellTotalValue)}
+                          </td>
+                          <td className={`text-center py-[1px] px-[5px] font-bold ${grandSellForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatValue(grandSellForeignValue)}
+                          </td>
+                          <td className="text-center py-[1px] px-[5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatLot(grandSellTotalLot)}
                           </td>
                           <td className="text-center py-[1px] px-[7px] text-white font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
-                            {formatAverage(grandAvgPrice)}
+                            {formatAverage(grandSellAvgPrice)}
                           </td>
                         </React.Fragment>
                       );
@@ -5298,7 +5418,21 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                 <input
                   type="text"
-                  placeholder={selectedTickers.length > 0 ? (selectedTickers.length === 1 ? selectedTickers[0] : selectedTickers.join(' | ')) : "Add ticker"}
+                  placeholder={(() => {
+                    // Combine selected tickers and sectors for placeholder
+                    const allSelected: string[] = [];
+                    if (selectedTickers.length > 0) {
+                      allSelected.push(...selectedTickers);
+                    }
+                    if (selectedSectors.length > 0) {
+                      allSelected.push(...selectedSectors);
+                    }
+                    
+                    if (allSelected.length > 0) {
+                      return allSelected.join(' | ');
+                    }
+                    return "Add ticker";
+                  })()}
                   value={tickerInput}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -5307,7 +5441,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     setHighlightedTickerIndex(0);
                   }}
                   onFocus={() => setShowTickerSuggestions(true)}
-                  className={`w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedTickers.length > 0 ? 'placeholder:text-white' : ''}`}
+                  className={`w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${(selectedTickers.length > 0 || selectedSectors.length > 0) ? 'placeholder:text-white' : ''}`}
                   onKeyDown={(e) => {
                     // Combine suggestions: tickers first, then sectors
                     const allSuggestions: Array<{ type: 'ticker' | 'sector'; value: string }> = [
@@ -5364,44 +5498,54 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                 Clear
                               </button>
                             </div>
-                            {selectedTickers.map(ticker => (
-                              <div
-                                key={`selected-ticker-${ticker}`}
-                                className="px-3 py-1 hover:bg-muted flex items-center justify-between min-h-[24px]"
-                              >
-                                <span className="text-sm text-primary">{ticker}</span>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRemoveTicker(ticker);
-                                  }}
-                                  className="text-muted-foreground hover:text-destructive text-sm"
-                                  aria-label={`Remove ${ticker}`}
+                            {selectedTickers.map(ticker => {
+                              const tickerColor = stockColorCache.get(ticker, stockToSectorMap);
+                              return (
+                                <div
+                                  key={`selected-ticker-${ticker}`}
+                                  className="px-3 py-1 hover:bg-muted flex items-center justify-between min-h-[24px]"
                                 >
-                                  ×
-                                </button>
-                              </div>
-                            ))}
-                            {selectedSectors.map(sector => (
-                              <div
-                                key={`selected-sector-${sector}`}
-                                className="px-3 py-1 hover:bg-muted flex items-center justify-between min-h-[24px]"
-                              >
-                                <span className="text-sm text-blue-400">{sector === 'IDX' ? 'IDX Composite' : sector}</span>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRemoveSector(sector);
-                                  }}
-                                  className="text-muted-foreground hover:text-destructive text-sm"
-                                  aria-label={`Remove ${sector === 'IDX' ? 'IDX Composite' : sector}`}
+                                  <span className={`text-sm ${tickerColor.className}`} style={{ color: tickerColor.color }}>
+                                    {ticker}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveTicker(ticker);
+                                    }}
+                                    className="text-muted-foreground hover:text-destructive text-sm"
+                                    aria-label={`Remove ${ticker}`}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              );
+                            })}
+                            {selectedSectors.map(sector => {
+                              const sectorColor = getSectorColor(sector);
+                              return (
+                                <div
+                                  key={`selected-sector-${sector}`}
+                                  className="px-3 py-1 hover:bg-muted flex items-center justify-between min-h-[24px]"
                                 >
-                                  ×
-                                </button>
-                              </div>
-                            ))}
+                                  <span className="text-sm font-semibold" style={{ color: sectorColor }}>
+                                    {sector === 'IDX' ? 'IDX Composite' : sector}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveSector(sector);
+                                    }}
+                                    className="text-muted-foreground hover:text-destructive text-sm"
+                                    aria-label={`Remove ${sector === 'IDX' ? 'IDX Composite' : sector}`}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       {/* Search Results Section */}
@@ -5837,22 +5981,31 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   let filteredRows = [...rawRows];
                   
                   // Apply sector filter (same logic as in loadTransactionData)
+                  // CRITICAL: Sector is used to FILTER stocks by sector (not to fetch sector_ALL.csv)
+                  // - IDX Composite = show all stocks (no filter)
+                  // - Other sectors = filter stocks by that sector
+                  // For Broker pivot: Emiten is the stock code - check Emiten sector
+                  // For Stock pivot: Emiten is also the stock code (not broker code)
+                  // BCode, SCode, NBCode, NSCode are broker codes, so don't check them for sector filtering
                   if (selectedSectors.length > 0) {
                     filteredRows = filteredRows.filter(row => {
-                      const bCode = row.BCode || '';
-                      const sCode = row.SCode || '';
-                      const nbCode = row.NBCode || '';
-                      const nsCode = row.NSCode || '';
+                      // Check Emiten field - this is the stock code for both Broker and Stock pivot
+                      const emiten = row.Emiten || '';
+                      if (!emiten) return false;
                       
-                      const bCodeSector = bCode ? stockToSectorMap[bCode.toUpperCase()] : null;
-                      const sCodeSector = sCode ? stockToSectorMap[sCode.toUpperCase()] : null;
-                      const nbCodeSector = nbCode ? stockToSectorMap[nbCode.toUpperCase()] : null;
-                      const nsCodeSector = nsCode ? stockToSectorMap[nsCode.toUpperCase()] : null;
+                      // Special case: IDX Composite = show all stocks (no filter)
+                      if (selectedSectors.includes('IDX')) {
+                        return true;
+                      }
                       
-                      return (bCodeSector && selectedSectors.includes(bCodeSector)) ||
-                             (sCodeSector && selectedSectors.includes(sCodeSector)) ||
-                             (nbCodeSector && selectedSectors.includes(nbCodeSector)) ||
-                             (nsCodeSector && selectedSectors.includes(nsCodeSector));
+                      // For other sectors, filter by sector
+                      const emitenSector = stockToSectorMap[emiten.toUpperCase()];
+                      if (emitenSector && selectedSectors.includes(emitenSector)) {
+                        return true;
+                      }
+                      
+                      // If Emiten doesn't match, exclude this row
+                      return false;
                     });
                   }
                   

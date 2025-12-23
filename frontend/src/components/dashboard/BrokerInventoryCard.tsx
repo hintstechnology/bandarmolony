@@ -263,6 +263,7 @@ function AutoLoadingBrokerInventory({ selectedStock }: { selectedStock: string }
         defaultSplitView={true}
         hideControls={false}
         onlyShowInventoryChart={true}
+        disableTickerSelection={true}
       />
     </div>
   );

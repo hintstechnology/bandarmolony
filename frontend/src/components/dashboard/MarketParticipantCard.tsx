@@ -10,43 +10,83 @@ interface MarketParticipantCardProps {
 export function MarketParticipantCard({ selectedStock, defaultExpanded = false }: MarketParticipantCardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fix ResponsiveContainer width issues by ensuring chart containers have proper width
+  // Fix chart rendering
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const fixChartContainers = () => {
-      // Find all ResponsiveContainer parents (divs with h-64, h-80, etc.)
-      const chartContainers = container.querySelectorAll('div[class*="h-64"], div[class*="h-80"], div[class*="h-72"]');
-      chartContainers.forEach((div) => {
-        const element = div as HTMLElement;
-        // Ensure width is set and remove any min-width constraints
-        element.style.width = '100%';
-        element.style.minWidth = '100%';
-        element.style.maxWidth = '100%';
-        // Remove any min-w-0 classes that might interfere
-        element.classList.remove('min-w-0');
-      });
+    let isProcessing = false;
 
-      // Fix ResponsiveContainer itself and all its parents
-      const responsiveContainers = container.querySelectorAll('.recharts-responsive-container');
-      responsiveContainers.forEach((rc) => {
-        const element = rc as HTMLElement;
-        // Ensure ResponsiveContainer has width
-        if (!element.style.width || element.style.width === '0px') {
-          element.style.width = '100%';
-          element.style.minWidth = '100%';
-        }
-        
-        // Fix all parent containers up to the chart container
-        let parent = element.parentElement as HTMLElement;
-        while (parent && parent !== container) {
-          if (!parent.style.width || parent.style.width === '0px') {
-            parent.style.width = '100%';
-            parent.style.minWidth = '100%';
+    const fixChartContainers = () => {
+      if (isProcessing) return;
+      isProcessing = true;
+
+      requestAnimationFrame(() => {
+        try {
+          // Fix ResponsiveContainer - only if needed (optimized)
+          const responsiveContainers = container.querySelectorAll('.recharts-responsive-container');
+          for (const rc of Array.from(responsiveContainers)) {
+            const element = rc as HTMLElement;
+            const style = window.getComputedStyle(element);
+            
+            // Only fix if actually broken
+            if (style.width === '0px' || style.height === '0px') {
+              element.style.width = '100%';
+              element.style.minWidth = '100%';
+              element.style.height = '100%';
+              element.style.minHeight = '100%';
+            }
+            
+            // Fix parent containers only if needed
+            let parent = element.parentElement as HTMLElement;
+            let depth = 0;
+            while (parent && parent !== container && depth < 5) {
+              const parentStyle = window.getComputedStyle(parent);
+              if (parentStyle.width === '0px') {
+                parent.style.width = '100%';
+                parent.style.minWidth = '100%';
+              }
+              parent.classList.remove('min-w-0');
+              parent = parent.parentElement as HTMLElement;
+              depth++;
+            }
           }
-          parent.classList.remove('min-w-0');
-          parent = parent.parentElement as HTMLElement;
+          
+          // Fix BarChart visibility - only if needed
+          const barCharts = container.querySelectorAll('.recharts-bar');
+          for (const bar of Array.from(barCharts)) {
+            const barElement = bar as HTMLElement;
+            const style = window.getComputedStyle(barElement);
+            if (style.visibility === 'hidden' || style.opacity === '0') {
+              barElement.style.visibility = 'visible';
+              barElement.style.opacity = '1';
+            }
+          }
+          
+          // Fix all bar rectangles visibility
+          const barRectangles = container.querySelectorAll('.recharts-bar-rectangle, .recharts-rectangle');
+          for (const rect of Array.from(barRectangles)) {
+            const rectElement = rect as HTMLElement;
+            rectElement.style.visibility = 'visible';
+            rectElement.style.opacity = '1';
+            rectElement.style.display = 'block';
+          }
+          
+          // Fix all area paths
+          const areas = container.querySelectorAll('.recharts-area');
+          for (const area of Array.from(areas)) {
+            const areaElement = area as HTMLElement;
+            areaElement.style.visibility = 'visible';
+            areaElement.style.opacity = '1';
+            const paths = areaElement.querySelectorAll('path');
+            for (const path of Array.from(paths)) {
+              (path as HTMLElement).style.visibility = 'visible';
+              (path as HTMLElement).style.opacity = '1';
+              (path as HTMLElement).style.display = 'block';
+            }
+          }
+        } finally {
+          isProcessing = false;
         }
       });
     };
@@ -80,8 +120,9 @@ export function MarketParticipantCard({ selectedStock, defaultExpanded = false }
       <div ref={containerRef} className="w-full">
         <StoryMarketParticipant 
           selectedStock={selectedStock} 
-          hideMarketAnalysis={true} 
-          hideForeignFlowAnalysis={true} 
+          hideMarketAnalysis={false}
+          hideForeignFlowAnalysis={false}
+          disableFixedControlPanel={true}
         />
       </div>
     </CollapsibleSection>

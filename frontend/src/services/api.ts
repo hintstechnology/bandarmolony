@@ -2058,7 +2058,10 @@ export const api = {
       // Empty string means "All" for inv and "All Trade" for board
       params.append('inv', inv || '');
       params.append('board', board || '');
-      const res = await fetch(`${API_URL}/api/broker/transaction/${code}?${params.toString()}`, {
+      // CRITICAL: Encode code to handle sector names with spaces (e.g., "Basic Materials_ALL" -> "Basic%20Materials_ALL")
+      // Backend will decode this to get the actual sector name
+      const encodedCode = encodeURIComponent(code);
+      const res = await fetch(`${API_URL}/api/broker/transaction/${encodedCode}?${params.toString()}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });

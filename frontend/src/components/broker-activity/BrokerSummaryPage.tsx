@@ -127,9 +127,10 @@ const formatDisplayDate = (dateString: string): string => {
 
 interface BrokerSummaryPageProps {
   selectedStock?: string;
+  disableTickerSelection?: boolean; // When true, only use propSelectedStock and hide ticker selection UI
 }
 
-export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSummaryPageProps) {
+export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTickerSelection = false }: BrokerSummaryPageProps) {
   const { showToast } = useToast();
   
   // Load preferences from cookies on mount
@@ -538,12 +539,17 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   }, []); // Only run once on mount
 
   // Update selectedTickers when prop changes
+  // If disableTickerSelection is true, always force selectedTickers to match propSelectedStock
   useEffect(() => {
-    if (propSelectedStock && !selectedTickers.includes(propSelectedStock)) {
+    if (disableTickerSelection && propSelectedStock) {
+      // Force to use only propSelectedStock
+      setSelectedTickers([propSelectedStock]);
+      setTickerInput('');
+    } else if (propSelectedStock && !selectedTickers.includes(propSelectedStock)) {
       setSelectedTickers([propSelectedStock]);
       setTickerInput('');
     }
-  }, [propSelectedStock]);
+  }, [propSelectedStock, disableTickerSelection]);
 
   // Toast "Range Tanggal Lebih dari 7 Hari" is now shown only after clicking Show button (in fetchAll)
 
@@ -1814,6 +1820,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   }, [selectedTickers, selectedDates, startDate, endDate, fdFilter, marketFilter]);
 
   const handleStockSelect = (stock: string) => {
+    if (disableTickerSelection) {
+      // Ignore selection if ticker selection is disabled
+      return;
+    }
     // Check if it's a sector (has [SECTOR] prefix)
     if (stock.startsWith('[SECTOR] ')) {
       // Add sector name to selectedTickers (not individual stocks)
@@ -1847,10 +1857,18 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   };
 
   const handleRemoveTicker = (stock: string) => {
+    if (disableTickerSelection) {
+      // Ignore removal if ticker selection is disabled
+      return;
+    }
     setSelectedTickers(selectedTickers.filter(t => t !== stock));
   };
 
   const handleClearAllTickers = () => {
+    if (disableTickerSelection) {
+      // Ignore clear if ticker selection is disabled
+      return;
+    }
     setSelectedTickers([]);
   };
 
@@ -2856,28 +2874,38 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             </div>
           </div>
         </div>
-      {/* Total Table - Per Date Totals with 4 columns */}
+      {/* Total Table - Per Date Totals with 8 columns (Buy and Sell separate) */}
       {(() => {
-        // Calculate totals per date
+        // Calculate totals per date - separate Buy and Sell
         const totalsByDate = new Map<string, {
-          totalValue: number;
-          foreignNetValue: number;
-          totalLot: number;
-          avgPrice: number;
+          // Buy side
+          buyTotalValue: number;
+          buyForeignValue: number;
+          buyTotalLot: number;
+          buyAvgPrice: number;
+          // Sell side
+          sellTotalValue: number;
+          sellForeignValue: number;
+          sellTotalLot: number;
+          sellAvgPrice: number;
         }>();
 
-        // Grand totals across all dates
-        let grandTotalValue = 0;
-        let grandForeignBuyValue = 0;
-        let grandForeignSellValue = 0;
-        let grandTotalLotShares = 0;
+        // Grand totals across all dates - separate Buy and Sell
+        let grandBuyTotalValue = 0;
+        let grandBuyForeignValue = 0;
+        let grandBuyTotalLotShares = 0;
+        let grandSellTotalValue = 0;
+        let grandSellForeignValue = 0;
+        let grandSellTotalLotShares = 0;
 
         availableDates.forEach((date: string) => {
           const rows = summaryByDate.get(date) || [];
-          let dateTotalValue = 0;
-          let dateTotalLotShares = 0;
-          let dateForeignBuyValue = 0;
-          let dateForeignSellValue = 0;
+          let dateBuyTotalValue = 0;
+          let dateBuyTotalLotShares = 0;
+          let dateBuyForeignValue = 0;
+          let dateSellTotalValue = 0;
+          let dateSellTotalLotShares = 0;
+          let dateSellForeignValue = 0;
 
           rows.forEach(row => {
             // Filter by F/D
@@ -2886,40 +2914,52 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             const buyVal = Number(row.buyerValue) || 0;
             const sellVal = Number(row.sellerValue) || 0;
             const buyVol = Number(row.buyerVol) || 0;
+            const sellVol = Number(row.sellerVol) || 0;
 
-            // TVal: Only count buyer value (not buyer + seller, that would be double counting)
-            // Since every transaction has a buyer and seller with same value
-            dateTotalValue += buyVal;
-            dateTotalLotShares += buyVol;
+            // Buy side totals
+            dateBuyTotalValue += buyVal;
+            dateBuyTotalLotShares += buyVol;
+
+            // Sell side totals
+            dateSellTotalValue += sellVal;
+            dateSellTotalLotShares += sellVol;
 
             const brokerCode = (row.broker || '').toUpperCase();
             if (brokerCode && FOREIGN_BROKERS.includes(brokerCode)) {
-              dateForeignBuyValue += buyVal;
-              dateForeignSellValue += sellVal;
+              dateBuyForeignValue += buyVal;
+              dateSellForeignValue += sellVal;
             }
         });
 
-          const dateTotalLot = dateTotalLotShares / 100;
-          const dateForeignNetValue = dateForeignBuyValue - dateForeignSellValue;
-          const dateAvgPrice = (dateTotalLotShares > 0 && dateTotalValue > 0) ? dateTotalValue / dateTotalLotShares : 0;
+          const dateBuyTotalLot = dateBuyTotalLotShares / 100;
+          const dateSellTotalLot = dateSellTotalLotShares / 100;
+          const dateBuyAvgPrice = (dateBuyTotalLotShares > 0 && dateBuyTotalValue > 0) ? dateBuyTotalValue / dateBuyTotalLotShares : 0;
+          const dateSellAvgPrice = (dateSellTotalLotShares > 0 && dateSellTotalValue > 0) ? dateSellTotalValue / dateSellTotalLotShares : 0;
 
           totalsByDate.set(date, {
-            totalValue: dateTotalValue,
-            foreignNetValue: dateForeignNetValue,
-            totalLot: dateTotalLot,
-            avgPrice: dateAvgPrice
+            buyTotalValue: dateBuyTotalValue,
+            buyForeignValue: dateBuyForeignValue,
+            buyTotalLot: dateBuyTotalLot,
+            buyAvgPrice: dateBuyAvgPrice,
+            sellTotalValue: dateSellTotalValue,
+            sellForeignValue: dateSellForeignValue,
+            sellTotalLot: dateSellTotalLot,
+            sellAvgPrice: dateSellAvgPrice
           });
 
-          grandTotalValue += dateTotalValue;
-          grandTotalLotShares += dateTotalLotShares;
-          grandForeignBuyValue += dateForeignBuyValue;
-          grandForeignSellValue += dateForeignSellValue;
+          grandBuyTotalValue += dateBuyTotalValue;
+          grandBuyTotalLotShares += dateBuyTotalLotShares;
+          grandBuyForeignValue += dateBuyForeignValue;
+          grandSellTotalValue += dateSellTotalValue;
+          grandSellTotalLotShares += dateSellTotalLotShares;
+          grandSellForeignValue += dateSellForeignValue;
         });
 
         // Calculate grand totals
-        const grandTotalLot = grandTotalLotShares / 100;
-        const grandForeignNetValue = grandForeignBuyValue - grandForeignSellValue;
-        const grandAvgPrice = (grandTotalLotShares > 0 && grandTotalValue > 0) ? grandTotalValue / grandTotalLotShares : 0;
+        const grandBuyTotalLot = grandBuyTotalLotShares / 100;
+        const grandSellTotalLot = grandSellTotalLotShares / 100;
+        const grandBuyAvgPrice = (grandBuyTotalLotShares > 0 && grandBuyTotalValue > 0) ? grandBuyTotalValue / grandBuyTotalLotShares : 0;
+        const grandSellAvgPrice = (grandSellTotalLotShares > 0 && grandSellTotalValue > 0) ? grandSellTotalValue / grandSellTotalLotShares : 0;
 
         // Use selectedDates for header when data is empty (to show table structure)
         // Use availableDates when data exists (to show only dates with data)
@@ -2938,7 +2978,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           <th 
                             key={date} 
                             className={`text-center py-[1px] px-[7.4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
-                            colSpan={4} 
+                            colSpan={8} 
                             style={{ 
                               textAlign: 'center', 
                               width: dateWidth ? `${dateWidth}px` : undefined, 
@@ -2952,7 +2992,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       })}
                       <th 
                         className={`text-center py-[1px] px-[3.8px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} 
-                        colSpan={4} 
+                        colSpan={8} 
                         style={{ 
                           textAlign: 'center', 
                           width: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined, 
@@ -2966,25 +3006,37 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     <tr className="bg-[#3a4252]">
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => {
                         const dateWidth = dateColumnWidthsRef.current.get(date);
-                        const colWidth = dateWidth ? dateWidth / 4 : undefined;
+                        const colWidth = dateWidth ? dateWidth / 8 : undefined;
                         return (
                           <React.Fragment key={`detail-${date}`}>
-                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TVal</th>
-                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>FNVal</th>
-                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TLot</th>
-                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>Avg</th>
+                            {/* Buy columns */}
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TVal Buy</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>FNVal Buy</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TLot Buy</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>Avg Buy</th>
+                            {/* Sell columns */}
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TVal Sell</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>FNVal Sell</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TLot Sell</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>Avg Sell</th>
                           </React.Fragment>
                         );
                       })}
                       {/* Total Columns */}
                       {(() => {
-                        const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
+                        const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 8 : undefined;
                         return (
                           <>
-                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TVal</th>
-                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>FNVal</th>
-                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TLot</th>
-                            <th className={`text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>Avg</th>
+                            {/* Buy columns */}
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TVal Buy</th>
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>FNVal Buy</th>
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TLot Buy</th>
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>Avg Buy</th>
+                            {/* Sell columns */}
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TVal Sell</th>
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>FNVal Sell</th>
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TLot Sell</th>
+                            <th className={`text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>Avg Sell</th>
                           </>
                         );
                       })()}
@@ -2995,12 +3047,18 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       {!showOnlyTotal && availableDates.map((date, dateIndex) => {
                         const dateTotals = totalsByDate.get(date);
                         const dateWidth = dateColumnWidthsRef.current.get(date);
-                        const colWidth = dateWidth ? dateWidth / 4 : undefined;
+                        const colWidth = dateWidth ? dateWidth / 8 : undefined;
                         
                         if (!dateTotals) {
                           return (
                             <React.Fragment key={date}>
+                              {/* Buy columns */}
                               <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                              <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                              <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                              <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                              {/* Sell columns */}
+                              <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
                               <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
                               <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
                               <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
@@ -3008,43 +3066,73 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           );
                         }
 
-                        const foreignNetClass = dateTotals.foreignNetValue > 0 ? 'text-green-500' : dateTotals.foreignNetValue < 0 ? 'text-red-500' : 'text-white';
+                        const buyForeignClass = dateTotals.buyForeignValue > 0 ? 'text-green-500' : dateTotals.buyForeignValue < 0 ? 'text-red-500' : 'text-white';
+                        const sellForeignClass = dateTotals.sellForeignValue > 0 ? 'text-green-500' : dateTotals.sellForeignValue < 0 ? 'text-red-500' : 'text-white';
 
                         return (
                           <React.Fragment key={date}>
+                            {/* Buy columns */}
                             <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
-                              {formatNumber(dateTotals.totalValue)}
-                    </td>
-                            <td className={`text-center py-[1px] px-[5.4px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
-                              {formatNumber(dateTotals.foreignNetValue)}
-                    </td>
+                              {formatNumber(dateTotals.buyTotalValue)}
+                            </td>
+                            <td className={`text-center py-[1px] px-[5.4px] font-bold ${buyForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                              {formatNumber(dateTotals.buyForeignValue)}
+                            </td>
                             <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
-                              {formatLot(dateTotals.totalLot)}
-                    </td>
+                              {formatLot(dateTotals.buyTotalLot)}
+                            </td>
+                            <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                              {formatAverage(dateTotals.buyAvgPrice)}
+                            </td>
+                            {/* Sell columns */}
+                            <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                              {formatNumber(dateTotals.sellTotalValue)}
+                            </td>
+                            <td className={`text-center py-[1px] px-[5.4px] font-bold ${sellForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                              {formatNumber(dateTotals.sellForeignValue)}
+                            </td>
+                            <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                              {formatLot(dateTotals.sellTotalLot)}
+                            </td>
                             <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
-                              {formatAverage(dateTotals.avgPrice)}
-                    </td>
+                              {formatAverage(dateTotals.sellAvgPrice)}
+                            </td>
                           </React.Fragment>
                         );
                       })}
                       {/* Grand Total Column */}
                       {(() => {
-                        const grandForeignNetClass = grandForeignNetValue > 0 ? 'text-green-500' : grandForeignNetValue < 0 ? 'text-red-500' : 'text-white';
-                        const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
+                        const grandBuyForeignClass = grandBuyForeignValue > 0 ? 'text-green-500' : grandBuyForeignValue < 0 ? 'text-red-500' : 'text-white';
+                        const grandSellForeignClass = grandSellForeignValue > 0 ? 'text-green-500' : grandSellForeignValue < 0 ? 'text-red-500' : 'text-white';
+                        const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 8 : undefined;
 
                         return (
                           <React.Fragment>
+                            {/* Buy columns */}
                             <td className={`text-center py-[1px] px-[4.5px] text-white font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
-                              {formatNumber(grandTotalValue)}
+                              {formatNumber(grandBuyTotalValue)}
                             </td>
-                            <td className={`text-center py-[1px] px-[4.5px] font-bold ${grandForeignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
-                              {formatNumber(grandForeignNetValue)}
+                            <td className={`text-center py-[1px] px-[4.5px] font-bold ${grandBuyForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                              {formatNumber(grandBuyForeignValue)}
                             </td>
                             <td className="text-center py-[1px] px-[4.5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
-                              {formatLot(grandTotalLot)}
+                              {formatLot(grandBuyTotalLot)}
+                            </td>
+                            <td className="text-center py-[1px] px-[4.5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                              {formatAverage(grandBuyAvgPrice)}
+                            </td>
+                            {/* Sell columns */}
+                            <td className="text-center py-[1px] px-[4.5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                              {formatNumber(grandSellTotalValue)}
+                            </td>
+                            <td className={`text-center py-[1px] px-[4.5px] font-bold ${grandSellForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                              {formatNumber(grandSellForeignValue)}
+                            </td>
+                            <td className="text-center py-[1px] px-[4.5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                              {formatLot(grandSellTotalLot)}
                             </td>
                             <td className="text-center py-[1px] px-[6.3px] text-white font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
-                              {formatAverage(grandAvgPrice)}
+                              {formatAverage(grandSellAvgPrice)}
                             </td>
                           </React.Fragment>
                         );
@@ -3073,35 +3161,41 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                 <div className="flex items-center gap-2 w-full md:w-auto">
                   {/* Ticker Input */}
                   <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
-                    <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                    <input
-                      type="text"
-                      value={tickerInput}
-                      onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
-                      onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
-                      onKeyDown={(e) => {
-                        const suggestions = (tickerInput === '' ? availableStocks.filter(s => !selectedTickers.includes(s)) : filteredStocks).slice(0, 10);
-                        if (!suggestions.length) return;
-                        if (e.key === 'ArrowDown') {
-                          e.preventDefault();
-                          setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
-                        } else if (e.key === 'ArrowUp') {
-                          e.preventDefault();
-                          setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-                        } else if (e.key === 'Enter' && showStockSuggestions) {
-                          e.preventDefault();
-                          const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
-                          const choice = suggestions[idx];
-                          if (choice) handleStockSelect(choice);
-                        } else if (e.key === 'Escape') {
-                          setShowStockSuggestions(false);
-                          setHighlightedStockIndex(-1);
-                        }
-                      }}
-                      placeholder={selectedTickers.length > 0 ? (selectedTickers.length === 1 ? formatStockDisplayName(selectedTickers[0]) : selectedTickers.map(t => formatStockDisplayName(t)).join(' | ')) : "Add ticker"}
-                      className={`w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedTickers.length > 0 ? 'placeholder:text-white' : ''}`}
-                    />
-                    {showStockSuggestions && (
+                    {!disableTickerSelection && <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />}
+                    {disableTickerSelection ? (
+                      <div className="w-full md:w-32 h-9 pl-3 pr-3 flex items-center text-sm border border-input rounded-md bg-muted text-foreground">
+                        {propSelectedStock ? formatStockDisplayName(propSelectedStock) : (selectedTickers.length > 0 ? formatStockDisplayName(selectedTickers[0]) : 'No ticker selected')}
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={tickerInput}
+                        onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                        onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
+                        onKeyDown={(e) => {
+                          const suggestions = (tickerInput === '' ? availableStocks.filter(s => !selectedTickers.includes(s)) : filteredStocks).slice(0, 10);
+                          if (!suggestions.length) return;
+                          if (e.key === 'ArrowDown') {
+                            e.preventDefault();
+                            setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
+                          } else if (e.key === 'ArrowUp') {
+                            e.preventDefault();
+                            setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                          } else if (e.key === 'Enter' && showStockSuggestions) {
+                            e.preventDefault();
+                            const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                            const choice = suggestions[idx];
+                            if (choice) handleStockSelect(choice);
+                          } else if (e.key === 'Escape') {
+                            setShowStockSuggestions(false);
+                            setHighlightedStockIndex(-1);
+                          }
+                        }}
+                        placeholder={selectedTickers.length > 0 ? (selectedTickers.length === 1 ? formatStockDisplayName(selectedTickers[0]) : selectedTickers.map(t => formatStockDisplayName(t)).join(' | ')) : "Add ticker"}
+                        className={`w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedTickers.length > 0 ? 'placeholder:text-white' : ''}`}
+                      />
+                    )}
+                    {!disableTickerSelection && showStockSuggestions && (
                       <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-64">
                         {availableStocks.length === 0 ? (
                           <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
