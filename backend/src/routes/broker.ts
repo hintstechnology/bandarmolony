@@ -899,7 +899,10 @@ router.get('/transaction/dates', async (_req, res) => {
  */
 router.get('/transaction/:brokerCode', async (req, res) => {
   try {
-    const { brokerCode } = brokerTransactionParamsSchema.parse(req.params);
+    const { brokerCode: rawBrokerCode } = brokerTransactionParamsSchema.parse(req.params);
+    // CRITICAL: Decode URL encoding to handle sector names with spaces (e.g., "Basic Materials" -> "Basic%20Materials" -> "Basic Materials")
+    // This is necessary because sector_ALL.csv files are stored with actual spaces, not URL-encoded
+    const brokerCode = decodeURIComponent(rawBrokerCode);
     const { date } = brokerTransactionQuerySchema.parse(req.query);
     const pivot = (req.query['pivot'] as 'Broker' | 'Stock') || 'Broker'; // Get pivot filter (default: Broker)
     const invFilter = (req.query['inv'] as string) || ''; // Get inv filter from query (F/D) - Investor Type

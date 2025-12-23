@@ -32,10 +32,14 @@ export function OwnershipStructureCard({ selectedStock, defaultExpanded = false 
       const responsiveContainers = container.querySelectorAll('.recharts-responsive-container');
       responsiveContainers.forEach((rc) => {
         const element = rc as HTMLElement;
-        // Ensure ResponsiveContainer has width
+        // Ensure ResponsiveContainer has width and height
         if (!element.style.width || element.style.width === '0px') {
           element.style.width = '100%';
           element.style.minWidth = '100%';
+        }
+        if (!element.style.height || element.style.height === '0px') {
+          element.style.height = '100%';
+          element.style.minHeight = '100%';
         }
         
         // Fix all parent containers up to the chart container
@@ -45,9 +49,56 @@ export function OwnershipStructureCard({ selectedStock, defaultExpanded = false 
             parent.style.width = '100%';
             parent.style.minWidth = '100%';
           }
+          if (!parent.style.height || parent.style.height === '0px') {
+            const computedHeight = window.getComputedStyle(parent).height;
+            if (computedHeight && computedHeight !== '0px' && computedHeight !== 'auto') {
+              parent.style.height = computedHeight;
+            } else {
+              parent.style.height = '100%';
+              parent.style.minHeight = '100%';
+            }
+          }
           parent.classList.remove('min-w-0');
           parent = parent.parentElement as HTMLElement;
         }
+      });
+      
+      // Fix PieChart shapes visibility - ensure they're not hidden
+      const pieCharts = container.querySelectorAll('.recharts-pie');
+      pieCharts.forEach((pie) => {
+        const pieElement = pie as HTMLElement;
+        pieElement.style.visibility = 'visible';
+        pieElement.style.opacity = '1';
+        // Fix all path elements inside pie chart
+        const paths = pieElement.querySelectorAll('path');
+        paths.forEach((path) => {
+          (path as HTMLElement).style.visibility = 'visible';
+          (path as HTMLElement).style.opacity = '1';
+          (path as HTMLElement).style.display = 'block';
+        });
+      });
+      
+      // Fix all bar rectangles visibility
+      const barRectangles = container.querySelectorAll('.recharts-bar-rectangle, .recharts-rectangle');
+      barRectangles.forEach((rect) => {
+        const rectElement = rect as HTMLElement;
+        rectElement.style.visibility = 'visible';
+        rectElement.style.opacity = '1';
+        rectElement.style.display = 'block';
+      });
+      
+      // Fix all area paths
+      const areas = container.querySelectorAll('.recharts-area');
+      areas.forEach((area) => {
+        const areaElement = area as HTMLElement;
+        areaElement.style.visibility = 'visible';
+        areaElement.style.opacity = '1';
+        const paths = areaElement.querySelectorAll('path');
+        paths.forEach((path) => {
+          (path as HTMLElement).style.visibility = 'visible';
+          (path as HTMLElement).style.opacity = '1';
+          (path as HTMLElement).style.display = 'block';
+        });
       });
     };
 

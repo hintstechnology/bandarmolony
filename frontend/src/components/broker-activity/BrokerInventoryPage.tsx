@@ -1334,12 +1334,14 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   selectedStock: propSelectedStock,
   defaultSplitView = false,
   hideControls = false,
-  onlyShowInventoryChart = false
+  onlyShowInventoryChart = false,
+  disableTickerSelection = false
 }: { 
   selectedStock?: string;
   defaultSplitView?: boolean;
   hideControls?: boolean;
   onlyShowInventoryChart?: boolean;
+  disableTickerSelection?: boolean;
 }) {
   const { showToast } = useToast();
   
@@ -1366,8 +1368,12 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   // State management
   // Always default to BBCA if no propSelectedStock or if it's empty
   const [selectedTicker, setSelectedTicker] = useState<string>(() => {
+    // If disableTickerSelection is true, always use propSelectedStock
+    if (disableTickerSelection && propSelectedStock && propSelectedStock.trim() !== '') {
+      return propSelectedStock;
+    }
     // Try to load from preferences first
-    if (savedPrefs?.selectedTicker) {
+    if (savedPrefs?.selectedTicker && !disableTickerSelection) {
       return savedPrefs.selectedTicker;
     }
     // Fallback to prop or default
@@ -1474,6 +1480,15 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   // Track previous selectedTicker to detect changes
   const prevSelectedTickerRef = useRef<string>('');
   
+  // Force selectedTicker to match propSelectedStock when disableTickerSelection is true
+  useEffect(() => {
+    if (disableTickerSelection && propSelectedStock && propSelectedStock.trim() !== '') {
+      if (selectedTicker !== propSelectedStock) {
+        setSelectedTicker(propSelectedStock);
+      }
+    }
+  }, [propSelectedStock, disableTickerSelection, selectedTicker]);
+
   // Track ticker changes but don't reset chart data until Show is clicked
   useEffect(() => {
     const currentTicker: string = selectedTicker || '';
@@ -3839,6 +3854,7 @@ const visibleBrokers = useMemo(
               <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
                 <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
                 {/* Ticker Selection */}
+                {!disableTickerSelection && (
                 <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                   <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
                   <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
@@ -4003,7 +4019,7 @@ const visibleBrokers = useMemo(
                       )}
                     </div>
                   </div>
-
+                )}
                   {/* Broker Selection - Multi-select with chips */}
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
                     <label className="text-sm font-medium whitespace-nowrap">Broker:</label>

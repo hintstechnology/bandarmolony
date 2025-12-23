@@ -18,6 +18,54 @@ import { toast } from 'sonner';
 
 // Mock data removed - now using real data from API
 
+// Helper function to get trading days (excluding weekends)
+const getTradingDays = (count: number): string[] => {
+  const dates: string[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let daysBack = 1; // Start from yesterday, skip today
+  
+  while (dates.length < count) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - daysBack);
+    const dayOfWeek = date.getDay();
+    
+    // Skip weekends (Saturday = 6, Sunday = 0)
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+      dates.push(dateStr);
+    }
+    daysBack++;
+  }
+  
+  // Sort from oldest to newest
+  return dates.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+};
+
+// Helper function to get default date range (last 30 trading days)
+const getDefaultDateRange = () => {
+  const tradingDays = getTradingDays(30);
+  if (tradingDays.length >= 2) {
+    return {
+      start: tradingDays[0], // Oldest date
+      end: tradingDays[tradingDays.length - 1] // Newest date
+    };
+  }
+  // Fallback: use last month if no trading days found
+  const today = new Date();
+  const oneMonthAgo = new Date(today);
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+  const todayStr = today.toISOString().split('T')[0];
+  const oneMonthAgoStr = oneMonthAgo.toISOString().split('T')[0];
+  return {
+    start: oneMonthAgoStr || '',
+    end: todayStr || ''
+  };
+};
+
 // Mock data untuk money flow - convert to TradingView format with proper dates
 const moneyFlowData = [
   { time: '2024-01-01' as any, moneyFlow: 1200, inflow: 8000, outflow: 6800 },
@@ -531,12 +579,14 @@ interface StoryMarketParticipantProps {
   selectedStock?: string;
   hideMarketAnalysis?: boolean;
   hideForeignFlowAnalysis?: boolean;
+  disableFixedControlPanel?: boolean;
 }
 
 export function StoryMarketParticipant({ 
   selectedStock: propSelectedStock, 
   hideMarketAnalysis = false,
-  hideForeignFlowAnalysis = false 
+  hideForeignFlowAnalysis = false,
+  disableFixedControlPanel = false
 }: StoryMarketParticipantProps) {
   const [selectedStock, setSelectedStock] = useState(propSelectedStock || 'BBRI');
   const [stockInput, setStockInput] = useState(propSelectedStock || 'BBRI');
@@ -554,8 +604,11 @@ export function StoryMarketParticipant({
   
   // UI enhancements
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
-  const [tempDateRange, setTempDateRange] = useState({ start: '', end: '' });
+  
+  // Initialize date range with default values (last 30 trading days)
+  // Use lazy initialization to ensure it's only calculated once
+  const [dateRange, setDateRange] = useState(() => getDefaultDateRange());
+  const [tempDateRange, setTempDateRange] = useState(() => getDefaultDateRange());
   const [dataLimit, setDataLimit] = useState(100);
   
   // Cache
@@ -787,19 +840,12 @@ export function StoryMarketParticipant({
     loadStocks();
   }, []);
 
-  // Fetch data when selected stock or limit changes (date range controlled by Apply button)
+  // Fetch data when selected stock or limit changes
   useEffect(() => {
-    if (selectedStock) {
+    if (selectedStock && dateRange.start && dateRange.end) {
       fetchStockData(selectedStock);
     }
-  }, [selectedStock, dataLimit]);
-  
-  // Separate effect for date range changes
-  useEffect(() => {
-    if (selectedStock && (dateRange.start || dateRange.end)) {
-      fetchStockData(selectedStock);
-    }
-  }, [dateRange.start, dateRange.end]);
+  }, [selectedStock, dataLimit, dateRange.start, dateRange.end]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -853,7 +899,7 @@ export function StoryMarketParticipant({
   return (
     <div className="space-y-4">
       {/* Controls */}
-      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+      <div className={`bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg ${!disableFixedControlPanel ? 'lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40' : 'relative'}`}>
         <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
           {/* Stock Search */}
           <div className="flex items-center gap-2 w-full md:w-auto md:min-w-[280px] md:max-w-[320px]">

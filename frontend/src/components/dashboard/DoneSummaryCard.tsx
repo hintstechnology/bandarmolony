@@ -197,17 +197,47 @@ function AutoLoadingDoneSummary({ selectedStock }: { selectedStock: string }) {
             (hasCardHeader as HTMLElement).style.display = 'none';
           }
           
-          // Remove padding from CardContent
+          // Add spacing to CardContent and ensure it fits table
           if (hasCardContent) {
             const cardContent = hasCardContent as HTMLElement;
-            cardContent.style.padding = '0';
-            cardContent.style.paddingLeft = '0';
-            cardContent.style.paddingRight = '0';
-            cardContent.style.paddingTop = '0';
-            cardContent.style.paddingBottom = '0';
+            // Keep padding for spacing but ensure table has room
+            cardContent.style.padding = '1rem';
+            cardContent.style.paddingLeft = '1rem';
+            cardContent.style.paddingRight = '1rem';
+            cardContent.style.paddingTop = '1rem';
+            cardContent.style.paddingBottom = '1rem';
+            cardContent.style.width = '100%';
+            cardContent.style.maxWidth = '100%';
+            cardContent.style.overflow = 'visible';
           }
+          
+          // Ensure table container fits content
+          const tableContainer = cardElement.querySelector('.overflow-x-auto');
+          if (tableContainer) {
+            (tableContainer as HTMLElement).style.width = '100%';
+            (tableContainer as HTMLElement).style.maxWidth = '100%';
+          }
+          
+          // Ensure table has proper spacing and fits content
+          const tables = cardElement.querySelectorAll('table');
+          tables.forEach((table) => {
+            const tableEl = table as HTMLElement;
+            tableEl.style.marginTop = '0.5rem';
+            tableEl.style.marginBottom = '0.5rem';
+            tableEl.style.width = 'auto';
+            tableEl.style.minWidth = '100%';
+          });
         }
+        
       }
+      
+      // Add spacing between multiple cards (if multiple stocks selected)
+      const allCards = container.querySelectorAll('[data-slot="card"]');
+      allCards.forEach((card, index) => {
+        if (index > 0) {
+          (card as HTMLElement).style.marginTop = '3rem';
+        }
+      });
     };
 
     // Try immediately
@@ -232,7 +262,7 @@ function AutoLoadingDoneSummary({ selectedStock }: { selectedStock: string }) {
 
   return (
     <div ref={containerRef}>
-      <StockTransactionDoneSummary selectedStock={selectedStock} />
+      <StockTransactionDoneSummary selectedStock={selectedStock} disableTickerSelection={true} />
     </div>
   );
 }
@@ -249,7 +279,9 @@ export function DoneSummaryCard({ selectedStock, defaultExpanded = false }: Done
     >
       <div className={overflowGuardClasses}>
         <div className={shrinkWrapClasses}>
-          <AutoLoadingDoneSummary selectedStock={selectedStock} />
+          <div className="space-y-4">
+            <AutoLoadingDoneSummary selectedStock={selectedStock} />
+          </div>
         </div>
       </div>
     </CollapsibleSection>
