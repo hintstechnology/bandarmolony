@@ -39,6 +39,7 @@ const MANUAL_TRIGGERS_BY_PHASE: PhaseGroup[] = [
   {
     phaseName: "Phase 1a - Input Daily",
     items: [
+      { name: "Emiten List", type: "emiten-list", description: "Update emiten list from TICMI API" },
       { name: "Stock Data", type: "stock", description: "Update stock data from TICMI API" },
       { name: "Index Data", type: "index", description: "Update index data from TICMI API" },
       { name: "Done Summary Data", type: "done-summary", description: "Update done summary from GCS" },
@@ -165,6 +166,7 @@ export function ManualTriggerControl() {
       'broker_transaction_stock_sector': 'broker-transaction-stock-sector',
       'broker_transaction_all': 'broker-transaction-all',
       'break_done_trade': 'break-done-trade',
+      'emiten_list': 'emiten-list',
     };
     
     // Check if there's a direct mapping
