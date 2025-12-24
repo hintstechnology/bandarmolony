@@ -7,6 +7,7 @@ import { updateIndexData } from '../services/indexDataScheduler';
 import { updateShareholdersData } from '../services/shareholdersDataScheduler';
 import { updateHoldingData } from '../services/holdingDataScheduler';
 import { updateDoneSummaryData } from '../services/doneSummaryDataScheduler';
+import { updateEmitenList } from '../calculations/input/emiten_list';
 import { SchedulerLogService } from '../services/schedulerLogService';
 import { AzureLogger } from '../services/azureLoggingService';
 import AccumulationDataScheduler from '../services/accumulationDataScheduler';
@@ -122,6 +123,51 @@ router.post('/stock', async (req, res) => {
 
   } catch (error: any) {
     console.error('❌ Manual trigger error (stock):', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+// Manual trigger for emiten list update
+router.post('/emiten-list', async (req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Emiten List update');
+    
+    const triggeredBy = getTriggeredBy(req);
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'emiten_list',
+      trigger_type: 'manual',
+      triggered_by: triggeredBy,
+      status: 'running',
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    updateEmitenList(logEntry.id || null, triggeredBy).catch(async (error) => {
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Emiten List update triggered successfully',
+      logId: logEntry.id
+    });
+
+  } catch (error: any) {
+    console.error('❌ Manual trigger error (emiten-list):', error);
     return res.status(500).json({ 
       success: false, 
       message: error.message 

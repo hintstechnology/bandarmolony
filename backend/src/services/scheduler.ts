@@ -33,6 +33,7 @@ import { updateStockData } from './stockDataScheduler';
 import { updateIndexData } from './indexDataScheduler';
 import { updateShareholdersData } from './shareholdersDataScheduler';
 import { updateHoldingData } from './holdingDataScheduler';
+import { updateEmitenList } from '../calculations/input/emiten_list';
 import { updateWatchlistSnapshot } from './watchlistSnapshotService';
 import { doneSummaryCache } from '../cache/doneSummaryCacheService';
 import { stockCache } from '../cache/stockCacheService';
@@ -51,7 +52,7 @@ let SCHEDULER_CONFIG = {
   
   // Phase 1a-1b: Input data (scheduled)
   // Phase 2-8 are auto-triggered sequentially after Phase 1a completes
-  // Phase 1a: Input Daily (Stock, Index, Done Summary)
+  // Phase 1a: Input Daily (Emiten List, Stock, Index, Done Summary)
   // Phase 1b: Input Monthly (Shareholders & Holding)
   // Phase 2: Market Rotation (RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot)
   // Phase 3: Flow Trade (Money Flow, Foreign Flow, Break Done Trade)
@@ -1710,7 +1711,7 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
     const phaseStartTime = Date.now();
     console.log(`\n🚀 ===== PHASE 1A INPUT DAILY STARTED (MANUAL) =====`);
     console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-    console.log(`📋 Phase: Input Daily (Stock, Index, Done Summary) - 7 days`);
+    console.log(`📋 Phase: Input Daily (Emiten List, Stock, Index, Done Summary) - 7 days`);
     
     // Skip if weekend
     if (isWeekend()) {
@@ -1747,22 +1748,41 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
         console.log('📊 Phase 1a Input Daily database log created:', logEntry.id);
       }
       
-      console.log('🔄 Starting Phase 1a Input Daily (PARALLEL MODE)...');
+      console.log('🔄 Starting Phase 1a Input Daily...');
       
       // Track batch performance
       trackBatchPerformance(phaseStartTime, 'Phase 1a Input Daily Start');
       
-      // Run data collection in parallel
+      // Pass logId and triggeredBy to services
+      // If manual, use email user; if scheduled, use 'phase1a_input_daily' for consistency
+      // Note: Services will use logId if provided, so triggeredBy is mainly for reference
+      const triggeredBy = fromManual ? manualTriggeredBy! : 'Phase 1a Input Daily';
+      
+      // Step 1: Update Emiten List first (needed by other services)
+      console.log('🔄 Step 1: Updating Emiten List (required before other tasks)...');
+      if (logEntry) {
+        await SchedulerLogService.updateLog(logEntry.id!, {
+          progress_percentage: 0,
+          current_processing: 'Updating Emiten List...'
+        });
+      }
+      
+      try {
+        await updateEmitenList(null, triggeredBy);
+        console.log('✅ Emiten List updated successfully');
+      } catch (error: any) {
+        console.error('❌ Emiten List update failed:', error?.message || error);
+        // Continue with other tasks even if emiten list update fails
+      }
+      
+      // Step 2: Run data collection in parallel
+      console.log('🔄 Step 2: Starting parallel data collection (Stock, Index, Done Summary)...');
       const dataCollectionTasks = [
         { name: 'Stock Data', service: updateStockData, method: null },
         { name: 'Index Data', service: updateIndexData, method: null },
         { name: 'Done Summary Data', service: updateDoneSummaryData, method: null }
       ];
       const totalTasks = dataCollectionTasks.length;
-      // Pass logId and triggeredBy to services
-      // If manual, use email user; if scheduled, use 'phase1a_input_daily' for consistency
-      // Note: Services will use logId if provided, so triggeredBy is mainly for reference
-      const triggeredBy = fromManual ? manualTriggeredBy! : 'Phase 1a Input Daily';
       
       const dataCollectionPromises = dataCollectionTasks.map(async (task, index) => {
         const startTime = Date.now();
@@ -1926,7 +1946,7 @@ export function getAllPhasesStatus() {
         return {
           id: 'phase1a_input_daily',
           name: 'Phase 1a Input Daily',
-          description: 'Stock, Index, dan Done Summary',
+          description: 'Emiten List, Stock, Index, dan Done Summary',
           status: phaseStatus['phase1a_input_daily'],
           enabled: phaseEnabled['phase1a_input_daily'],
           trigger: {
@@ -1935,8 +1955,8 @@ export function getAllPhasesStatus() {
             triggerAfterPhase: config1.triggerAfterPhase,
             condition: formatTriggerCondition(config1)
           },
-          tasks: ['Stock Data', 'Index Data', 'Done Summary Data'],
-          mode: 'PARALLEL' as const
+          tasks: ['Emiten List', 'Stock Data', 'Index Data', 'Done Summary Data'],
+          mode: 'SEQUENTIAL_THEN_PARALLEL' as const
         };
       })(),
       (() => {
@@ -2330,7 +2350,7 @@ export function startScheduler(): void {
       const phaseStartTime = Date.now();
       console.log(`\n🚀 ===== PHASE 1A INPUT DAILY STARTED =====`);
       console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-      console.log(`📋 Phase: Input Daily (Stock, Index, Done Summary) - 7 days`);
+      console.log(`📋 Phase: Input Daily (Emiten List, Stock, Index, Done Summary) - 7 days`);
       
       // Skip if weekend
       if (isWeekend()) {
@@ -2367,19 +2387,38 @@ export function startScheduler(): void {
       }
       
       const phaseStartTime = Date.now();
-      console.log('🔄 Starting Phase 1a Input Daily (PARALLEL MODE)...');
+      console.log('🔄 Starting Phase 1a Input Daily...');
       
       // Track batch performance
       trackBatchPerformance(phaseStartTime, 'Phase 1a Input Daily Start');
       
-      // Run data collection in parallel
+      const triggeredBy = 'phase1a_input_daily';
+      
+      // Step 1: Update Emiten List first (needed by other services)
+      console.log('🔄 Step 1: Updating Emiten List (required before other tasks)...');
+      if (logEntry) {
+        await SchedulerLogService.updateLog(logEntry.id!, {
+          progress_percentage: 0,
+          current_processing: 'Updating Emiten List...'
+        });
+      }
+      
+      try {
+        await updateEmitenList(null, triggeredBy);
+        console.log('✅ Emiten List updated successfully');
+      } catch (error: any) {
+        console.error('❌ Emiten List update failed:', error?.message || error);
+        // Continue with other tasks even if emiten list update fails
+      }
+      
+      // Step 2: Run data collection in parallel
+      console.log('🔄 Step 2: Starting parallel data collection (Stock, Index, Done Summary)...');
       const dataCollectionTasks = [
         { name: 'Stock Data', service: updateStockData, method: null },
         { name: 'Index Data', service: updateIndexData, method: null },
         { name: 'Done Summary Data', service: updateDoneSummaryData, method: null }
       ];
       const totalTasks = dataCollectionTasks.length;
-      const triggeredBy = 'phase1a_input_daily';
       
       const dataCollectionPromises = dataCollectionTasks.map(async (task, index) => {
         const startTime = Date.now();
