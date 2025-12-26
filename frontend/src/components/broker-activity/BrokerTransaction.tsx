@@ -4404,19 +4404,52 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         return { color, className: 'font-semibold' };
       };
       
-      // For NET table: Get max row count across all dates for Net Buy and Net Sell sections separately
-      // CRITICAL: Filtering is done in loadTransactionData, so no need to filter here
-      // Data is already filtered by ticker or sector at fetch time
+      // For NET table: Calculate Net from B/S Total data
+      // Get all unique stocks from both Buy and Sell totals
+      const allStocksSetForNet = new Set<string>();
+      totalBuyDataByStock.forEach((_, stock) => allStocksSetForNet.add(stock));
+      totalSellDataByStock.forEach((_, stock) => allStocksSetForNet.add(stock));
       
-      // CRITICAL: Total column ALWAYS uses sorted stocks from aggregated NET data
-      // Use already computed totalNetBuyDataByStock and totalNetSellDataByStock from useMemo
-      // Sort Net Buy stocks by value (highest to lowest)
+      // Calculate Net for each stock: Net = Buy - Sell
+      const netDataByStockForRows = Array.from(allStocksSetForNet).map(stock => {
+        const buyData = totalBuyDataByStock.get(stock);
+        const sellData = totalSellDataByStock.get(stock);
+        
+        const buyValue = buyData?.buyerValue || 0;
+        const buyLot = buyData?.buyerLot || 0;
+        const sellValue = sellData?.sellerValue || 0;
+        const sellLot = sellData?.sellerLot || 0;
+        
+        // Calculate Net = Buy - Sell
+        const netValue = buyValue - sellValue;
+        const netLot = buyLot - sellLot;
+        
+        return {
+          stock,
+          netValue,
+          netLot
+        };
+      });
+      
+      // Separate into Net Buy (positive) and Net Sell (negative) lists
+      // Filter out zero values and sort each list separately
+      const netBuyStocksForTotal = netDataByStockForRows
+        .filter(item => item.netValue > 0 && (Math.abs(item.netLot) > 0 || Math.abs(item.netValue) > 0))
+        .sort((a, b) => b.netValue - a.netValue); // Sort by Net Value descending
+      
+      const netSellStocksForTotal = netDataByStockForRows
+        .filter(item => item.netValue < 0 && (Math.abs(item.netLot) > 0 || Math.abs(item.netValue) > 0))
+        .sort((a, b) => Math.abs(b.netValue) - Math.abs(a.netValue)); // Sort by absolute Net Value descending
+      
+      // For Total column, use the max of Buy and Sell stocks count
+      const maxNetTotalRows = Math.max(netBuyStocksForTotal.length, netSellStocksForTotal.length);
+      
+      // For backward compatibility, keep sortedTotalNetBuyStocks and sortedTotalNetSellStocks for per-date rendering
       const sortedTotalNetBuyStocks = Array.from(totalNetBuyDataByStock.entries())
         .filter(([, data]) => Math.abs(data.netBuyLot || 0) > 0)
         .sort((a, b) => (b[1].netBuyValue || 0) - (a[1].netBuyValue || 0))
         .map(([stock]) => stock);
       
-      // Sort Net Sell stocks by value (highest to lowest)
       const sortedTotalNetSellStocks = Array.from(totalNetSellDataByStock.entries())
         .filter(([, data]) => Math.abs(data.netSellLot || 0) > 0)
         .sort((a, b) => (b[1].netSellValue || 0) - (a[1].netSellValue || 0))
@@ -4434,7 +4467,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         maxNetSellRows = Math.max(maxNetSellRows, netSellData.length);
       });
       }
-      const tableMaxRows = Math.max(maxNetBuyRows, maxNetSellRows);
+      // For Total column, use maxNetTotalRows; for per-date, use max of Buy and Sell rows
+      const tableMaxRows = showOnlyTotal ? maxNetTotalRows : Math.max(maxNetBuyRows, maxNetSellRows);
       
       // Use visible row indices for virtual scrolling
       // FIXED: Simplify logic - always show data if available, limit to 20 rows initially
@@ -4725,19 +4759,93 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       })}
                         {/* Total Column - Calculate NET from B/S Total (Buy - Sell) */}
                       {(() => {
-                          // CRITICAL: Use sorted stocks already calculated above (sortedTotalNetBuyStocks and sortedTotalNetSellStocks)
-                          // These are already sorted by netBuyValue and netSellValue (highest to lowest)
+                          // FIXED: Calculate Net from B/S Total data, not from Net Buy/Sell data
+                          // Get all unique stocks from both Buy and Sell totals
+                          const allStocksSet = new Set<string>();
+                          totalBuyDataByStock.forEach((_, stock) => allStocksSet.add(stock));
+                          totalSellDataByStock.forEach((_, stock) => allStocksSet.add(stock));
                           
-                          // Get Net Buy stock at this row index (from sorted stocks calculated above)
-                          const netBuyStockCode = sortedTotalNetBuyStocks[rowIdx] || '';
-                          const netBuyData = netBuyStockCode ? totalNetBuyDataByStock.get(netBuyStockCode) : null;
+                          // Calculate Net for each stock: Net = Buy - Sell
+                          const allNetDataByStock = Array.from(allStocksSet).map(stock => {
+                            const buyData = totalBuyDataByStock.get(stock);
+                            const sellData = totalSellDataByStock.get(stock);
+                            
+                            const buyValue = buyData?.buyerValue || 0;
+                            const buyLot = buyData?.buyerLot || 0;
+                            const buyVol = buyData?.buyerVol || 0;
+                            const buyFreq = buyData?.buyerFreq || 0;
+                            const buyOrdNum = buyData?.buyerOrdNum || 0;
+                            const buyLotPerFreq = buyData?.buyerLotPerFreq || 0;
+                            const buyLotPerOrdNum = buyData?.buyerLotPerOrdNum || 0;
+                            
+                            const sellValue = sellData?.sellerValue || 0;
+                            const sellLot = sellData?.sellerLot || 0;
+                            const sellVol = sellData?.sellerVol || 0;
+                            const sellFreq = sellData?.sellerFreq || 0;
+                            const sellOrdNum = sellData?.sellerOrdNum || 0;
+                            const sellLotPerFreq = sellData?.sellerLotPerFreq || 0;
+                            const sellLotPerOrdNum = sellData?.sellerLotPerOrdNum || 0;
+                            
+                            // Calculate Net = Buy - Sell
+                            const netValue = buyValue - sellValue;
+                            const netLot = buyLot - sellLot;
+                            const netVol = buyVol - sellVol;
+                            
+                            // Calculate Net Avg: Net Value / Net Vol (if Net Vol > 0)
+                            const netAvg = netVol !== 0 ? netValue / netVol : 0;
+                            
+                            // Net Freq and OrdNum: use the larger value (or difference if needed)
+                            const netFreq = buyFreq - sellFreq;
+                            const netOrdNum = buyOrdNum - sellOrdNum;
+                            
+                            // Lot/F and Lot/ON: weighted average based on frequency/ordnum
+                            let netLotPerFreq = 0;
+                            if (buyFreq > 0 || sellFreq > 0) {
+                              const totalFreq = Math.abs(buyFreq) + Math.abs(sellFreq);
+                              if (totalFreq > 0) {
+                                netLotPerFreq = ((buyLotPerFreq * Math.abs(buyFreq)) + (sellLotPerFreq * Math.abs(sellFreq))) / totalFreq;
+                              }
+                            }
+                            
+                            let netLotPerOrdNum = 0;
+                            if (buyOrdNum !== 0 || sellOrdNum !== 0) {
+                              const totalOrdNum = Math.abs(buyOrdNum) + Math.abs(sellOrdNum);
+                              if (totalOrdNum > 0) {
+                                netLotPerOrdNum = ((buyLotPerOrdNum * Math.abs(buyOrdNum)) + (sellLotPerOrdNum * Math.abs(sellOrdNum))) / totalOrdNum;
+                              }
+                            }
+                            
+                            return {
+                              stock,
+                              netValue,
+                              netLot,
+                              netVol,
+                              netAvg,
+                              netFreq,
+                              netOrdNum,
+                              netLotPerFreq,
+                              netLotPerOrdNum,
+                              buyValue,
+                              sellValue
+                            };
+                          });
                           
-                          // Get Net Sell stock at this row index (from sorted stocks calculated above)
-                          const netSellStockCode = sortedTotalNetSellStocks[rowIdx] || '';
-                          const netSellData = netSellStockCode ? totalNetSellDataByStock.get(netSellStockCode) : null;
+                          // Separate into Net Buy (positive) and Net Sell (negative) lists
+                          // Filter out zero values and sort each list separately
+                          const netBuyStocks = allNetDataByStock
+                            .filter(item => item.netValue > 0 && (Math.abs(item.netLot) > 0 || Math.abs(item.netValue) > 0))
+                            .sort((a, b) => b.netValue - a.netValue); // Sort by Net Value descending
+                          
+                          const netSellStocks = allNetDataByStock
+                            .filter(item => item.netValue < 0 && (Math.abs(item.netLot) > 0 || Math.abs(item.netValue) > 0))
+                            .sort((a, b) => Math.abs(b.netValue) - Math.abs(a.netValue)); // Sort by absolute Net Value descending
+                          
+                          // Get stock at this row index for Buy side and Sell side separately
+                          const buyStockData = netBuyStocks[rowIdx] || null;
+                          const sellStockData = netSellStocks[rowIdx] || null;
                           
                           // If both are empty, hide row
-                          if (!netBuyData && !netSellData) {
+                          if (!buyStockData && !sellStockData) {
                             return (
                               <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={netColsPerDate}>
                                 -
@@ -4745,47 +4853,39 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             );
                           }
                           
-                          // Calculate values from NET calculated from B/S Total
-                          const totalNetBuyNBCode = netBuyStockCode || '-';
-                          const totalNetBuyLot = netBuyData ? netBuyData.netBuyLot : 0;
-                          const totalNetBuyValue = netBuyData ? netBuyData.netBuyValue : 0;
-                          const finalNetBuyAvg = netBuyData ? netBuyData.netBuyAvg : 0;
-                          const totalNetBuyFreq = netBuyData ? netBuyData.netBuyFreq : 0;
-                          const totalNetBuyOrdNum = netBuyData ? netBuyData.netBuyOrdNum : 0;
-                          const totalNetBuyLotPerFreq = netBuyData ? netBuyData.netBuyLotPerFreq : 0;
-                          const totalNetBuyLotPerOrdNum = netBuyData ? netBuyData.netBuyLotPerOrdNum : 0;
+                          // Prepare Buy side data
+                          const buyStockCode = buyStockData?.stock || '';
+                          const buyNetValue = buyStockData?.netValue || 0;
+                          const buyNetLot = buyStockData?.netLot || 0;
+                          const buyNetAvg = buyStockData?.netAvg || 0;
+                          const buyNetFreq = buyStockData?.netFreq || 0;
+                          const buyNetOrdNum = buyStockData?.netOrdNum || 0;
+                          const buyNetLotPerFreq = buyStockData?.netLotPerFreq || 0;
+                          const buyNetLotPerOrdNum = buyStockData?.netLotPerOrdNum || 0;
                           
-                          const totalNetSellNSCode = netSellStockCode || '-';
-                          const totalNetSellLot = netSellData ? netSellData.netSellLot : 0;
-                          const totalNetSellValue = netSellData ? netSellData.netSellValue : 0;
-                          const finalNetSellAvg = netSellData ? netSellData.netSellAvg : 0;
-                          const totalNetSellFreq = netSellData ? netSellData.netSellFreq : 0;
-                          const totalNetSellOrdNum = netSellData ? netSellData.netSellOrdNum : 0;
-                          const totalNetSellLotPerFreq = netSellData ? netSellData.netSellLotPerFreq : 0;
-                          const totalNetSellLotPerOrdNum = netSellData ? netSellData.netSellLotPerOrdNum : 0;
-                          
-                          // Hide Total row if both Net Buy and Net Sell are empty, or if both NBLot and NSLot are 0
-                          if ((totalNetBuyNBCode === '-' || Math.abs(totalNetBuyLot) === 0) && 
-                              (totalNetSellNSCode === '-' || Math.abs(totalNetSellLot) === 0)) {
-                            return (
-                              <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={netColsPerDate}>
-                                -
-                              </td>
-                            );
-                          }
+                          // Prepare Sell side data
+                          const sellStockCode = sellStockData?.stock || '';
+                          const sellNetValue = sellStockData?.netValue || 0;
+                          const sellNetLot = sellStockData?.netLot || 0;
+                          const sellNetAvg = sellStockData?.netAvg || 0;
+                          const sellNetFreq = sellStockData?.netFreq || 0;
+                          const sellNetOrdNum = sellStockData?.netOrdNum || 0;
+                          const sellNetLotPerFreq = sellStockData?.netLotPerFreq || 0;
+                          const sellNetLotPerOrdNum = sellStockData?.netLotPerOrdNum || 0;
                           
                           // Get color classes for codes based on pivot type
                           // For Stock pivot: NBCode/NSCode are broker codes, use getBrokerColorClass
                           // For Broker pivot: NBCode/NSCode are stock codes, use getStockColorClass
-                          const netBuyNBCodeColor = totalNetBuyNBCode !== '-' 
+                          const buyCodeColor = buyStockCode !== '' 
                             ? (pivotFilter === 'Stock' 
-                                ? getBrokerColorClass(totalNetBuyNBCode)
-                                : getStockColorClass(totalNetBuyNBCode))
+                                ? getBrokerColorClass(buyStockCode)
+                                : getStockColorClass(buyStockCode))
                             : { color: '#FFFFFF', className: 'font-semibold' };
-                          const netSellNSCodeColor = totalNetSellNSCode !== '-' 
+                          
+                          const sellCodeColor = sellStockCode !== '' 
                             ? (pivotFilter === 'Stock' 
-                                ? getBrokerColorClass(totalNetSellNSCode)
-                                : getStockColorClass(totalNetSellNSCode))
+                                ? getBrokerColorClass(sellStockCode)
+                                : getStockColorClass(sellStockCode))
                             : { color: '#FFFFFF', className: 'font-semibold' };
                           
                           // Color for values: Net Buy values are green, Net Sell values are red
@@ -4800,32 +4900,32 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         
                         return (
                           <React.Fragment>
-                              {/* Net Buy Total Columns */}
-                              {netBuyData && Math.abs(totalNetBuyLot) > 0 ? (
+                              {/* Net Buy Total Columns - Show if we have Buy stock at this row */}
+                              {buyStockData && Math.abs(buyNetLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${netBuyNBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={showOnlyTotal || selectedDates.length === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none', color: netBuyNBCodeColor.color } : { width: '48px', minWidth: '48px', maxWidth: '48px', color: netBuyNBCodeColor.color }}>
-                                    {totalNetBuyNBCode}
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${buyCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={showOnlyTotal || selectedDates.length === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none', color: buyCodeColor.color } : { width: '48px', minWidth: '48px', maxWidth: '48px', color: buyCodeColor.color }}>
+                                    {buyStockCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatValue(totalNetBuyValue)}
+                                    {formatValue(Math.abs(buyNetValue))}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatLot(totalNetBuyLot)}
+                                    {formatLot(Math.abs(buyNetLot))}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(finalNetBuyAvg)}
+                                    {formatAverage(Math.abs(buyNetAvg))}
                             </td>
                             {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyFreqColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {totalNetBuyFreq}
+                                    {Math.abs(buyNetFreq)}
                             </td>}
                             {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyFreqColor} w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatLotPerFreqOrOrdNum(totalNetBuyLotPerFreq)}
+                                    {formatLotPerFreqOrOrdNum(Math.abs(buyNetLotPerFreq))}
                                   </td>}
                             {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyOrderColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {totalNetBuyOrdNum}
+                                    {Math.abs(buyNetOrdNum)}
                                   </td>}
                             {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyOrderColor} w-16`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatLotPerFreqOrOrdNum(totalNetBuyLotPerOrdNum)}
+                                    {formatLotPerFreqOrOrdNum(Math.abs(buyNetLotPerOrdNum))}
                                   </td>}
                                 </>
                               ) : (
@@ -4848,38 +4948,38 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               )}
                             {/* Separator */}
                               <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold">{rowIdx + 1}</td>
-                              {/* Net Sell Total Columns */}
-                              {netSellData && Math.abs(totalNetSellLot) > 0 ? (
+                              {/* Net Sell Total Columns - Show if we have Sell stock at this row */}
+                              {sellStockData && Math.abs(sellNetLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${netSellNSCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: netSellNSCodeColor.color }}>
-                                    {totalNetSellNSCode}
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${sellCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: sellCodeColor.color }}>
+                                    {sellStockCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatValue(totalNetSellValue)}
+                                    {formatValue(Math.abs(sellNetValue))}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatLot(totalNetSellLot)}
+                                    {formatLot(Math.abs(sellNetLot))}
                             </td>
                             {!showFrequency && !showOrder ? (
                               <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6 border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(finalNetSellAvg)}
+                                    {formatAverage(Math.abs(sellNetAvg))}
                             </td>
                             ) : (
                               <>
                                 <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                        {formatAverage(finalNetSellAvg)}
+                                        {formatAverage(Math.abs(sellNetAvg))}
                             </td>
                                 {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellFreqColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                        {totalNetSellFreq}
+                                        {Math.abs(sellNetFreq)}
                                 </td>}
                                 {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellFreqColor} w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                        {formatLotPerFreqOrOrdNum(totalNetSellLotPerFreq)}
+                                        {formatLotPerFreqOrOrdNum(Math.abs(sellNetLotPerFreq))}
                                   </td>}
                                 {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellOrderColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {totalNetSellOrdNum}
+                                    {Math.abs(sellNetOrdNum)}
                                   </td>}
                                 {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellOrderColor} w-16 border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                        {formatLotPerFreqOrOrdNum(totalNetSellLotPerOrdNum)}
+                                        {formatLotPerFreqOrOrdNum(Math.abs(sellNetLotPerOrdNum))}
                                   </td>}
                               </>
                             )}
