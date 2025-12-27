@@ -62,7 +62,7 @@ const CACHE_EXPIRY_MS = 30 * 60 * 1000;
 
 // Foreign brokers (red background)
 const FOREIGN_BROKERS = [
-  "AG", "AH", "AI", "AK", "BK", "BQ", "CG", "CS", "DP", "DR", "DU", "FS", "GW", "HD", "KK", 
+  "AG", "AH", "AI", "AK", "BK", "BQ", "CG", "CS", "DP", "DR", "DU", "FS", "GW", "HD", "KK",
   "KZ", "LH", "LG", "LS", "MS", "RB", "RX", "TX", "YP", "YU", "ZP"
 ];
 
@@ -71,8 +71,8 @@ const GOVERNMENT_BROKERS = ['CC', 'NI', 'OD', 'DX'];
 
 // Fetch broker transaction data from API (with caching)
 const fetchBrokerTransactionData = async (
-  code: string, 
-  date: string, 
+  code: string,
+  date: string,
   pivot: 'Broker' | 'Stock',
   inv: 'F' | 'D' | '',
   board: 'RG' | 'TN' | 'NG' | '',
@@ -83,42 +83,42 @@ const fetchBrokerTransactionData = async (
   if (abortSignal?.aborted) {
     throw new Error('Fetch aborted');
   }
-  
+
   const cacheKey = `${code}-${date}-${pivot}-${inv}-${board}`;
   const cached = cache.get(cacheKey);
-  
+
   // Check cache first (optimized - no timestamp check needed here, already checked in loadTransactionData)
   if (cached) {
     return cached.data;
   }
-  
+
   // Check if aborted before API call
   if (abortSignal?.aborted) {
     throw new Error('Fetch aborted');
   }
-  
+
   try {
     const response = await api.getBrokerTransactionData(code, date, pivot, inv, board);
-    
+
     // Check if aborted after API call
     if (abortSignal?.aborted) {
       throw new Error('Fetch aborted');
     }
-    
+
     if (response.success && response.data?.transactionData) {
       const data = response.data.transactionData;
-      
+
       // Store in cache
       cache.set(cacheKey, { data, timestamp: Date.now() });
-      
+
       return data;
     }
-    
+
     // If response is not successful, log error for debugging
     if (!response.success) {
       console.warn(`[BrokerTransaction] API returned error for ${code}-${date}:`, response.error);
     }
-    
+
     return [];
   } catch (error: any) {
     if (error?.message === 'Fetch aborted' || abortSignal?.aborted) {
@@ -133,7 +133,7 @@ const fetchBrokerTransactionData = async (
 const formatNumber = (value: number): string => {
   const absValue = Math.abs(value);
   const sign = value < 0 ? '-' : '';
-  
+
   if (absValue >= 1000000000) {
     return `${sign}${(absValue / 1000000000).toFixed(1)}B`;
   } else if (absValue >= 1000000) {
@@ -156,7 +156,7 @@ const formatLot = (value: number): string => {
   const rounded = Math.round(value);
   const absValue = Math.abs(rounded);
   const sign = value < 0 ? '-' : '';
-  
+
   // Format: < 1,000,000 → full number with comma (100,000)
   // Format: >= 1,000,000 → format with 'M' (Million) with 1 decimal (1.3M)
   if (absValue >= 1000000) {
@@ -166,7 +166,7 @@ const formatLot = (value: number): string => {
   } else {
     // < 1,000,000: Show full number with comma separator
     // Example: 100,000 → 100,000 (not 100K)
-  return rounded.toLocaleString('en-US');
+    return rounded.toLocaleString('en-US');
   }
 };
 
@@ -175,12 +175,12 @@ const formatAverage = (value: number | undefined | null): string => {
   if (value === undefined || value === null || isNaN(value)) {
     return '-';
   }
-  
+
   // Handle zero
   if (value === 0) {
     return '0.0';
   }
-  
+
   // Format: ribuan pakai ',' (koma), desimal pakai '.' (titik)
   // Pastikan selalu 1 angka di belakang koma
   // Contoh: 1335.0, 10,000.5, -3.0, -197.6
@@ -211,12 +211,12 @@ const getTradingDays = (count: number): string[] => {
   const today = new Date();
   today.setHours(0, 0, 0, 0); // Normalize to local midnight
   let daysBack = 1; // Start from yesterday, skip today
-  
+
   while (dates.length < count) {
     const date = new Date(today);
     date.setDate(date.getDate() - daysBack);
     const dayOfWeek = date.getDay();
-    
+
     // Skip weekends (Saturday = 6, Sunday = 0)
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
       // Format as YYYY-MM-DD in local timezone to avoid timezone issues
@@ -224,11 +224,11 @@ const getTradingDays = (count: number): string[] => {
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const day = String(date.getDate()).padStart(2, '0');
       const dateStr = `${year}-${month}-${day}`;
-        dates.push(dateStr);
+      dates.push(dateStr);
     }
     daysBack++;
   }
-  
+
   // Sort from oldest to newest (for display left to right)
   return dates.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
 };
@@ -281,32 +281,32 @@ export function BrokerTransaction() {
   const { showToast } = useToast();
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
 
-// Get available dates from backend and return recent trading days (oldest first for display)
-const getAvailableTradingDays = async (count: number): Promise<string[]> => {
-  try {
-    // Get available dates from backend
-    const response = await api.getBrokerTransactionDates();
-    if (response.success && response.data?.dates) {
-      // Backend returns dates in YYYYMMDD format, convert to YYYY-MM-DD for frontend
-      const convertedDates = response.data.dates.map(dateStr => {
-        // If date is in YYYYMMDD format, convert to YYYY-MM-DD
-        if (dateStr.length === 8 && !dateStr.includes('-')) {
-          return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
-        }
-        return dateStr; // Already in YYYY-MM-DD format
-      });
-      
-      // Sort from newest to oldest, then take first count, then reverse for display (oldest first)
-      const availableDates = convertedDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-      return availableDates.slice(0, count).reverse(); // Reverse to get oldest first
+  // Get available dates from backend and return recent trading days (oldest first for display)
+  const getAvailableTradingDays = async (count: number): Promise<string[]> => {
+    try {
+      // Get available dates from backend
+      const response = await api.getBrokerTransactionDates();
+      if (response.success && response.data?.dates) {
+        // Backend returns dates in YYYYMMDD format, convert to YYYY-MM-DD for frontend
+        const convertedDates = response.data.dates.map(dateStr => {
+          // If date is in YYYYMMDD format, convert to YYYY-MM-DD
+          if (dateStr.length === 8 && !dateStr.includes('-')) {
+            return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+          }
+          return dateStr; // Already in YYYY-MM-DD format
+        });
+
+        // Sort from newest to oldest, then take first count, then reverse for display (oldest first)
+        const availableDates = convertedDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+        return availableDates.slice(0, count).reverse(); // Reverse to get oldest first
+      }
+    } catch (error) {
+      console.error('Error fetching available dates:', error);
     }
-  } catch (error) {
-    console.error('Error fetching available dates:', error);
-  }
-  
-  // Fallback to local calculation if backend fails (already sorted oldest first)
-  return getTradingDays(count);
-};
+
+    // Fallback to local calculation if backend fails (already sorted oldest first)
+    return getTradingDays(count);
+  };
 
   // Load preferences from cookies on mount
   const savedPrefs = loadPreferences();
@@ -349,11 +349,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   });
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
-  
+
   // Optimize highlightedIndex updates with debounce to reduce re-renders
   const highlightedIndexRef = useRef<number>(-1);
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   const setHighlightedIndexOptimized = useCallback((idx: number) => {
     highlightedIndexRef.current = idx;
     if (highlightTimeoutRef.current) {
@@ -370,17 +370,17 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const endDateRef = useRef<HTMLInputElement>(null);
   const dropdownBrokerRef = useRef<HTMLDivElement>(null);
   const menuContainerRef = useRef<HTMLDivElement>(null);
-  
+
   // Refs for table synchronization
   const valueTableRef = useRef<HTMLTableElement>(null);
   const netTableRef = useRef<HTMLTableElement>(null);
   const valueTableContainerRef = useRef<HTMLDivElement>(null);
   const netTableContainerRef = useRef<HTMLDivElement>(null);
-  
+
   // Refs for lazy loading intersection observer
   const valueTableSentinelRef = useRef<HTMLTableCellElement>(null);
   const netTableSentinelRef = useRef<HTMLTableCellElement>(null);
-  
+
   // Ref to track if column width sync has been done (prevent infinite loop)
   const hasSyncedColumnWidthsRef = useRef<boolean>(false);
   // Store column widths to maintain consistency after lazy loading
@@ -390,7 +390,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const totalTableContainerRef = useRef<HTMLDivElement>(null);
   const dateColumnWidthsRef = useRef<Map<string, number>>(new Map()); // Store width of each date column from VALUE table
   const totalColumnWidthRef = useRef<number>(0); // Store width of Total column from VALUE table
-  
+
   // API data states
   const [transactionData, setTransactionData] = useState<Map<string, BrokerTransactionData[]>>(new Map());
   // Store raw data (before ticker filtering) for availableTickers extraction
@@ -400,7 +400,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const [availableBrokers, setAvailableBrokers] = useState<string[]>([]);
   const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show tables
   const [shouldFetchData, setShouldFetchData] = useState<boolean>(false); // Control when to fetch data (only when Show button clicked)
-  
+
   // Track last fetch parameters to detect if only sector filter changed
   const lastFetchParamsRef = useRef<{
     brokers: string[];
@@ -411,7 +411,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     tickers: string[]; // Track selectedTickers to detect changes
     sectors: string[]; // Track selectedSectors to detect changes
   } | null>(null);
-  
+
   // Sector Filter states (changed from F/D filter)
   const [activeSectorFilter, setActiveSectorFilter] = useState<string>('All'); // 'All' or sector name (active filter - used for filtering displayed data)
   const [availableSectors, setAvailableSectors] = useState<string[]>([]); // List of available sectors (excluding 'All')
@@ -441,7 +441,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     return 'RG';
   });
   const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
-  
+
   // Toggle untuk show/hide kolom Frequency dan Order
   const [showFrequency, setShowFrequency] = useState<boolean>(() => {
     // Try to load from preferences first
@@ -459,19 +459,19 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     // Fallback to default
     return true;
   });
-  
+
   // Visualisasi label untuk Output dropdown (ditukar untuk display)
   // Logika tetap menggunakan pivotFilter yang asli
   // Tukar label: Broker -> Stock, Stock -> Broker
   const pivotFilterDisplayLabel = pivotFilter === 'Broker' ? 'Stock' : 'Broker';
-  
+
   // Helper untuk mendapatkan value dari display label (untuk onChange)
   const handlePivotFilterChange = (displayLabel: string) => {
     // Tukar kembali: Stock -> Broker, Broker -> Stock
     const actualValue: 'Broker' | 'Stock' = displayLabel === 'Stock' ? 'Broker' : 'Stock';
     setPivotFilter(actualValue);
   };
-  
+
   // Multi-select ticker/sector states (combined)
   const [tickerInput, setTickerInput] = useState('');
   const [debouncedTickerInput, setDebouncedTickerInput] = useState('');
@@ -493,11 +493,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   });
   const [showTickerSuggestions, setShowTickerSuggestions] = useState(false);
   const [highlightedTickerIndex, setHighlightedTickerIndex] = useState<number>(-1);
-  
+
   // Optimize highlightedTickerIndex updates with debounce to reduce re-renders
   const highlightedTickerIndexRef = useRef<number>(-1);
   const highlightTickerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   const setHighlightedTickerIndexOptimized = useCallback((idx: number) => {
     highlightedTickerIndexRef.current = idx;
     if (highlightTickerTimeoutRef.current) {
@@ -511,11 +511,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Windowing state for virtual scrolling
   const [tickerScrollOffset, setTickerScrollOffset] = useState(0);
   const [sectorScrollOffset, setSectorScrollOffset] = useState(0);
-  
+
   // Stock list from API (loaded once on mount for fast dropdown)
   const [availableStocksFromAPI, setAvailableStocksFromAPI] = useState<string[]>([]);
   const [isLoadingStocks, setIsLoadingStocks] = useState<boolean>(false);
-  
+
   // OPTIMIZED: Use stock list from API as primary source (fast), fallback to extraction from rawTransactionData
   // FIXED: Use rawTransactionData (before ticker filtering) to show all available tickers for selected broker(s)
   // CRITICAL: If sector is selected, only show tickers from that sector
@@ -532,7 +532,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       }
       return [...availableStocksFromAPI].sort();
     }
-    
+
     // Fallback: Extract from rawTransactionData (slower, but works if API not loaded yet)
     const allTickers = new Set<string>();
     if (isDataReady && rawTransactionData.size > 0) {
@@ -546,7 +546,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         });
       });
     }
-    
+
     // If sector is selected, filter tickers by sector
     if (selectedSectors.length > 0) {
       const tickersFromSectors = Array.from(allTickers).filter(ticker => {
@@ -555,7 +555,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       });
       return tickersFromSectors.sort();
     }
-    
+
     return Array.from(allTickers).sort();
   }, [availableStocksFromAPI, rawTransactionData, isDataReady, selectedSectors, stockToSectorMap]); // Include availableStocksFromAPI as primary source
 
@@ -602,13 +602,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       }
       savePreferences(preferences);
     }, 500); // Debounce 500ms to reduce localStorage writes
-    
+
     return () => clearTimeout(timeout);
   }, [selectedBrokers, selectedTickers, selectedSectors, pivotFilter, invFilter, boardFilter, showFrequency, showOrder, startDate, endDate]);
 
   // Optimize selectedBrokers lookup with Set for O(1) performance
   const selectedBrokersSet = useMemo(() => new Set(selectedBrokers), [selectedBrokers]);
-  
+
   // Memoized filtered brokers list for better performance
   const filteredBrokersList = useMemo(() => {
     const searchTerm = debouncedBrokerInput.toLowerCase();
@@ -633,7 +633,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Optimize selectedTickers and selectedSectors lookup with Set for O(1) performance
   const selectedTickersSet = useMemo(() => new Set(selectedTickers), [selectedTickers]);
   const selectedSectorsSet = useMemo(() => new Set(selectedSectors), [selectedSectors]);
-  
+
   // Memoized filtered tickers list for better performance
   const filteredTickersList = useMemo(() => {
     const searchTerm = debouncedTickerInput.toLowerCase();
@@ -667,16 +667,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Request cancellation ref
   const abortControllerRef = useRef<AbortController | null>(null);
   const shouldFetchDataRef = useRef<boolean>(false); // Ref to track shouldFetchData for async functions (always up-to-date)
-  
+
   // Cache for API responses to avoid redundant calls
   // Key format: `${broker}-${date}-${market}`
   const dataCacheRef = useRef<Map<string, { data: BrokerTransactionData[]; timestamp: number }>>(new Map());
-  
+
   // Virtual scrolling states for performance
   // FIXED: Always start with exactly 20 rows (like BrokerSummary MAX_DISPLAY_ROWS)
   const MAX_DISPLAY_ROWS = 20;
   const [visibleRowCount, setVisibleRowCount] = useState<number>(MAX_DISPLAY_ROWS); // Start with 20 visible rows
-  
+
   // FIXED: Don't reset visible rows on input change - only reset when data actually changes
   // This prevents unnecessary re-renders when user changes input
   // Visible rows will reset automatically when new data is loaded (via transactionData change)
@@ -689,7 +689,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         // OPTIMIZED: Try to load sector mapping from localStorage first for instant colors
         const SECTOR_MAPPING_CACHE_KEY = 'broker_transaction_sector_mapping';
         const SECTOR_MAPPING_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
-        
+
         let cachedSectorMapping: { stockToSector: { [stock: string]: string }; sectors: string[]; timestamp: number } | null = null;
         try {
           const cached = localStorage.getItem(SECTOR_MAPPING_CACHE_KEY);
@@ -715,7 +715,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         } catch (e) {
           // Ignore cache errors
         }
-        
+
         // OPTIMIZED: Load broker list, dates, stock list, and sector mapping in parallel for faster initial load
         // Stock list is needed for fast dropdown, sector mapping is needed for stock coloring
         setIsLoadingStocks(true);
@@ -725,13 +725,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           api.getStockList(), // Load stock list for fast dropdown
           cachedSectorMapping ? Promise.resolve({ success: true, data: cachedSectorMapping }) : api.getSectorMapping()
         ]);
-        
+
         if (brokerResponse.success && brokerResponse.data?.brokers) {
           setAvailableBrokers(brokerResponse.data.brokers);
         } else {
           throw new Error('Failed to load broker list');
         }
-        
+
         // Load stock list from API for fast dropdown (like BrokerSummaryPage)
         if (stockResponse.success && stockResponse.data?.stocks && Array.isArray(stockResponse.data.stocks)) {
           setAvailableStocksFromAPI(stockResponse.data.stocks);
@@ -740,7 +740,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           console.warn('[BrokerTransaction] Failed to load stock list from API, will use extraction from transaction data');
         }
         setIsLoadingStocks(false);
-        
+
         // Update sector mapping if we got fresh data (not from cache)
         if (sectorResponse.success && sectorResponse.data && !cachedSectorMapping) {
           setStockToSectorMap(sectorResponse.data.stockToSector);
@@ -792,10 +792,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Fallback: ensure IDX is available even if API fails
           setAvailableSectors(['IDX']);
         }
-        
+
         // Sort by date (oldest first) for display
         const sortedDates = [...initialDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-        
+
         // Set default to last 3 trading days (skip weekends)
         // NO auto-fetch - user must click Show button to fetch data
         setSelectedDates(sortedDates);
@@ -803,21 +803,21 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           setStartDate(sortedDates[0]);
           setEndDate(sortedDates[sortedDates.length - 1]);
         }
-        
+
       } catch (error) {
         console.error('Error loading initial data:', error);
         setIsLoadingStocks(false);
-        
+
         // Fallback to hardcoded broker list and local date calculation
-        const brokers = ['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA','AK'];
+        const brokers = ['MG', 'CIMB', 'UOB', 'COIN', 'NH', 'TRIM', 'DEWA', 'BNCA', 'PNLF', 'VRNA', 'SD', 'LMGA', 'DEAL', 'ESA', 'SSA', 'AK'];
         setAvailableBrokers(brokers);
-        
+
         // Default to last 3 trading days (skip weekends)
         const fallbackDates = getTradingDays(3);
         // Sort by date (oldest first) for display
-          const sortedDates = [...fallbackDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+        const sortedDates = [...fallbackDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
         setSelectedDates(sortedDates);
-        
+
         if (sortedDates.length > 0) {
           setStartDate(sortedDates[0]);
           setEndDate(sortedDates[sortedDates.length - 1]);
@@ -834,16 +834,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
       return; // No saved preferences, don't auto-load
     }
-    
+
     const savedStartDate = savedPrefs.startDate;
     const savedEndDate = savedPrefs.endDate;
-    
+
     // Wait a bit to ensure initial data (brokers, sectors) are loaded
     const timer = setTimeout(() => {
       // Generate date array from saved startDate and endDate (only trading days)
       const startParts = savedStartDate.split('-').map(Number);
       const endParts = savedEndDate.split('-').map(Number);
-      
+
       if (startParts.length === 3 && endParts.length === 3) {
         const startYear = startParts[0];
         const startMonth = startParts[1];
@@ -851,18 +851,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const endYear = endParts[0];
         const endMonth = endParts[1];
         const endDay = endParts[2];
-        
+
         if (startYear !== undefined && startMonth !== undefined && startDay !== undefined &&
-            endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
+          endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
           const start = new Date(startYear, startMonth - 1, startDay);
           const end = new Date(endYear, endMonth - 1, endDay);
-          
+
           // Check if range is valid
           if (start <= end) {
             // Generate date array (only trading days)
             const dateArray: string[] = [];
             const currentDate = new Date(start);
-            
+
             while (currentDate <= end) {
               const dayOfWeek = currentDate.getDay();
               // Skip weekends (Saturday = 6, Sunday = 0)
@@ -877,18 +877,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               // Move to next day
               currentDate.setDate(currentDate.getDate() + 1);
             }
-            
+
             // Sort by date (oldest first) for display
             const datesToUse = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-            
+
             // Update selectedDates
             setSelectedDates(datesToUse);
-            
+
             // Determine active sector filter from saved preferences
             const savedSectors = savedPrefs?.selectedSectors || [];
             const newActiveSectorFilter: string = savedSectors.length > 0 ? (savedSectors[0] ?? 'All') : 'All';
             setActiveSectorFilter(newActiveSectorFilter);
-            
+
             // Trigger auto-load by setting shouldFetchData to true
             // Use ref first (synchronous), then state (async)
             shouldFetchDataRef.current = true;
@@ -897,7 +897,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         }
       }
     }, 500); // Small delay to ensure initial data is loaded
-    
+
     return () => clearTimeout(timer);
   }, []); // Only run once on mount
 
@@ -907,16 +907,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     if (!shouldFetchData) {
       return;
     }
-    
+
     // Cancel previous request if exists
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
-    
+
     // Create new AbortController for this request
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
-    
+
     const loadTransactionData = async () => {
       // CRITICAL: Check ref instead of state - ref is always up-to-date even in async context
       if (!shouldFetchDataRef.current) {
@@ -924,7 +924,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         setIsDataReady(false);
         return;
       }
-      
+
       // Validation: For Broker pivot, need brokers OR sectors. For Stock pivot, need tickers OR sectors.
       if (pivotFilter === 'Broker') {
         // For Broker pivot:
@@ -956,30 +956,30 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           return;
         }
       }
-      
+
       // CRITICAL: Check ref again after validation
       if (!shouldFetchDataRef.current || abortController.signal.aborted) {
         setIsLoading(false);
         setIsDataReady(false);
         return;
       }
-      
+
       setIsLoading(true);
       setError(null);
-      
+
       try {
         const newTransactionData = new Map<string, BrokerTransactionData[]>();
         const newRawTransactionData = new Map<string, BrokerTransactionData[]>(); // Store raw data before filtering
         const cache = dataCacheRef.current;
         const now = Date.now();
-        
+
         // Clear expired cache entries
         for (const [key, value] of cache.entries()) {
           if (now - value.timestamp > CACHE_EXPIRY_MS) {
             cache.delete(key);
           }
         }
-        
+
         // OPTIMIZED: Fetch all data in parallel with smart batching
         // Separate cached and uncached requests for optimal performance
         // For Broker pivot: if sector selected, fetch {sector}_ALL.csv; otherwise use selectedBrokers
@@ -987,93 +987,93 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         // For Stock pivot + sector + broker: fetch sector CSV, then filter by broker in frontend
         const allFetchTasks = pivotFilter === 'Stock'
           ? selectedDates.flatMap(date => {
-              // If tickers are selected, use them
-              if (selectedTickers.length > 0) {
-                return selectedTickers.map((code: string) => ({ code, date, type: 'stock' as const }));
-              }
-              
-              // If sectors are selected, fetch individual stock files for stocks in that sector
-              // CRITICAL: Sector is used to FILTER stocks by sector (not to fetch sector CSV)
-              // - IDX Composite = fetch all stocks from availableStocksFromAPI
-              // - Other sectors = fetch stocks from that sector only
-              if (selectedSectors.length > 0) {
-                // Get stocks from selected sectors
-                let stocksToFetch: string[] = [];
-                
-                if (selectedSectors.includes('IDX')) {
-                  // IDX Composite = fetch all stocks
-                  stocksToFetch = availableStocksFromAPI.length > 0 
-                    ? availableStocksFromAPI 
-                    : availableTickers;
-                } else {
-                  // Other sectors = filter stocks by sector
-                  const allStocks = availableStocksFromAPI.length > 0 
-                    ? availableStocksFromAPI 
-                    : availableTickers;
-                  stocksToFetch = allStocks.filter(ticker => {
-                    const tickerSector = stockToSectorMap[ticker.toUpperCase()];
-                    return tickerSector && selectedSectors.includes(tickerSector);
-                  });
-                }
-                
-                if (stocksToFetch.length === 0) {
-                  // No stocks found for selected sectors
-                  return [];
-                }
-                
-                // Fetch individual stock files for stocks in selected sectors
-                return stocksToFetch.map((code: string) => ({ code, date, type: 'stock' as const }));
-              }
-              
-              return [];
-            })
-          : selectedDates.flatMap(date => {
-              // For Broker pivot: 
-              // CRITICAL: Sector is used to FILTER stocks by sector (not to fetch sector_ALL.csv)
-              // - IDX Composite = show all stocks (no filter)
-              // - Other sectors = filter stocks by that sector
-              // - Broker "ALL" = fetch all broker files
-              // - Specific broker(s) = fetch those broker files
-              // - After fetch, filter stocks by sector in frontend
-              const hasSpecificBrokers = selectedBrokers.length > 0 && !selectedBrokers.includes('ALL');
-              const hasAllBroker = selectedBrokers.includes('ALL');
-              
-              // Determine which brokers to fetch
-              let brokersToFetch: string[] = [];
-              
-              if (hasAllBroker) {
-                // Broker "ALL" selected: fetch all available broker files
-                // CRITICAL: Fetch all available brokers instead of ALL.csv (which may not exist)
-                // This ensures data is always available when "ALL" is selected
-                if (availableBrokers.length === 0) {
-                  // If brokers not loaded yet, try to fetch ALL.csv as fallback
-                  return [{ code: 'ALL', date, type: 'broker' as const }];
-                }
-                // Filter out 'ALL' from broker list and fetch all individual broker files
-                brokersToFetch = availableBrokers.filter(b => b !== 'ALL');
-                if (brokersToFetch.length === 0) {
-                  // Fallback: if no brokers available, try ALL.csv
-                  return [{ code: 'ALL', date, type: 'broker' as const }];
-                }
-              } else if (hasSpecificBrokers) {
-                // Specific broker(s) selected: fetch those broker files
-                brokersToFetch = selectedBrokers.filter(b => b !== 'ALL');
-                if (brokersToFetch.length === 0) {
-                  return [];
-                }
+            // If tickers are selected, use them
+            if (selectedTickers.length > 0) {
+              return selectedTickers.map((code: string) => ({ code, date, type: 'stock' as const }));
+            }
+
+            // If sectors are selected, fetch individual stock files for stocks in that sector
+            // CRITICAL: Sector is used to FILTER stocks by sector (not to fetch sector CSV)
+            // - IDX Composite = fetch all stocks from availableStocksFromAPI
+            // - Other sectors = fetch stocks from that sector only
+            if (selectedSectors.length > 0) {
+              // Get stocks from selected sectors
+              let stocksToFetch: string[] = [];
+
+              if (selectedSectors.includes('IDX')) {
+                // IDX Composite = fetch all stocks
+                stocksToFetch = availableStocksFromAPI.length > 0
+                  ? availableStocksFromAPI
+                  : availableTickers;
               } else {
-                // No broker selected
+                // Other sectors = filter stocks by sector
+                const allStocks = availableStocksFromAPI.length > 0
+                  ? availableStocksFromAPI
+                  : availableTickers;
+                stocksToFetch = allStocks.filter(ticker => {
+                  const tickerSector = stockToSectorMap[ticker.toUpperCase()];
+                  return tickerSector && selectedSectors.includes(tickerSector);
+                });
+              }
+
+              if (stocksToFetch.length === 0) {
+                // No stocks found for selected sectors
                 return [];
               }
-              
-              // Fetch individual broker files (sector filtering will be done in frontend after fetch)
-              return brokersToFetch.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
-            });
-        
+
+              // Fetch individual stock files for stocks in selected sectors
+              return stocksToFetch.map((code: string) => ({ code, date, type: 'stock' as const }));
+            }
+
+            return [];
+          })
+          : selectedDates.flatMap(date => {
+            // For Broker pivot: 
+            // CRITICAL: Sector is used to FILTER stocks by sector (not to fetch sector_ALL.csv)
+            // - IDX Composite = show all stocks (no filter)
+            // - Other sectors = filter stocks by that sector
+            // - Broker "ALL" = fetch all broker files
+            // - Specific broker(s) = fetch those broker files
+            // - After fetch, filter stocks by sector in frontend
+            const hasSpecificBrokers = selectedBrokers.length > 0 && !selectedBrokers.includes('ALL');
+            const hasAllBroker = selectedBrokers.includes('ALL');
+
+            // Determine which brokers to fetch
+            let brokersToFetch: string[] = [];
+
+            if (hasAllBroker) {
+              // Broker "ALL" selected: fetch all available broker files
+              // CRITICAL: Fetch all available brokers instead of ALL.csv (which may not exist)
+              // This ensures data is always available when "ALL" is selected
+              if (availableBrokers.length === 0) {
+                // If brokers not loaded yet, try to fetch ALL.csv as fallback
+                return [{ code: 'ALL', date, type: 'broker' as const }];
+              }
+              // Filter out 'ALL' from broker list and fetch all individual broker files
+              brokersToFetch = availableBrokers.filter(b => b !== 'ALL');
+              if (brokersToFetch.length === 0) {
+                // Fallback: if no brokers available, try ALL.csv
+                return [{ code: 'ALL', date, type: 'broker' as const }];
+              }
+            } else if (hasSpecificBrokers) {
+              // Specific broker(s) selected: fetch those broker files
+              brokersToFetch = selectedBrokers.filter(b => b !== 'ALL');
+              if (brokersToFetch.length === 0) {
+                return [];
+              }
+            } else {
+              // No broker selected
+              return [];
+            }
+
+            // Fetch individual broker files (sector filtering will be done in frontend after fetch)
+            return brokersToFetch.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
+          });
+
         // Check cache first and separate cached vs uncached requests
         const cachedResults: Array<{ date: string; code: string; data: BrokerTransactionData[] }> = [];
         const uncachedTasks: Array<{ code: string; date: string }> = [];
-        
+
         allFetchTasks.forEach(({ code, date }) => {
           const cacheKey = `${code}-${date}-${pivotFilter}-${invFilter}-${boardFilter}`;
           const cached = cache.get(cacheKey);
@@ -1083,15 +1083,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             uncachedTasks.push({ code, date });
           }
         });
-        
+
         // Use cached data immediately
         const allDataResults: Array<{ date: string; code: string; data: BrokerTransactionData[] }> = [...cachedResults];
-        
+
         // OPTIMIZED: Fetch all uncached data in parallel with concurrency limit for maximum speed
         // Using concurrency limit prevents browser from being overwhelmed while still being fast
         // Increased to 50 for faster loading (browser can handle this easily)
         const CONCURRENCY_LIMIT = 50;
-        
+
         if (uncachedTasks.length > 0) {
           // Show cached data immediately if available
           if (cachedResults.length > 0) {
@@ -1107,36 +1107,36 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             setRawTransactionData(cachedRawDataMap);
             setIsDataReady(true);
           }
-          
+
           // Process all uncached tasks with concurrency limit
           const processWithConcurrency = async () => {
             let completedCount = 0;
             let hasShownFirstData = cachedResults.length > 0;
-            
+
             // Process in chunks with concurrency limit
             for (let i = 0; i < uncachedTasks.length; i += CONCURRENCY_LIMIT) {
               // CRITICAL: Check ref before each chunk
-          if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-            return;
-          }
-          
+              if (!shouldFetchDataRef.current || abortController.signal.aborted) {
+                return;
+              }
+
               const chunk = uncachedTasks.slice(i, i + CONCURRENCY_LIMIT);
-              
+
               // Fetch all in this chunk in parallel
-              const chunkPromises = chunk.map(({ code, date }) => 
-              fetchBrokerTransactionData(code, date, pivotFilter, invFilter, boardFilter, cache, abortController.signal)
+              const chunkPromises = chunk.map(({ code, date }) =>
+                fetchBrokerTransactionData(code, date, pivotFilter, invFilter, boardFilter, cache, abortController.signal)
                   .then(data => ({ success: true, code, date, data }))
                   .catch(error => ({ success: false, code, date, error }))
-            );
-            
+              );
+
               // Wait for chunk to complete
               const chunkResults = await Promise.all(chunkPromises);
-            
+
               // CRITICAL: Check ref after chunk
-            if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-          return;
-        }
-        
+              if (!shouldFetchDataRef.current || abortController.signal.aborted) {
+                return;
+              }
+
               // Process chunk results
               chunkResults.forEach((result) => {
                 if (result.success && 'data' in result && result.data) {
@@ -1153,24 +1153,24 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   console.error(`[BrokerTransaction] Failed to fetch data for ${result.code}-${result.date}:`, result.error);
                 }
               });
-              
+
               // OPTIMIZED: Update UI incrementally every chunk for faster perceived performance
               // This makes the UI feel much faster - user sees data updating progressively
               if (allDataResults.length > 0) {
                 const currentDataMap = new Map<string, BrokerTransactionData[]>();
                 const currentRawDataMap = new Map<string, BrokerTransactionData[]>();
-                
+
                 allDataResults.forEach(({ date, data }) => {
                   const existing = currentDataMap.get(date) || [];
                   currentDataMap.set(date, [...existing, ...data]);
                   const existingRaw = currentRawDataMap.get(date) || [];
                   currentRawDataMap.set(date, [...existingRaw, ...data]);
                 });
-                
+
                 // Update state incrementally
                 setTransactionData(currentDataMap);
                 setRawTransactionData(currentRawDataMap);
-                
+
                 // Show data immediately on first chunk if not shown yet
                 if (!hasShownFirstData) {
                   setIsDataReady(true);
@@ -1179,7 +1179,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               }
             }
           };
-          
+
           try {
             await processWithConcurrency();
           } catch (error: any) {
@@ -1191,18 +1191,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             console.error('[BrokerTransaction] Error in parallel fetch:', error);
           }
         }
-        
+
         // CRITICAL: Final check after all batches - user might have changed dates during fetch
         if (!shouldFetchDataRef.current || abortController.signal.aborted) {
           setIsLoading(false);
           setIsDataReady(false);
           return;
         }
-        
+
         // OPTIMIZED: Skip date validation - data is already correct from API
         // Use allDataResults directly without filtering
         const filteredDataResults = allDataResults;
-        
+
         // Process data per date - AGGREGATE per Emiten and per section (Buy, Sell, Net Buy, Net Sell)
         // When multiple brokers are selected, sum values for the same Emiten
         // CRITICAL: For Stock pivot, don't aggregate - each row is already complete (broker transaction for a stock)
@@ -1212,7 +1212,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           if (!shouldFetchDataRef.current) {
             return;
           }
-          
+
           // For Stock pivot: aggregate by stock code (from fetch task) when multiple brokers are selected
           // For Broker pivot: aggregate by Emiten (stock) when multiple brokers are selected
           if (pivotFilter === 'Stock') {
@@ -1220,14 +1220,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             // CRITICAL: For Stock pivot with sector (like IDX), group by Emiten (actual stock) instead of sector code
             // This ensures all brokers for each stock are shown, not just one broker per stock
             const stockDataMap = new Map<string, BrokerTransactionData[]>();
-            
+
             // Track processed stocks to avoid duplicates
             const processedStocks = new Set<string>();
-            
+
             filteredDataResults.forEach(({ date: resultDate, code, data }) => {
               // CRITICAL: Only process data for the current date being processed
               if (resultDate !== date) return;
-              
+
               // CRITICAL: If sector is selected (like IDX), group by Emiten (actual stock) instead of sector code
               // This ensures all brokers for each stock are preserved
               if (selectedSectors.length > 0) {
@@ -1235,7 +1235,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 data.forEach(row => {
                   const emiten = row.Emiten || '';
                   if (!emiten) return;
-                  
+
                   const existing = stockDataMap.get(emiten) || [];
                   stockDataMap.set(emiten, [...existing, row]);
                 });
@@ -1243,92 +1243,92 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 // CRITICAL: For individual tickers, REPLACE data (don't append) to avoid duplicates
                 // Each stock should only have 1 data set per date
                 const stockCode = code || 'UNKNOWN';
-                
+
                 // Skip if already processed this stock for this date (prevent duplicates)
                 if (processedStocks.has(stockCode)) {
                   console.log(`[BrokerTransaction] Skipping duplicate data for ${stockCode} on ${date}`);
                   return;
                 }
                 processedStocks.add(stockCode);
-                
+
                 // REPLACE, don't append - each stock should have only 1 data set
                 stockDataMap.set(stockCode, data);
               }
             });
-            
+
             // Store raw data (before filtering and aggregation)
             const rawRows: BrokerTransactionData[] = [];
             stockDataMap.forEach((rows) => {
               rawRows.push(...rows);
             });
-            
+
             // Apply filters if needed
             // CRITICAL: For Stock pivot, filter by broker if selectedBrokers is provided
             // For Stock pivot: Emiten, BCode, SCode, NBCode, NSCode are all broker codes
             let filteredStockDataMap = new Map<string, BrokerTransactionData[]>();
-            
+
             stockDataMap.forEach((rows, stockCode) => {
               let filteredRows = rows;
-            
-            // Priority 1: Filter by broker (if selectedBrokers is provided and not "ALL")
-            // CRITICAL: If "ALL" is selected, don't filter - show all brokers
-            if (selectedBrokers.length > 0 && !selectedBrokers.includes('ALL')) {
-              const normalizedSelectedBrokers = selectedBrokers.map(b => b.toUpperCase());
-              filteredRows = filteredRows.filter(row => {
-                const emiten = (row.Emiten || '').toUpperCase();
-                const bCode = (row.BCode || '').toUpperCase();
-                const sCode = (row.SCode || '').toUpperCase();
-                const nbCode = (row.NBCode || '').toUpperCase();
-                const nsCode = (row.NSCode || '').toUpperCase();
-                
-                return normalizedSelectedBrokers.includes(emiten) || 
-                       normalizedSelectedBrokers.includes(bCode) || 
-                       normalizedSelectedBrokers.includes(sCode) || 
-                       normalizedSelectedBrokers.includes(nbCode) || 
-                       normalizedSelectedBrokers.includes(nsCode);
-              });
-            }
-            
+
+              // Priority 1: Filter by broker (if selectedBrokers is provided and not "ALL")
+              // CRITICAL: If "ALL" is selected, don't filter - show all brokers
+              if (selectedBrokers.length > 0 && !selectedBrokers.includes('ALL')) {
+                const normalizedSelectedBrokers = selectedBrokers.map(b => b.toUpperCase());
+                filteredRows = filteredRows.filter(row => {
+                  const emiten = (row.Emiten || '').toUpperCase();
+                  const bCode = (row.BCode || '').toUpperCase();
+                  const sCode = (row.SCode || '').toUpperCase();
+                  const nbCode = (row.NBCode || '').toUpperCase();
+                  const nsCode = (row.NSCode || '').toUpperCase();
+
+                  return normalizedSelectedBrokers.includes(emiten) ||
+                    normalizedSelectedBrokers.includes(bCode) ||
+                    normalizedSelectedBrokers.includes(sCode) ||
+                    normalizedSelectedBrokers.includes(nbCode) ||
+                    normalizedSelectedBrokers.includes(nsCode);
+                });
+              }
+
               if (filteredRows.length > 0) {
                 filteredStockDataMap.set(stockCode, filteredRows);
               }
             });
-            
+
             // CRITICAL: For Stock pivot with multiple tickers, aggregate GLOBALLY by broker code
             // This ensures brokers from different stocks (e.g., XL from AADI and XL from ADCP) are aggregated together
             const aggregatedRows: BrokerTransactionData[] = [];
-            
+
             // STEP 1: Collect ALL rows from ALL stocks first
             const allRows: BrokerTransactionData[] = [];
             filteredStockDataMap.forEach((rows) => {
               allRows.push(...rows);
             });
-            
+
             // STEP 2: Determine aggregation strategy
             // - For multiple tickers (no sector): aggregate GLOBALLY by broker code across all stocks
             // - For sector data: aggregate by broker code per stock
             // - For single ticker: show all brokers separately
-            
+
             if (selectedTickers.length > 1 && selectedSectors.length === 0) {
               // MULTIPLE TICKERS: Aggregate GLOBALLY by broker code across ALL stocks
               // This is the key fix - XL from AADI and XL from ADCP will be combined
               const globalBrokerMap = new Map<string, BrokerTransactionData[]>();
-              
+
               allRows.forEach(row => {
                 if (!row) return;
                 // Use BCode as primary broker identifier, fallback to SCode, NBCode, NSCode, Emiten
                 // CRITICAL: Normalize to uppercase and ensure string type for consistent comparison
                 const brokerCode = String(row.BCode || row.SCode || row.NBCode || row.NSCode || row.Emiten || '').toUpperCase().trim();
                 if (!brokerCode) return;
-                
+
                 const existing = globalBrokerMap.get(brokerCode) || [];
                 globalBrokerMap.set(brokerCode, [...existing, row]);
               });
-              
+
               // Aggregate rows with the same broker code globally
               globalBrokerMap.forEach((brokerRows) => {
                 if (brokerRows.length === 0) return;
-                
+
                 // If only one row for this broker, no need to aggregate
                 if (brokerRows.length === 1) {
                   const row = brokerRows[0];
@@ -1344,11 +1344,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   }
                   return;
                 }
-                
+
                 // Get first row as base
                 const firstRow = brokerRows[0];
                 if (!firstRow) return;
-                
+
                 // Aggregate multiple rows (same broker, different stocks)
                 // CRITICAL: Initial value must have numeric fields set to 0 to avoid double-counting firstRow
                 const initialAcc: BrokerTransactionData = {
@@ -1375,39 +1375,39 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   TransactionCount: 0,
                   AvgPrice: 0
                 };
-                
+
                 const aggregatedRow = brokerRows.reduce((acc, row) => {
                   if (!row) return acc;
-                  
+
                   // Preserve broker codes from first row (BCode, SCode, NBCode, NSCode)
                   if (!acc.BCode && row.BCode) acc.BCode = String(row.BCode).toUpperCase().trim();
                   if (!acc.SCode && row.SCode) acc.SCode = String(row.SCode).toUpperCase().trim();
                   if (!acc.NBCode && row.NBCode) acc.NBCode = String(row.NBCode).toUpperCase().trim();
                   if (!acc.NSCode && row.NSCode) acc.NSCode = String(row.NSCode).toUpperCase().trim();
-                  
+
                   // Sum Buyer values
                   acc.BuyerVol = (acc.BuyerVol || 0) + (row.BuyerVol || 0);
                   acc.BuyerValue = (acc.BuyerValue || 0) + (row.BuyerValue || 0);
                   acc.BFreq = (acc.BFreq || 0) + (row.BFreq || 0);
                   acc.BOrdNum = (acc.BOrdNum || 0) + (row.BOrdNum || 0);
                   acc.BLot = (acc.BLot || 0) + (row.BLot || 0);
-                  
+
                   // Sum Seller values
                   acc.SellerVol = (acc.SellerVol || 0) + (row.SellerVol || 0);
                   acc.SellerValue = (acc.SellerValue || 0) + (row.SellerValue || 0);
                   acc.SFreq = (acc.SFreq || 0) + (row.SFreq || 0);
                   acc.SOrdNum = (acc.SOrdNum || 0) + (row.SOrdNum || 0);
                   acc.SLot = (acc.SLot || 0) + (row.SLot || 0);
-                  
+
                   return acc;
                 }, initialAcc);
-                
+
                 // Ensure broker codes are normalized
                 if (aggregatedRow.BCode) aggregatedRow.BCode = String(aggregatedRow.BCode).toUpperCase().trim();
                 if (aggregatedRow.SCode) aggregatedRow.SCode = String(aggregatedRow.SCode).toUpperCase().trim();
                 if (aggregatedRow.NBCode) aggregatedRow.NBCode = String(aggregatedRow.NBCode).toUpperCase().trim();
                 if (aggregatedRow.NSCode) aggregatedRow.NSCode = String(aggregatedRow.NSCode).toUpperCase().trim();
-                
+
                 // CRITICAL: Ensure BuyerVol and SellerVol are calculated from BLot/SLot if they are 0
                 // This handles cases where CSV has BLot but not BuyerVol
                 if ((!aggregatedRow.BuyerVol || aggregatedRow.BuyerVol === 0) && aggregatedRow.BLot && aggregatedRow.BLot > 0) {
@@ -1416,17 +1416,17 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 if ((!aggregatedRow.SellerVol || aggregatedRow.SellerVol === 0) && aggregatedRow.SLot && aggregatedRow.SLot > 0) {
                   aggregatedRow.SellerVol = aggregatedRow.SLot * 100;
                 }
-                
+
                 // Recalculate averages
                 aggregatedRow.BuyerAvg = aggregatedRow.BuyerVol > 0 ? aggregatedRow.BuyerValue / aggregatedRow.BuyerVol : 0;
                 aggregatedRow.SellerAvg = aggregatedRow.SellerVol > 0 ? aggregatedRow.SellerValue / aggregatedRow.SellerVol : 0;
-                
+
                 // CRITICAL: Recalculate net from BuyerVol - SellerVol
                 const rawNetBuyVol = aggregatedRow.BuyerVol - aggregatedRow.SellerVol;
                 const rawNetBuyValue = aggregatedRow.BuyerValue - aggregatedRow.SellerValue;
                 const rawNetBuyFreq = (aggregatedRow.BFreq || 0) - (aggregatedRow.SFreq || 0);
                 const rawNetBuyOrdNum = (aggregatedRow.BOrdNum || 0) - (aggregatedRow.SOrdNum || 0);
-                
+
                 if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
                   aggregatedRow.NetSellVol = Math.abs(rawNetBuyVol);
                   aggregatedRow.NetSellValue = Math.abs(rawNetBuyValue);
@@ -1446,7 +1446,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   aggregatedRow.NSFreq = 0;
                   aggregatedRow.NSOrdNum = 0;
                 }
-                
+
                 // Recalculate net averages and lots
                 aggregatedRow.NBAvg = aggregatedRow.NetBuyVol > 0 ? aggregatedRow.NetBuyValue / aggregatedRow.NetBuyVol : 0;
                 aggregatedRow.NSAvg = aggregatedRow.NetSellVol > 0 ? aggregatedRow.NetSellValue / aggregatedRow.NetSellVol : 0;
@@ -1456,36 +1456,36 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 aggregatedRow.NBLotPerOrdNum = Math.abs(aggregatedRow.NBOrdNum || 0) > 0 ? aggregatedRow.NBLot / Math.abs(aggregatedRow.NBOrdNum || 0) : 0;
                 aggregatedRow.NSLotPerFreq = Math.abs(aggregatedRow.NSFreq || 0) > 0 ? aggregatedRow.NSLot / Math.abs(aggregatedRow.NSFreq || 0) : 0;
                 aggregatedRow.NSLotPerOrdNum = Math.abs(aggregatedRow.NSOrdNum || 0) > 0 ? aggregatedRow.NSLot / Math.abs(aggregatedRow.NSOrdNum || 0) : 0;
-                
+
                 aggregatedRows.push(aggregatedRow);
               });
             } else if (selectedSectors.length > 0) {
               // SECTOR DATA: Aggregate by broker code per stock (preserve stock grouping)
               filteredStockDataMap.forEach((rows) => {
                 if (rows.length === 0) return;
-                
+
                 const brokerMap = new Map<string, BrokerTransactionData[]>();
                 rows.forEach(row => {
                   if (!row) return;
                   const brokerCode = String(row.BCode || row.Emiten || row.SCode || row.NBCode || row.NSCode || '').toUpperCase().trim();
                   if (!brokerCode) return;
-                  
+
                   const existing = brokerMap.get(brokerCode) || [];
                   brokerMap.set(brokerCode, [...existing, row]);
                 });
-                
+
                 brokerMap.forEach((brokerRows) => {
                   if (brokerRows.length === 0) return;
-                  
+
                   if (brokerRows.length === 1) {
                     const row = brokerRows[0];
                     if (row) aggregatedRows.push(row);
                     return;
                   }
-                  
+
                   const firstRow = brokerRows[0];
                   if (!firstRow) return;
-                  
+
                   // CRITICAL: Initial value must have numeric fields set to 0 to avoid double-counting
                   const sectorInitialAcc: BrokerTransactionData = {
                     ...firstRow,
@@ -1494,7 +1494,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     NetBuyVol: 0, NetBuyValue: 0, NetSellVol: 0, NetSellValue: 0,
                     TotalVolume: 0, TotalValue: 0, TransactionCount: 0, AvgPrice: 0
                   };
-                  
+
                   const aggregatedRow = brokerRows.reduce((acc, row) => {
                     if (!row) return acc;
                     acc.BuyerVol = (acc.BuyerVol || 0) + (row.BuyerVol || 0);
@@ -1509,7 +1509,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     acc.SLot = (acc.SLot || 0) + (row.SLot || 0);
                     return acc;
                   }, sectorInitialAcc);
-                  
+
                   // Ensure BuyerVol and SellerVol are calculated from BLot/SLot if they are 0
                   if ((!aggregatedRow.BuyerVol || aggregatedRow.BuyerVol === 0) && aggregatedRow.BLot && aggregatedRow.BLot > 0) {
                     aggregatedRow.BuyerVol = aggregatedRow.BLot * 100;
@@ -1517,15 +1517,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   if ((!aggregatedRow.SellerVol || aggregatedRow.SellerVol === 0) && aggregatedRow.SLot && aggregatedRow.SLot > 0) {
                     aggregatedRow.SellerVol = aggregatedRow.SLot * 100;
                   }
-                  
+
                   aggregatedRow.BuyerAvg = aggregatedRow.BuyerVol > 0 ? aggregatedRow.BuyerValue / aggregatedRow.BuyerVol : 0;
                   aggregatedRow.SellerAvg = aggregatedRow.SellerVol > 0 ? aggregatedRow.SellerValue / aggregatedRow.SellerVol : 0;
-                  
+
                   const rawNetBuyVol = aggregatedRow.BuyerVol - aggregatedRow.SellerVol;
                   const rawNetBuyValue = aggregatedRow.BuyerValue - aggregatedRow.SellerValue;
                   const rawNetBuyFreq = (aggregatedRow.BFreq || 0) - (aggregatedRow.SFreq || 0);
                   const rawNetBuyOrdNum = (aggregatedRow.BOrdNum || 0) - (aggregatedRow.SOrdNum || 0);
-                  
+
                   if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
                     aggregatedRow.NetSellVol = Math.abs(rawNetBuyVol);
                     aggregatedRow.NetSellValue = Math.abs(rawNetBuyValue);
@@ -1545,7 +1545,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     aggregatedRow.NSFreq = 0;
                     aggregatedRow.NSOrdNum = 0;
                   }
-                  
+
                   aggregatedRow.NBAvg = aggregatedRow.NetBuyVol > 0 ? aggregatedRow.NetBuyValue / aggregatedRow.NetBuyVol : 0;
                   aggregatedRow.NSAvg = aggregatedRow.NetSellVol > 0 ? aggregatedRow.NetSellValue / aggregatedRow.NetSellVol : 0;
                   aggregatedRow.NBLot = aggregatedRow.NetBuyVol / 100;
@@ -1554,7 +1554,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   aggregatedRow.NBLotPerOrdNum = Math.abs(aggregatedRow.NBOrdNum || 0) > 0 ? aggregatedRow.NBLot / Math.abs(aggregatedRow.NBOrdNum || 0) : 0;
                   aggregatedRow.NSLotPerFreq = Math.abs(aggregatedRow.NSFreq || 0) > 0 ? aggregatedRow.NSLot / Math.abs(aggregatedRow.NSFreq || 0) : 0;
                   aggregatedRow.NSLotPerOrdNum = Math.abs(aggregatedRow.NSOrdNum || 0) > 0 ? aggregatedRow.NSLot / Math.abs(aggregatedRow.NSOrdNum || 0) : 0;
-                  
+
                   aggregatedRows.push(aggregatedRow);
                 });
               });
@@ -1572,18 +1572,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 }
               });
             }
-            
+
             // Store data
             newRawTransactionData.set(date, rawRows);
             newTransactionData.set(date, aggregatedRows);
             continue;
           }
-          
+
           // For Broker pivot: aggregate by Emiten (stock)
           // Map to aggregate data per Emiten and per section
           // Key: Emiten, Value: aggregated BrokerTransactionData
           const aggregatedMap = new Map<string, BrokerTransactionData>();
-          
+
           // Process results for this date from all brokers
           // OPTIMIZED: Skip date double-check - data is already correct from API
           filteredDataResults.forEach(({ date: resultDate, data }) => {
@@ -1591,147 +1591,147 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             if (resultDate !== date) {
               return;
             }
-              
-              // Aggregate rows by Emiten
-              for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
-                const row = data[rowIndex];
-                if (!row) continue;
-                
-                const emiten = row.Emiten || '';
-                if (!emiten) continue;
-                
-                // OPTIMIZED: Removed debug logging to improve performance
-                
-                const existing = aggregatedMap.get(emiten);
-                if (existing) {
-                  // Sum values for the same Emiten from different brokers
-                  // Buyer section
-                  existing.BuyerVol = (existing.BuyerVol || 0) + (row.BuyerVol || 0);
-                  existing.BuyerValue = (existing.BuyerValue || 0) + (row.BuyerValue || 0);
-                  existing.BFreq = (existing.BFreq || 0) + (row.BFreq || 0);
-                  existing.BOrdNum = (existing.BOrdNum || 0) + (row.BOrdNum || 0);
-                  existing.BLot = (existing.BLot || 0) + (row.BLot || 0);
-                  // Track NewBuyerOrdNum for accurate BLotPerOrdNum calculation
-                  const existingNewBuyerOrdNum = existing.NewBuyerOrdNum !== undefined ? existing.NewBuyerOrdNum : (existing.BOrdNum || 0);
-                  const rowNewBuyerOrdNum = row.NewBuyerOrdNum !== undefined ? row.NewBuyerOrdNum : (row.BOrdNum || 0);
-                  existing.NewBuyerOrdNum = existingNewBuyerOrdNum + rowNewBuyerOrdNum;
-                  
-                  // Use Lot/F and Lot/ON from CSV only - no manual calculation
-                  // Use weighted average when both values exist, otherwise use the one that exists
-                  if (row.BLotPerFreq !== undefined && row.BLotPerFreq !== null) {
-                    if (existing.BLotPerFreq !== undefined && existing.BLotPerFreq !== null) {
-                      // Weighted average based on frequency (both values from CSV)
-                      const totalFreq = (existing.BFreq || 0) + (row.BFreq || 0);
-                      if (totalFreq > 0) {
-                        existing.BLotPerFreq = ((existing.BLotPerFreq * (existing.BFreq || 0)) + (row.BLotPerFreq * (row.BFreq || 0))) / totalFreq;
-                      }
-                    } else {
-                      existing.BLotPerFreq = row.BLotPerFreq;
+
+            // Aggregate rows by Emiten
+            for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
+              const row = data[rowIndex];
+              if (!row) continue;
+
+              const emiten = row.Emiten || '';
+              if (!emiten) continue;
+
+              // OPTIMIZED: Removed debug logging to improve performance
+
+              const existing = aggregatedMap.get(emiten);
+              if (existing) {
+                // Sum values for the same Emiten from different brokers
+                // Buyer section
+                existing.BuyerVol = (existing.BuyerVol || 0) + (row.BuyerVol || 0);
+                existing.BuyerValue = (existing.BuyerValue || 0) + (row.BuyerValue || 0);
+                existing.BFreq = (existing.BFreq || 0) + (row.BFreq || 0);
+                existing.BOrdNum = (existing.BOrdNum || 0) + (row.BOrdNum || 0);
+                existing.BLot = (existing.BLot || 0) + (row.BLot || 0);
+                // Track NewBuyerOrdNum for accurate BLotPerOrdNum calculation
+                const existingNewBuyerOrdNum = existing.NewBuyerOrdNum !== undefined ? existing.NewBuyerOrdNum : (existing.BOrdNum || 0);
+                const rowNewBuyerOrdNum = row.NewBuyerOrdNum !== undefined ? row.NewBuyerOrdNum : (row.BOrdNum || 0);
+                existing.NewBuyerOrdNum = existingNewBuyerOrdNum + rowNewBuyerOrdNum;
+
+                // Use Lot/F and Lot/ON from CSV only - no manual calculation
+                // Use weighted average when both values exist, otherwise use the one that exists
+                if (row.BLotPerFreq !== undefined && row.BLotPerFreq !== null) {
+                  if (existing.BLotPerFreq !== undefined && existing.BLotPerFreq !== null) {
+                    // Weighted average based on frequency (both values from CSV)
+                    const totalFreq = (existing.BFreq || 0) + (row.BFreq || 0);
+                    if (totalFreq > 0) {
+                      existing.BLotPerFreq = ((existing.BLotPerFreq * (existing.BFreq || 0)) + (row.BLotPerFreq * (row.BFreq || 0))) / totalFreq;
                     }
-                  }
-                  
-                  // CRITICAL: For BLotPerOrdNum, ALWAYS recalculate from aggregated BLot and NewBuyerOrdNum
-                  // Formula: BLotPerOrdNum = BLot / NewBuyerOrdNum (when NewBuyerOrdNum != 0)
-                  // Use NewBuyerOrdNum (not BOrdNum) as denominator for accurate calculation
-                  // This applies to both single and multiple brokers
-                  const totalNewBuyerOrdNum = existing.NewBuyerOrdNum || 0;
-                  if (totalNewBuyerOrdNum !== 0) {
-                    existing.BLotPerOrdNum = Math.abs(existing.BLot || 0) / Math.abs(totalNewBuyerOrdNum);
                   } else {
-                    // Fallback: if NewBuyerOrdNum is 0, set to 0
-                    existing.BLotPerOrdNum = 0;
+                    existing.BLotPerFreq = row.BLotPerFreq;
                   }
-                  // Recalculate BuyerAvg from aggregated values
-                  existing.BuyerAvg = (existing.BuyerVol || 0) > 0 ? (existing.BuyerValue || 0) / (existing.BuyerVol || 0) : 0;
-                  
-                  // Seller section
-                  existing.SellerVol = (existing.SellerVol || 0) + (row.SellerVol || 0);
-                  existing.SellerValue = (existing.SellerValue || 0) + (row.SellerValue || 0);
-                  existing.SFreq = (existing.SFreq || 0) + (row.SFreq || 0);
-                  existing.SOrdNum = (existing.SOrdNum || 0) + (row.SOrdNum || 0);
-                  existing.SLot = (existing.SLot || 0) + (row.SLot || 0);
-                  // Track NewSellerOrdNum for accurate SLotPerOrdNum calculation
-                  const existingNewSellerOrdNum = existing.NewSellerOrdNum !== undefined ? existing.NewSellerOrdNum : (existing.SOrdNum || 0);
-                  const rowNewSellerOrdNum = row.NewSellerOrdNum !== undefined ? row.NewSellerOrdNum : (row.SOrdNum || 0);
-                  existing.NewSellerOrdNum = existingNewSellerOrdNum + rowNewSellerOrdNum;
-                  
-                  // Use Lot/F and Lot/ON from CSV only - no manual calculation
-                  if (row.SLotPerFreq !== undefined && row.SLotPerFreq !== null) {
-                    if (existing.SLotPerFreq !== undefined && existing.SLotPerFreq !== null) {
-                      // Weighted average based on frequency (both values from CSV)
-                      const totalFreq = (existing.SFreq || 0) + (row.SFreq || 0);
-                      if (totalFreq > 0) {
-                        existing.SLotPerFreq = ((existing.SLotPerFreq * (existing.SFreq || 0)) + (row.SLotPerFreq * (row.SFreq || 0))) / totalFreq;
-                      }
-                    } else {
-                      existing.SLotPerFreq = row.SLotPerFreq;
-                    }
-                  }
-                  
-                  // CRITICAL: For SLotPerOrdNum, ALWAYS recalculate from aggregated SLot and NewSellerOrdNum
-                  // Formula: SLotPerOrdNum = SLot / NewSellerOrdNum (when NewSellerOrdNum != 0)
-                  // Use NewSellerOrdNum (not SOrdNum) as denominator for accurate calculation
-                  // This applies to both single and multiple brokers
-                  const totalNewSellerOrdNum = existing.NewSellerOrdNum || 0;
-                  if (totalNewSellerOrdNum !== 0) {
-                    existing.SLotPerOrdNum = Math.abs(existing.SLot || 0) / Math.abs(totalNewSellerOrdNum);
-                  } else {
-                    // Fallback: if NewSellerOrdNum is 0, set to 0
-                    existing.SLotPerOrdNum = 0;
-                  }
-                  existing.SellerAvg = (existing.SellerVol || 0) > 0 ? (existing.SellerValue || 0) / (existing.SellerVol || 0) : 0;
-                  
-                  // CRITICAL: Don't sum NetBuyVol/NetBuyValue from CSV - will recalculate from BuyerVol - SellerVol after aggregation
-                  // Just sum frequency and order number for now
-                  existing.NBFreq = (existing.NBFreq || 0) + (row.NBFreq || 0);
-                  existing.NBOrdNum = (existing.NBOrdNum || 0) + (row.NBOrdNum || 0);
-                  existing.NSFreq = (existing.NSFreq || 0) + (row.NSFreq || 0);
-                  existing.NSOrdNum = (existing.NSOrdNum || 0) + (row.NSOrdNum || 0);
-                  
-                  // Total fields
-                  existing.TotalVolume = (existing.TotalVolume || 0) + (row.TotalVolume || 0);
-                  existing.TotalValue = (existing.TotalValue || 0) + (row.TotalValue || 0);
-                  existing.TransactionCount = (existing.TransactionCount || 0) + (row.TransactionCount || 0);
-                  existing.AvgPrice = (existing.TotalVolume || 0) > 0 ? (existing.TotalValue || 0) / (existing.TotalVolume || 0) : 0;
+                }
+
+                // CRITICAL: For BLotPerOrdNum, ALWAYS recalculate from aggregated BLot and NewBuyerOrdNum
+                // Formula: BLotPerOrdNum = BLot / NewBuyerOrdNum (when NewBuyerOrdNum != 0)
+                // Use NewBuyerOrdNum (not BOrdNum) as denominator for accurate calculation
+                // This applies to both single and multiple brokers
+                const totalNewBuyerOrdNum = existing.NewBuyerOrdNum || 0;
+                if (totalNewBuyerOrdNum !== 0) {
+                  existing.BLotPerOrdNum = Math.abs(existing.BLot || 0) / Math.abs(totalNewBuyerOrdNum);
                 } else {
-                  // First occurrence of this Emiten - clone row and recalculate BLotPerOrdNum/SLotPerOrdNum
-                  const firstRow = { ...row } as BrokerTransactionData;
-                  
-                  // CRITICAL: Recalculate BLotPerOrdNum using NewBuyerOrdNum (not BOrdNum)
-                  const firstNewBuyerOrdNum = firstRow.NewBuyerOrdNum !== undefined ? firstRow.NewBuyerOrdNum : (firstRow.BOrdNum || 0);
-                  if (firstNewBuyerOrdNum !== 0 && firstRow.BLot !== undefined) {
-                    firstRow.BLotPerOrdNum = Math.abs(firstRow.BLot) / Math.abs(firstNewBuyerOrdNum);
+                  // Fallback: if NewBuyerOrdNum is 0, set to 0
+                  existing.BLotPerOrdNum = 0;
+                }
+                // Recalculate BuyerAvg from aggregated values
+                existing.BuyerAvg = (existing.BuyerVol || 0) > 0 ? (existing.BuyerValue || 0) / (existing.BuyerVol || 0) : 0;
+
+                // Seller section
+                existing.SellerVol = (existing.SellerVol || 0) + (row.SellerVol || 0);
+                existing.SellerValue = (existing.SellerValue || 0) + (row.SellerValue || 0);
+                existing.SFreq = (existing.SFreq || 0) + (row.SFreq || 0);
+                existing.SOrdNum = (existing.SOrdNum || 0) + (row.SOrdNum || 0);
+                existing.SLot = (existing.SLot || 0) + (row.SLot || 0);
+                // Track NewSellerOrdNum for accurate SLotPerOrdNum calculation
+                const existingNewSellerOrdNum = existing.NewSellerOrdNum !== undefined ? existing.NewSellerOrdNum : (existing.SOrdNum || 0);
+                const rowNewSellerOrdNum = row.NewSellerOrdNum !== undefined ? row.NewSellerOrdNum : (row.SOrdNum || 0);
+                existing.NewSellerOrdNum = existingNewSellerOrdNum + rowNewSellerOrdNum;
+
+                // Use Lot/F and Lot/ON from CSV only - no manual calculation
+                if (row.SLotPerFreq !== undefined && row.SLotPerFreq !== null) {
+                  if (existing.SLotPerFreq !== undefined && existing.SLotPerFreq !== null) {
+                    // Weighted average based on frequency (both values from CSV)
+                    const totalFreq = (existing.SFreq || 0) + (row.SFreq || 0);
+                    if (totalFreq > 0) {
+                      existing.SLotPerFreq = ((existing.SLotPerFreq * (existing.SFreq || 0)) + (row.SLotPerFreq * (row.SFreq || 0))) / totalFreq;
+                    }
                   } else {
-                    firstRow.BLotPerOrdNum = 0;
+                    existing.SLotPerFreq = row.SLotPerFreq;
                   }
-                  
-                  // CRITICAL: Recalculate SLotPerOrdNum using NewSellerOrdNum (not SOrdNum)
-                  const firstNewSellerOrdNum = firstRow.NewSellerOrdNum !== undefined ? firstRow.NewSellerOrdNum : (firstRow.SOrdNum || 0);
-                  if (firstNewSellerOrdNum !== 0 && firstRow.SLot !== undefined) {
-                    firstRow.SLotPerOrdNum = Math.abs(firstRow.SLot) / Math.abs(firstNewSellerOrdNum);
-                  } else {
-                    firstRow.SLotPerOrdNum = 0;
-                  }
-                  
-                  // CRITICAL: Don't use NetBuyVol/NetBuyValue from CSV - will be recalculated after aggregation
-                  // Reset net values to 0 so they will be recalculated from BuyerVol - SellerVol
-                  firstRow.NetBuyVol = 0;
-                  firstRow.NetBuyValue = 0;
-                  firstRow.NetSellVol = 0;
-                  firstRow.NetSellValue = 0;
-                  firstRow.NBFreq = 0;
-                  firstRow.NBOrdNum = 0;
-                  firstRow.NSFreq = 0;
-                  firstRow.NSOrdNum = 0;
-                  
-                  aggregatedMap.set(emiten, firstRow);
+                }
+
+                // CRITICAL: For SLotPerOrdNum, ALWAYS recalculate from aggregated SLot and NewSellerOrdNum
+                // Formula: SLotPerOrdNum = SLot / NewSellerOrdNum (when NewSellerOrdNum != 0)
+                // Use NewSellerOrdNum (not SOrdNum) as denominator for accurate calculation
+                // This applies to both single and multiple brokers
+                const totalNewSellerOrdNum = existing.NewSellerOrdNum || 0;
+                if (totalNewSellerOrdNum !== 0) {
+                  existing.SLotPerOrdNum = Math.abs(existing.SLot || 0) / Math.abs(totalNewSellerOrdNum);
+                } else {
+                  // Fallback: if NewSellerOrdNum is 0, set to 0
+                  existing.SLotPerOrdNum = 0;
+                }
+                existing.SellerAvg = (existing.SellerVol || 0) > 0 ? (existing.SellerValue || 0) / (existing.SellerVol || 0) : 0;
+
+                // CRITICAL: Don't sum NetBuyVol/NetBuyValue from CSV - will recalculate from BuyerVol - SellerVol after aggregation
+                // Just sum frequency and order number for now
+                existing.NBFreq = (existing.NBFreq || 0) + (row.NBFreq || 0);
+                existing.NBOrdNum = (existing.NBOrdNum || 0) + (row.NBOrdNum || 0);
+                existing.NSFreq = (existing.NSFreq || 0) + (row.NSFreq || 0);
+                existing.NSOrdNum = (existing.NSOrdNum || 0) + (row.NSOrdNum || 0);
+
+                // Total fields
+                existing.TotalVolume = (existing.TotalVolume || 0) + (row.TotalVolume || 0);
+                existing.TotalValue = (existing.TotalValue || 0) + (row.TotalValue || 0);
+                existing.TransactionCount = (existing.TransactionCount || 0) + (row.TransactionCount || 0);
+                existing.AvgPrice = (existing.TotalVolume || 0) > 0 ? (existing.TotalValue || 0) / (existing.TotalVolume || 0) : 0;
+              } else {
+                // First occurrence of this Emiten - clone row and recalculate BLotPerOrdNum/SLotPerOrdNum
+                const firstRow = { ...row } as BrokerTransactionData;
+
+                // CRITICAL: Recalculate BLotPerOrdNum using NewBuyerOrdNum (not BOrdNum)
+                const firstNewBuyerOrdNum = firstRow.NewBuyerOrdNum !== undefined ? firstRow.NewBuyerOrdNum : (firstRow.BOrdNum || 0);
+                if (firstNewBuyerOrdNum !== 0 && firstRow.BLot !== undefined) {
+                  firstRow.BLotPerOrdNum = Math.abs(firstRow.BLot) / Math.abs(firstNewBuyerOrdNum);
+                } else {
+                  firstRow.BLotPerOrdNum = 0;
+                }
+
+                // CRITICAL: Recalculate SLotPerOrdNum using NewSellerOrdNum (not SOrdNum)
+                const firstNewSellerOrdNum = firstRow.NewSellerOrdNum !== undefined ? firstRow.NewSellerOrdNum : (firstRow.SOrdNum || 0);
+                if (firstNewSellerOrdNum !== 0 && firstRow.SLot !== undefined) {
+                  firstRow.SLotPerOrdNum = Math.abs(firstRow.SLot) / Math.abs(firstNewSellerOrdNum);
+                } else {
+                  firstRow.SLotPerOrdNum = 0;
+                }
+
+                // CRITICAL: Don't use NetBuyVol/NetBuyValue from CSV - will be recalculated after aggregation
+                // Reset net values to 0 so they will be recalculated from BuyerVol - SellerVol
+                firstRow.NetBuyVol = 0;
+                firstRow.NetBuyValue = 0;
+                firstRow.NetSellVol = 0;
+                firstRow.NetSellValue = 0;
+                firstRow.NBFreq = 0;
+                firstRow.NBOrdNum = 0;
+                firstRow.NSFreq = 0;
+                firstRow.NSOrdNum = 0;
+
+                aggregatedMap.set(emiten, firstRow);
               }
             }
           });
-          
+
           // Convert map to array
           let allRows = Array.from(aggregatedMap.values());
-          
+
           // CRITICAL: Recalculate net from BuyerVol - SellerVol for ALL rows (both single and multiple brokers)
           // This ensures net is ALWAYS calculated correctly from BuyerVol - SellerVol, not from CSV NetBuyVol
           // This is especially important when multiple brokers are selected
@@ -1742,7 +1742,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             const rawNetBuyValue = (row.BuyerValue || 0) - (row.SellerValue || 0);
             const rawNetBuyFreq = (row.BFreq || 0) - (row.SFreq || 0);
             const rawNetBuyOrdNum = (row.BOrdNum || 0) - (row.SOrdNum || 0);
-            
+
             if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
               // NetBuy is negative, so it becomes NetSell
               row.NetSellVol = Math.abs(rawNetBuyVol);
@@ -1764,35 +1764,35 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               row.NSFreq = 0;
               row.NSOrdNum = 0;
             }
-            
+
             // Recalculate net averages
             row.NBAvg = row.NetBuyVol > 0 ? row.NetBuyValue / row.NetBuyVol : 0;
             row.NSAvg = row.NetSellVol > 0 ? row.NetSellValue / row.NetSellVol : 0;
-            
+
             // Recalculate lots
             row.NBLot = row.NetBuyVol / 100;
             row.NSLot = row.NetSellVol / 100;
-            
+
             // Recalculate lot per frequency and order number
             row.NBLotPerFreq = Math.abs(row.NBFreq || 0) > 0 ? row.NBLot / Math.abs(row.NBFreq || 0) : 0;
             row.NBLotPerOrdNum = Math.abs(row.NBOrdNum || 0) > 0 ? row.NBLot / Math.abs(row.NBOrdNum || 0) : 0;
             row.NSLotPerFreq = Math.abs(row.NSFreq || 0) > 0 ? row.NSLot / Math.abs(row.NSFreq || 0) : 0;
             row.NSLotPerOrdNum = Math.abs(row.NSOrdNum || 0) > 0 ? row.NSLot / Math.abs(row.NSOrdNum || 0) : 0;
-            
+
             return row;
           });
-          
+
           // OPTIMIZED: Removed debug logging to improve performance
-          
+
           // FIXED: Store raw data (before filtering) for availableTickers extraction
           // This ensures dropdown always shows all available tickers for selected broker(s)
           const rawRows = [...allRows]; // Copy before filtering
-          
+
           // CRITICAL: Filter logic priority:
           // 1. If selectedTickers is provided (even if sector is selected), filter by ticker
           // 2. If selectedSectors is provided (and no ticker), filter by sector
           // 3. If both empty, show all
-          
+
           if (selectedTickers.length > 0) {
             // Priority 1: Filter by ticker (even if sector is selected)
             allRows = allRows.filter(row => {
@@ -1802,12 +1802,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               const nbCode = row.NBCode || '';
               const nsCode = row.NSCode || '';
               const emiten = row.Emiten || '';
-              
-              return selectedTickers.includes(bCode) || 
-                     selectedTickers.includes(sCode) || 
-                     selectedTickers.includes(nbCode) || 
-                     selectedTickers.includes(nsCode) ||
-                     selectedTickers.includes(emiten);
+
+              return selectedTickers.includes(bCode) ||
+                selectedTickers.includes(sCode) ||
+                selectedTickers.includes(nbCode) ||
+                selectedTickers.includes(nsCode) ||
+                selectedTickers.includes(emiten);
             });
           } else if (selectedSectors.length > 0) {
             // Priority 2: Filter by sector (only if no ticker selected)
@@ -1821,63 +1821,63 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               // Check Emiten field - this is the stock code for both Broker and Stock pivot
               const emiten = row.Emiten || '';
               if (!emiten) return false;
-              
+
               // Special case: IDX Composite = show all stocks (no filter)
               if (selectedSectors.includes('IDX')) {
                 // If IDX is selected, show all stocks (no filtering)
                 return true;
               }
-              
+
               // For other sectors, filter by sector
               const emitenSector = stockToSectorMap[emiten.toUpperCase()];
               if (emitenSector && selectedSectors.includes(emitenSector)) {
                 return true;
               }
-              
+
               // If Emiten doesn't match, exclude this row
               return false;
             });
           }
-          
+
           // Store raw data (before filtering) for availableTickers
           newRawTransactionData.set(date, rawRows);
           // Store filtered data for display
           newTransactionData.set(date, allRows);
         }
-        
+
         // CRITICAL: Check ref again before setting data - user might have changed dates during aggregation
         if (!shouldFetchDataRef.current || abortController.signal.aborted) {
           setIsLoading(false);
           setIsDataReady(false);
           return;
         }
-        
+
         // Store data first (but tables won't show yet because isDataReady is still false)
         // FIXED: Store both raw data (for availableTickers) and filtered data (for display)
         setRawTransactionData(newRawTransactionData);
         setTransactionData(newTransactionData);
-        
+
         // CRITICAL: Reset column width sync flag when new data is loaded
         // This ensures sync happens for new data (not just first time)
         hasSyncedColumnWidthsRef.current = false;
         columnWidthsRef.current = [];
-        
+
         // CRITICAL: Final check before marking data ready
         if (!shouldFetchDataRef.current || abortController.signal.aborted) {
           setIsLoading(false);
           setIsDataReady(false);
           return;
         }
-        
+
         // Mark loading as complete and show data immediately
         setIsLoading(false);
-        
+
         // OPTIMIZED: Show data immediately after state update
         // Column width sync will happen after data is visible (non-blocking)
         // CRITICAL: Update both transactionData and rawTransactionData
         setTransactionData(newTransactionData);
         setRawTransactionData(newRawTransactionData);
-        
+
         // Update last fetch params after successful fetch
         lastFetchParamsRef.current = {
           brokers: [...selectedBrokers],
@@ -1888,11 +1888,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           tickers: [...selectedTickers], // Track selectedTickers
           sectors: [...selectedSectors] // Track selectedSectors
         };
-        
-          setIsDataReady(true);
-          setShouldFetchData(false);
+
+        setIsDataReady(true);
+        setShouldFetchData(false);
         shouldFetchDataRef.current = false;
-        
+
         // Clear abort controller after successful fetch
         abortControllerRef.current = null;
       } catch (err: any) {
@@ -1918,7 +1918,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     };
 
     loadTransactionData();
-    
+
     // Cleanup: abort fetch if component unmounts or effect re-runs
     return () => {
       if (abortControllerRef.current) {
@@ -2077,7 +2077,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
 
     // Check on window resize
     window.addEventListener('resize', checkMenuHeight);
-    
+
     // Use ResizeObserver for more accurate detection
     let resizeObserver: ResizeObserver | null = null;
     if (menuContainerRef.current) {
@@ -2103,21 +2103,21 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   useEffect(() => {
     // Wait for tables to be ready (data loaded and DOM rendered)
     if (isLoading || !isDataReady) return;
-    
+
     // FIXED: Flag to prevent infinite loop from ResizeObserver
     let isSyncing = false;
 
     const syncTableWidths = () => {
       // GUARD: Prevent recursive calls
       if (isSyncing) return;
-      
+
       const valueContainer = valueTableContainerRef.current;
       const netContainer = netTableContainerRef.current;
       const valueTable = valueTableRef.current;
       const netTable = netTableRef.current;
 
       if (!valueContainer || !netContainer || !valueTable || !netTable) return;
-      
+
       // Set flag to prevent recursive calls
       isSyncing = true;
 
@@ -2127,7 +2127,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       const netParentWrapper = netContainer.parentElement;
       const valueTableWrapper = valueParentWrapper?.parentElement;
       const netTableWrapper = netParentWrapper?.parentElement;
-      
+
       // Ensure all wrappers use full width
       if (valueParentWrapper && netParentWrapper) {
         valueParentWrapper.style.width = '100%';
@@ -2137,7 +2137,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         netParentWrapper.style.minWidth = '100%';
         netParentWrapper.style.maxWidth = '100%';
       }
-      
+
       if (valueTableWrapper && netTableWrapper) {
         valueTableWrapper.style.width = '100%';
         valueTableWrapper.style.minWidth = '100%';
@@ -2146,7 +2146,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         netTableWrapper.style.minWidth = '100%';
         netTableWrapper.style.maxWidth = '100%';
       }
-      
+
       // Sync container widths - use full width
       valueContainer.style.width = '100%';
       valueContainer.style.minWidth = '100%';
@@ -2154,13 +2154,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       netContainer.style.width = '100%';
       netContainer.style.minWidth = '100%';
       netContainer.style.maxWidth = '100%';
-      
+
       // Sync widths between containers to ensure they match
       const valueContainerWidth = valueContainer.offsetWidth || valueContainer.clientWidth;
       if (valueContainerWidth > 0) {
         netContainer.style.width = `${valueContainerWidth}px`;
         netContainer.style.minWidth = `${valueContainerWidth}px`;
-        
+
         // CRITICAL: Sync parent wrappers to ensure same width (fixes width mismatch between tables)
         // Parent wrapper is the div with "w-full max-w-full" that wraps the container
         if (valueParentWrapper && netParentWrapper) {
@@ -2171,7 +2171,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             netParentWrapper.style.maxWidth = `${valueParentWidth}px`;
           }
         }
-        
+
         // CRITICAL: Sync main wrappers to ensure same width (fixes width mismatch between tables)
         // Main wrapper is the outermost div with "w-full max-w-full mt-1"
         if (valueTableWrapper && netTableWrapper) {
@@ -2187,15 +2187,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       // Step 2: Let VALUE table calculate column widths naturally with auto layout first
       valueTable.style.tableLayout = 'auto';
       netTable.style.tableLayout = 'auto';
-      
+
       // Force a reflow to ensure layout is stable before measuring
       void valueTable.offsetWidth;
       void netTable.offsetWidth;
-      
+
       // Step 3: Measure column widths from VALUE table after it stabilizes
       const valueHeaderRows = valueTable.querySelectorAll('thead tr');
       const netHeaderRows = netTable.querySelectorAll('thead tr');
-      
+
       if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
         const valueColumnHeaderRow = valueHeaderRows[1];
         const netColumnHeaderRow = netHeaderRows[1];
@@ -2208,30 +2208,30 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Ensure both tables have same number of columns
           if (valueHeaderCells.length === netHeaderCells.length) {
             // Calculate column widths from VALUE table
-          const columnWidths: number[] = [];
+            const columnWidths: number[] = [];
 
-          valueHeaderCells.forEach((valueCell, index) => {
-            const valueEl = valueCell as HTMLElement;
-              
+            valueHeaderCells.forEach((valueCell, index) => {
+              const valueEl = valueCell as HTMLElement;
+
               // CRITICAL: For accurate measurement, prioritize body cells over header cells
               // Body cells have actual data and more accurate widths, especially for first column
               let maxWidth = 0;
               let minWidth = Infinity;
               let widthsWithBorder: number[] = [];
               let widthsWithoutBorder: number[] = [];
-              
+
               // First, measure from body cells (more accurate, especially for first column with border-l-2)
               valueBodyRows.forEach((row) => {
-              const cells = row.querySelectorAll('td');
-              if (cells[index]) {
-                const cellEl = cells[index] as HTMLElement;
+                const cells = row.querySelectorAll('td');
+                if (cells[index]) {
+                  const cellEl = cells[index] as HTMLElement;
                   // Use getBoundingClientRect().width for more accurate measurement
                   // This gives the actual rendered width including all borders and padding
                   const cellRect = cellEl.getBoundingClientRect();
                   const cellWidth = cellRect.width;
-                maxWidth = Math.max(maxWidth, cellWidth);
+                  maxWidth = Math.max(maxWidth, cellWidth);
                   minWidth = Math.min(minWidth, cellWidth);
-                  
+
                   // For first column, check if this cell has border-l-2
                   if (index === 0) {
                     const computedStyle = window.getComputedStyle(cellEl);
@@ -2244,7 +2244,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   }
                 }
               });
-              
+
               // If no body cells found, fallback to header cell
               if (maxWidth === 0) {
                 const headerRect = valueEl.getBoundingClientRect();
@@ -2256,7 +2256,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 // Use the larger of body width or header width to ensure consistency
                 maxWidth = Math.max(maxWidth, headerRect.width);
               }
-              
+
               // CRITICAL: For first column (index 0), use the width from cells WITH border-l-2
               // This ensures consistent width and eliminates the "space kosong" issue
               if (index === 0 && widthsWithBorder.length > 0) {
@@ -2269,78 +2269,78 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 const computedStyle = window.getComputedStyle(valueEl);
                 const borderLeft = parseFloat(computedStyle.borderLeftWidth) || 0;
                 maxWidth = avgWidthWithoutBorder + borderLeft;
-            }
+              }
 
-            columnWidths[index] = maxWidth;
-          });
+              columnWidths[index] = maxWidth;
+            });
 
             // Store column widths in ref for later use
             columnWidthsRef.current = columnWidths;
-            
+
             // Step 4: Apply fixed layout and sync widths to both tables
             // CRITICAL: Set fixed layout FIRST before applying widths
-          valueTable.style.tableLayout = 'fixed';
-          netTable.style.tableLayout = 'fixed';
+            valueTable.style.tableLayout = 'fixed';
+            netTable.style.tableLayout = 'fixed';
 
             // Force a reflow after setting fixed layout
             void valueTable.offsetWidth;
             void netTable.offsetWidth;
-            
+
             // Apply widths to VALUE table headers (lock widths to prevent reflow changes)
-          valueHeaderCells.forEach((valueCell, index) => {
-            const valueEl = valueCell as HTMLElement;
-            const width = columnWidths[index];
-            // CRITICAL: Skip width sync for first column of first date (index % 17 === 0 and has border-l-2)
-            // This column should use auto width to fit content
-            const isFirstColOfDateGroup = index % 17 === 0;
-            const hasBorderLeft2 = valueEl.classList.contains('border-l-2') || 
-                                   window.getComputedStyle(valueEl).borderLeftWidth === '2px' ||
-                                   valueEl.style.borderLeftWidth === '2px';
-            
-            if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
+            valueHeaderCells.forEach((valueCell, index) => {
+              const valueEl = valueCell as HTMLElement;
+              const width = columnWidths[index];
+              // CRITICAL: Skip width sync for first column of first date (index % 17 === 0 and has border-l-2)
+              // This column should use auto width to fit content
+              const isFirstColOfDateGroup = index % 17 === 0;
+              const hasBorderLeft2 = valueEl.classList.contains('border-l-2') ||
+                window.getComputedStyle(valueEl).borderLeftWidth === '2px' ||
+                valueEl.style.borderLeftWidth === '2px';
+
+              if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
                 // Lock width with all three properties to prevent browser from changing it
-              valueEl.style.width = `${width}px`;
-              valueEl.style.minWidth = `${width}px`;
-              valueEl.style.maxWidth = `${width}px`;
+                valueEl.style.width = `${width}px`;
+                valueEl.style.minWidth = `${width}px`;
+                valueEl.style.maxWidth = `${width}px`;
                 // Also set box-sizing to ensure border is included correctly
-              valueEl.style.boxSizing = 'border-box';
-            } else if (isFirstColOfDateGroup && hasBorderLeft2 && index === 0) {
-              // For first column of first date, ensure auto width is maintained
-              valueEl.style.width = 'auto';
-              valueEl.style.minWidth = 'fit-content';
-              valueEl.style.maxWidth = 'none';
-            }
-          });
+                valueEl.style.boxSizing = 'border-box';
+              } else if (isFirstColOfDateGroup && hasBorderLeft2 && index === 0) {
+                // For first column of first date, ensure auto width is maintained
+                valueEl.style.width = 'auto';
+                valueEl.style.minWidth = 'fit-content';
+                valueEl.style.maxWidth = 'none';
+              }
+            });
 
             // Apply same widths to NET table headers (to match VALUE table)
-          netHeaderCells.forEach((netCell, index) => {
-            const netEl = netCell as HTMLElement;
-            const width = columnWidths[index];
-            // CRITICAL: Skip width sync for first column of first date (index % 17 === 0 and has border-l-2)
-            // This column should use auto width to fit content
-            const isFirstColOfDateGroup = index % 17 === 0;
-            const hasBorderLeft2 = netEl.classList.contains('border-l-2') || 
-                                   window.getComputedStyle(netEl).borderLeftWidth === '2px' ||
-                                   netEl.style.borderLeftWidth === '2px';
-            
-            if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
+            netHeaderCells.forEach((netCell, index) => {
+              const netEl = netCell as HTMLElement;
+              const width = columnWidths[index];
+              // CRITICAL: Skip width sync for first column of first date (index % 17 === 0 and has border-l-2)
+              // This column should use auto width to fit content
+              const isFirstColOfDateGroup = index % 17 === 0;
+              const hasBorderLeft2 = netEl.classList.contains('border-l-2') ||
+                window.getComputedStyle(netEl).borderLeftWidth === '2px' ||
+                netEl.style.borderLeftWidth === '2px';
+
+              if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
                 // Lock width with all three properties to prevent browser from changing it
-              netEl.style.width = `${width}px`;
-              netEl.style.minWidth = `${width}px`;
-              netEl.style.maxWidth = `${width}px`;
+                netEl.style.width = `${width}px`;
+                netEl.style.minWidth = `${width}px`;
+                netEl.style.maxWidth = `${width}px`;
                 // Also set box-sizing to ensure border is included correctly
-              netEl.style.boxSizing = 'border-box';
-            } else if (isFirstColOfDateGroup && hasBorderLeft2 && index === 0) {
-              // For first column of first date, ensure auto width is maintained
-              netEl.style.width = 'auto';
-              netEl.style.minWidth = 'fit-content';
-              netEl.style.maxWidth = 'none';
-            }
-          });
+                netEl.style.boxSizing = 'border-box';
+              } else if (isFirstColOfDateGroup && hasBorderLeft2 && index === 0) {
+                // For first column of first date, ensure auto width is maintained
+                netEl.style.width = 'auto';
+                netEl.style.minWidth = 'fit-content';
+                netEl.style.maxWidth = 'none';
+              }
+            });
 
             // Apply widths to body cells in both tables (lock to prevent reflow changes)
-          const netBodyRows = netTable.querySelectorAll('tbody tr');
-            
+            const netBodyRows = netTable.querySelectorAll('tbody tr');
+
             valueBodyRows.forEach((row) => {
               const cells = row.querySelectorAll('td');
               cells.forEach((cell, index) => {
@@ -2349,10 +2349,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 // CRITICAL: Skip width sync for first column of first date (index === 0 and has border-l-2)
                 // This column should use auto width to fit content
                 const isFirstColOfDateGroup = index % 17 === 0;
-                const hasBorderLeft2 = cellEl.classList.contains('border-l-2') || 
-                                       window.getComputedStyle(cellEl).borderLeftWidth === '2px' ||
-                                       cellEl.style.borderLeftWidth === '2px';
-                
+                const hasBorderLeft2 = cellEl.classList.contains('border-l-2') ||
+                  window.getComputedStyle(cellEl).borderLeftWidth === '2px' ||
+                  cellEl.style.borderLeftWidth === '2px';
+
                 if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
                   // Lock width to prevent browser from changing it during reflow
                   cellEl.style.width = `${width}px`;
@@ -2367,7 +2367,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 }
               });
             });
-            
+
             netBodyRows.forEach((row) => {
               const cells = row.querySelectorAll('td');
               cells.forEach((cell, index) => {
@@ -2376,10 +2376,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 // CRITICAL: Skip width sync for first column of first date (index === 0 and has border-l-2)
                 // This column should use auto width to fit content
                 const isFirstColOfDateGroup = index % 17 === 0;
-                const hasBorderLeft2 = cellEl.classList.contains('border-l-2') || 
-                                       window.getComputedStyle(cellEl).borderLeftWidth === '2px' ||
-                                       cellEl.style.borderLeftWidth === '2px';
-                
+                const hasBorderLeft2 = cellEl.classList.contains('border-l-2') ||
+                  window.getComputedStyle(cellEl).borderLeftWidth === '2px' ||
+                  cellEl.style.borderLeftWidth === '2px';
+
                 if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
                   // Lock width to prevent browser from changing it during reflow
                   cellEl.style.width = `${width}px`;
@@ -2394,11 +2394,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 }
               });
             });
-            
+
             // Force a final reflow to ensure all widths are applied and locked
             void valueTable.offsetWidth;
             void netTable.offsetWidth;
-            
+
             // CRITICAL: Re-apply fixed layout after setting widths to ensure it sticks
             // This prevents React re-render from overriding the layout
             valueTable.style.tableLayout = 'fixed';
@@ -2406,7 +2406,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           }
         }
       }
-      
+
       // Reset flag after sync completes
       isSyncing = false;
     };
@@ -2417,7 +2417,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       hasSyncedColumnWidthsRef.current = false;
       columnWidthsRef.current = [];
     }
-    
+
     // FIXED: Sync container widths once when data is ready
     // This ensures tables align without breaking column rendering
     // CRITICAL: Only sync once per data load, not when visibleRowCount changes (lazy loading)
@@ -2429,9 +2429,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       let rafId2: number | null = null;
       let rafId3: number | null = null;
       let timeoutId: NodeJS.Timeout | null = null;
-      
+
       let doubleCheckTimeoutId: NodeJS.Timeout | null = null;
-      
+
       rafId1 = requestAnimationFrame(() => {
         rafId2 = requestAnimationFrame(() => {
           rafId3 = requestAnimationFrame(() => {
@@ -2440,7 +2440,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               if (!hasSyncedColumnWidthsRef.current) {
                 syncTableWidths(); // Sync container widths and column widths
                 hasSyncedColumnWidthsRef.current = true;
-                
+
                 // CRITICAL: Double-check and re-apply after a short delay to ensure widths stick
                 // This prevents browser from changing widths during subsequent reflows
                 doubleCheckTimeoutId = setTimeout(() => {
@@ -2450,27 +2450,27 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     // Ensure fixed layout is still set
                     valueTable.style.tableLayout = 'fixed';
                     netTable.style.tableLayout = 'fixed';
-                    
+
                     // Re-apply widths to ensure they stick
                     const valueHeaderRows = valueTable.querySelectorAll('thead tr');
                     const netHeaderRows = netTable.querySelectorAll('thead tr');
                     if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
-        const valueColumnHeaderRow = valueHeaderRows[1];
-        const netColumnHeaderRow = netHeaderRows[1];
-        if (valueColumnHeaderRow && netColumnHeaderRow) {
+                      const valueColumnHeaderRow = valueHeaderRows[1];
+                      const netColumnHeaderRow = netHeaderRows[1];
+                      if (valueColumnHeaderRow && netColumnHeaderRow) {
                         const valueHeaderCells = Array.from(valueColumnHeaderRow.querySelectorAll('th'));
                         const netHeaderCells = Array.from(netColumnHeaderRow.querySelectorAll('th'));
                         const columnWidths = columnWidthsRef.current;
-                        
+
                         valueHeaderCells.forEach((cell, index) => {
                           const el = cell as HTMLElement;
                           const width = columnWidths[index];
                           // CRITICAL: Skip width sync for first column of first date (index % 17 === 0 and has border-l-2)
                           const isFirstColOfDateGroup = index % 17 === 0;
-                          const hasBorderLeft2 = el.classList.contains('border-l-2') || 
-                                                 window.getComputedStyle(el).borderLeftWidth === '2px' ||
-                                                 el.style.borderLeftWidth === '2px';
-                          
+                          const hasBorderLeft2 = el.classList.contains('border-l-2') ||
+                            window.getComputedStyle(el).borderLeftWidth === '2px' ||
+                            el.style.borderLeftWidth === '2px';
+
                           if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
                             el.style.width = `${width}px`;
                             el.style.minWidth = `${width}px`;
@@ -2483,16 +2483,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             el.style.maxWidth = 'none';
                           }
                         });
-                        
+
                         netHeaderCells.forEach((cell, index) => {
                           const el = cell as HTMLElement;
                           const width = columnWidths[index];
                           // CRITICAL: Skip width sync for first column of first date (index % 17 === 0 and has border-l-2)
                           const isFirstColOfDateGroup = index % 17 === 0;
-                          const hasBorderLeft2 = el.classList.contains('border-l-2') || 
-                                                 window.getComputedStyle(el).borderLeftWidth === '2px' ||
-                                                 el.style.borderLeftWidth === '2px';
-                          
+                          const hasBorderLeft2 = el.classList.contains('border-l-2') ||
+                            window.getComputedStyle(el).borderLeftWidth === '2px' ||
+                            el.style.borderLeftWidth === '2px';
+
                           if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
                             el.style.width = `${width}px`;
                             el.style.minWidth = `${width}px`;
@@ -2514,7 +2514,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           });
         });
       });
-      
+
       return () => {
         if (rafId1 !== null) cancelAnimationFrame(rafId1);
         if (rafId2 !== null) cancelAnimationFrame(rafId2);
@@ -2523,7 +2523,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         if (doubleCheckTimeoutId !== null) clearTimeout(doubleCheckTimeoutId);
       };
     }
-    
+
     // No cleanup needed if condition not met
     return undefined;
   }, [transactionData, isLoading, isDataReady]); // FIXED: Removed visibleRowCount - only sync when data changes, not when lazy loading adds more rows
@@ -2533,12 +2533,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   useEffect(() => {
     // Only maintain widths if sync has been done and we have data
     if (!hasSyncedColumnWidthsRef.current || !isDataReady || isLoading) return;
-    
+
     const valueTable = valueTableRef.current;
     const netTable = netTableRef.current;
-    
+
     if (!valueTable || !netTable) return;
-    
+
     // Ensure fixed layout is maintained
     if (valueTable.style.tableLayout !== 'fixed') {
       valueTable.style.tableLayout = 'fixed';
@@ -2546,19 +2546,19 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     if (netTable.style.tableLayout !== 'fixed') {
       netTable.style.tableLayout = 'fixed';
     }
-    
+
     // Re-apply widths to new rows that were added by lazy loading
     // Get stored column widths from existing cells
     const valueHeaderRows = valueTable.querySelectorAll('thead tr');
     const netHeaderRows = netTable.querySelectorAll('thead tr');
-    
+
     if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
       const valueColumnHeaderRow = valueHeaderRows[1];
       const netColumnHeaderRow = netHeaderRows[1];
-      
+
       if (valueColumnHeaderRow && netColumnHeaderRow) {
         const valueHeaderCells = Array.from(valueColumnHeaderRow.querySelectorAll('th'));
-        
+
         // Get widths from stored ref first, fallback to reading from DOM
         let columnWidths: number[] = [];
         if (columnWidthsRef.current.length > 0) {
@@ -2572,11 +2572,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             columnWidths.push(width);
           });
         }
-        
+
         // Apply widths to all body cells (including newly added ones from lazy loading)
         const valueBodyRows = valueTable.querySelectorAll('tbody tr');
         const netBodyRows = netTable.querySelectorAll('tbody tr');
-        
+
         valueBodyRows.forEach((row) => {
           const cells = row.querySelectorAll('td');
           cells.forEach((cell, index) => {
@@ -2585,10 +2585,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             // CRITICAL: Skip width sync for first column of first date (index === 0 and has border-l-2)
             // This column should use auto width to fit content
             const isFirstColOfDateGroup = index % 17 === 0;
-            const hasBorderLeft2 = cellEl.classList.contains('border-l-2') || 
-                                   window.getComputedStyle(cellEl).borderLeftWidth === '2px' ||
-                                   cellEl.style.borderLeftWidth === '2px';
-            
+            const hasBorderLeft2 = cellEl.classList.contains('border-l-2') ||
+              window.getComputedStyle(cellEl).borderLeftWidth === '2px' ||
+              cellEl.style.borderLeftWidth === '2px';
+
             if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
               cellEl.style.width = `${width}px`;
               cellEl.style.minWidth = `${width}px`;
@@ -2602,7 +2602,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             }
           });
         });
-        
+
         netBodyRows.forEach((row) => {
           const cells = row.querySelectorAll('td');
           cells.forEach((cell, index) => {
@@ -2611,10 +2611,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             // CRITICAL: Skip width sync for first column of first date (index === 0 and has border-l-2)
             // This column should use auto width to fit content
             const isFirstColOfDateGroup = index % 17 === 0;
-            const hasBorderLeft2 = cellEl.classList.contains('border-l-2') || 
-                                   window.getComputedStyle(cellEl).borderLeftWidth === '2px' ||
-                                   cellEl.style.borderLeftWidth === '2px';
-            
+            const hasBorderLeft2 = cellEl.classList.contains('border-l-2') ||
+              window.getComputedStyle(cellEl).borderLeftWidth === '2px' ||
+              cellEl.style.borderLeftWidth === '2px';
+
             if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
               cellEl.style.width = `${width}px`;
               cellEl.style.minWidth = `${width}px`;
@@ -2639,15 +2639,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     const syncContainerWidths = () => {
       const valueContainer = valueTableContainerRef.current;
       const netContainer = netTableContainerRef.current;
-      
+
       if (!valueContainer || !netContainer) return;
-      
+
       // Get all parent wrappers to ensure full width
       const valueParentWrapper = valueContainer.parentElement;
       const netParentWrapper = netContainer.parentElement;
       const valueTableWrapper = valueParentWrapper?.parentElement;
       const netTableWrapper = netParentWrapper?.parentElement;
-      
+
       // Ensure all wrappers use full width
       if (valueParentWrapper && netParentWrapper) {
         valueParentWrapper.style.width = '100%';
@@ -2657,7 +2657,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         netParentWrapper.style.minWidth = '100%';
         netParentWrapper.style.maxWidth = '100%';
       }
-      
+
       if (valueTableWrapper && netTableWrapper) {
         valueTableWrapper.style.width = '100%';
         valueTableWrapper.style.minWidth = '100%';
@@ -2666,7 +2666,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         netTableWrapper.style.minWidth = '100%';
         netTableWrapper.style.maxWidth = '100%';
       }
-      
+
       // Ensure both containers use full width
       valueContainer.style.width = '100%';
       valueContainer.style.minWidth = '100%';
@@ -2674,13 +2674,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       netContainer.style.width = '100%';
       netContainer.style.minWidth = '100%';
       netContainer.style.maxWidth = '100%';
-      
+
       // Sync widths between containers to ensure they match
       const valueWidth = valueContainer.offsetWidth || valueContainer.clientWidth;
       if (valueWidth > 0) {
         netContainer.style.width = `${valueWidth}px`;
         netContainer.style.minWidth = `${valueWidth}px`;
-        
+
         // CRITICAL: Sync parent wrappers to ensure same width (fixes width mismatch between tables)
         if (valueParentWrapper && netParentWrapper) {
           const valueParentWidth = valueParentWrapper.offsetWidth || valueParentWrapper.clientWidth;
@@ -2690,7 +2690,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             netParentWrapper.style.maxWidth = `${valueParentWidth}px`;
           }
         }
-        
+
         // CRITICAL: Sync main wrappers to ensure same width (fixes width mismatch between tables)
         if (valueTableWrapper && netTableWrapper) {
           const valueMainWidth = valueTableWrapper.offsetWidth || valueTableWrapper.clientWidth;
@@ -2702,7 +2702,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         }
       }
     };
-    
+
     // Sync on mount and window resize with debounce
     let timeoutId: NodeJS.Timeout | null = null;
     const debouncedSync = () => {
@@ -2711,10 +2711,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         syncContainerWidths();
       }, 100);
     };
-    
+
     syncContainerWidths();
     window.addEventListener('resize', debouncedSync);
-      
+
     return () => {
       window.removeEventListener('resize', debouncedSync);
       if (timeoutId) clearTimeout(timeoutId);
@@ -2724,7 +2724,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Measure and store date column widths from VALUE table to apply to Total table
   useEffect(() => {
     if (isLoading || !isDataReady) return;
-    
+
     const showOnlyTotal = selectedDates.length > 7;
     if (showOnlyTotal) return;
 
@@ -2744,7 +2744,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       // Get the second row (column headers) for accurate width measurement
       const columnHeaderRow = valueHeaderRows[1];
       if (!columnHeaderRow) return;
-      
+
       const columnHeaderCells = Array.from(columnHeaderRow.querySelectorAll('th'));
 
       // Clear previous widths
@@ -2767,7 +2767,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           }
           cellIndex++;
         }
-        
+
         if (totalWidth > 0) {
           dateColumnWidthsRef.current.set(date, totalWidth);
         }
@@ -2783,7 +2783,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         }
         cellIndex++;
       }
-      
+
       if (totalColumnWidth > 0) {
         totalColumnWidthRef.current = totalColumnWidth;
       }
@@ -2927,13 +2927,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         totalNetSellDataByStock: new Map()
       };
     }
-    
+
     // Treat 4 sections independently: Buy (BCode), Sell (SCode), Net Buy (NBCode), Net Sell (NSCode)
     // Each section filters and sorts separately
     // FIXED: Don't filter by selectedTickers here - filtering will be done at render time to prevent re-calculation on ticker change
     // FIXED: Use all dates from transactionData, not selectedDates (to prevent re-calculation on input change)
     const datesToProcess = Array.from(transactionData.keys());
-    
+
     // CRITICAL: Don't filter by sector here - filter will be applied at render time
     // This prevents re-computation when sector filter changes
     // SECTION 1: Buy (BCode) - Filter and sort independently
@@ -2946,9 +2946,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Filter out rows where BCode is empty
           const bCode = d.BCode || '';
           if (!bCode) return false;
-          
+
           // FIXED: Don't filter by selectedTickers or sector here - will be filtered at render time
-          
+
           return true;
         })
         .filter(d => {
@@ -2964,7 +2964,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         .map(d => ({ stock: d.BCode || '', data: d })); // Use BCode as stock identifier for this section
       buyStocksByDate.set(date, buyData);
     });
-    
+
     // SECTION 2: Sell (SCode) - Filter and sort independently
     // Each row represents a separate entry in Value Sell section using SCode (column 9)
     const sellStocksByDate = new Map<string, Array<{ stock: string; data: BrokerTransactionData }>>();
@@ -2975,9 +2975,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Filter out rows where SCode is empty
           const sCode = d.SCode || '';
           if (!sCode) return false;
-          
+
           // FIXED: Don't filter by selectedTickers or sector here - will be filtered at render time
-          
+
           return true;
         })
         .filter(d => {
@@ -2993,29 +2993,29 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         .map(d => ({ stock: d.SCode || '', data: d })); // Use SCode as stock identifier for this section
       sellStocksByDate.set(date, sellData);
     });
-    
+
     // SECTION 3: Net Buy (NBCode) - Filter and sort independently
     // CRITICAL: For Output: stock with multiple brokers, calculate net per date from Buy - Sell per stock (Emiten)
     // Each row represents a separate entry in Net Buy section using NBCode (column 17)
     const netBuyStocksByDate = new Map<string, Array<{ stock: string; data: BrokerTransactionData }>>();
-    
+
     // SECTION 4: Net Sell (NSCode) - Filter and sort independently
     // CRITICAL: For Output: stock with multiple brokers, calculate net per date from Buy - Sell per stock (Emiten)
     // Each row represents a separate entry in Net Sell section using NSCode (column 25)
     const netSellStocksByDate = new Map<string, Array<{ stock: string; data: BrokerTransactionData }>>();
-    
+
     datesToProcess.forEach(date => {
       const dateData = transactionData.get(date) || [];
-      
+
       // CRITICAL: For Output: stock, calculate net per date from Buy - Sell per stock (Emiten)
       // Aggregate Buy and Sell per Emiten (stock) for this date
       const buyByStock = new Map<string, { buyerLot: number; buyerValue: number; buyerFreq: number; buyerOrdNum: number; buyerLotPerFreq: number; buyerLotPerOrdNum: number; buyerLotPerFreqSum: number; buyerLotPerFreqWeight: number; buyerLotPerOrdNumSum: number; buyerLotPerOrdNumWeight: number }>();
       const sellByStock = new Map<string, { sellerLot: number; sellerValue: number; sellerFreq: number; sellerOrdNum: number; sellerLotPerFreq: number; sellerLotPerOrdNum: number; sellerLotPerFreqSum: number; sellerLotPerFreqWeight: number; sellerLotPerOrdNumSum: number; sellerLotPerOrdNumWeight: number }>();
-      
+
       dateData.forEach(d => {
         const emiten = d.Emiten || '';
         if (!emiten) return;
-        
+
         // Aggregate Buy data per Emiten (stock)
         const buyerLot = d.BLot !== undefined ? d.BLot : ((d.BuyerVol || 0) / 100);
         const buyerValue = d.BuyerValue || 0;
@@ -3024,7 +3024,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const buyerLotPerFreq = d.BLotPerFreq;
         const buyerLotPerOrdNum = d.BLotPerOrdNum;
         const newBuyerOrdNum = d.NewBuyerOrdNum !== undefined ? d.NewBuyerOrdNum : buyerOrdNum;
-        
+
         if (!buyByStock.has(emiten)) {
           buyByStock.set(emiten, { buyerLot: 0, buyerValue: 0, buyerFreq: 0, buyerOrdNum: 0, buyerLotPerFreq: 0, buyerLotPerOrdNum: 0, buyerLotPerFreqSum: 0, buyerLotPerFreqWeight: 0, buyerLotPerOrdNumSum: 0, buyerLotPerOrdNumWeight: 0 });
         }
@@ -3033,7 +3033,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         buyData.buyerValue += buyerValue;
         buyData.buyerFreq += buyerFreq;
         buyData.buyerOrdNum += buyerOrdNum;
-        
+
         // Weighted average for Lot/F (same as B/S)
         if (buyerFreq > 0 && buyerLotPerFreq !== undefined && buyerLotPerFreq !== null) {
           buyData.buyerLotPerFreqSum += buyerLotPerFreq * buyerFreq;
@@ -3044,7 +3044,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           buyData.buyerLotPerOrdNumSum += buyerLotPerOrdNum * Math.abs(newBuyerOrdNum);
           buyData.buyerLotPerOrdNumWeight += Math.abs(newBuyerOrdNum);
         }
-        
+
         // Aggregate Sell data per Emiten (stock)
         const sellerLot = d.SLot !== undefined ? d.SLot : ((d.SellerVol || 0) / 100);
         const sellerValue = d.SellerValue || 0;
@@ -3053,7 +3053,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const sellerLotPerFreq = d.SLotPerFreq;
         const sellerLotPerOrdNum = d.SLotPerOrdNum;
         const newSellerOrdNum = d.NewSellerOrdNum !== undefined ? d.NewSellerOrdNum : sellerOrdNum;
-        
+
         if (!sellByStock.has(emiten)) {
           sellByStock.set(emiten, { sellerLot: 0, sellerValue: 0, sellerFreq: 0, sellerOrdNum: 0, sellerLotPerFreq: 0, sellerLotPerOrdNum: 0, sellerLotPerFreqSum: 0, sellerLotPerFreqWeight: 0, sellerLotPerOrdNumSum: 0, sellerLotPerOrdNumWeight: 0 });
         }
@@ -3062,7 +3062,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         sellData.sellerValue += sellerValue;
         sellData.sellerFreq += sellerFreq;
         sellData.sellerOrdNum += sellerOrdNum;
-        
+
         // Weighted average for Lot/F (same as B/S)
         if (sellerFreq > 0 && sellerLotPerFreq !== undefined && sellerLotPerFreq !== null) {
           sellData.sellerLotPerFreqSum += sellerLotPerFreq * sellerFreq;
@@ -3074,32 +3074,32 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           sellData.sellerLotPerOrdNumWeight += Math.abs(newSellerOrdNum);
         }
       });
-      
+
       // Calculate Net Buy and Net Sell per stock from Buy - Sell
       const netBuyDataArray: Array<{ stock: string; data: BrokerTransactionData }> = [];
       const netSellDataArray: Array<{ stock: string; data: BrokerTransactionData }> = [];
-      
+
       const allStocks = new Set([...buyByStock.keys(), ...sellByStock.keys()]);
-      
+
       allStocks.forEach(stock => {
         const buyData = buyByStock.get(stock) || { buyerLot: 0, buyerValue: 0, buyerFreq: 0, buyerOrdNum: 0, buyerLotPerFreq: 0, buyerLotPerOrdNum: 0, buyerLotPerFreqSum: 0, buyerLotPerFreqWeight: 0, buyerLotPerOrdNumSum: 0, buyerLotPerOrdNumWeight: 0 };
         const sellData = sellByStock.get(stock) || { sellerLot: 0, sellerValue: 0, sellerFreq: 0, sellerOrdNum: 0, sellerLotPerFreq: 0, sellerLotPerOrdNum: 0, sellerLotPerFreqSum: 0, sellerLotPerFreqWeight: 0, sellerLotPerOrdNumSum: 0, sellerLotPerOrdNumWeight: 0 };
-        
+
         // Calculate Net Buy = Buy - Sell (only if positive)
         const netBuyLot = buyData.buyerLot - sellData.sellerLot;
         const netBuyValue = buyData.buyerValue - sellData.sellerValue;
         const netBuyFreq = buyData.buyerFreq - sellData.sellerFreq;
         const netBuyOrdNum = buyData.buyerOrdNum - sellData.sellerOrdNum;
-        
+
         // Calculate Lot/F and Lot/Or using weighted average from Buy/Sell (same as B/S)
         // For Net Buy: use Buy weighted average (since Net Buy = Buy - Sell, use Buy's Lot/F and Lot/Or)
         const netBuyLotPerFreq = buyData.buyerLotPerFreqWeight > 0 ? buyData.buyerLotPerFreqSum / buyData.buyerLotPerFreqWeight : 0;
         const netBuyLotPerOrdNum = buyData.buyerLotPerOrdNumWeight > 0 ? buyData.buyerLotPerOrdNumSum / buyData.buyerLotPerOrdNumWeight : 0;
-        
+
         if (netBuyLot > 0) {
           const netBuyLotVolume = netBuyLot * 100;
           const netBuyAvg = netBuyLotVolume > 0 ? netBuyValue / netBuyLotVolume : 0;
-          
+
           // Create Net Buy data object
           const netBuyData: BrokerTransactionData = {
             Emiten: stock,
@@ -3126,25 +3126,25 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             TransactionCount: 0,
             TotalValue: 0
           };
-          
+
           netBuyDataArray.push({ stock, data: netBuyData });
         }
-        
+
         // Calculate Net Sell = Sell - Buy (only if positive)
         const netSellLot = sellData.sellerLot - buyData.buyerLot;
         const netSellValue = sellData.sellerValue - buyData.buyerValue;
         const netSellFreq = sellData.sellerFreq - buyData.buyerFreq;
         const netSellOrdNum = sellData.sellerOrdNum - buyData.buyerOrdNum;
-        
+
         // Calculate Lot/F and Lot/Or using weighted average from Buy/Sell (same as B/S)
         // For Net Sell: use Sell weighted average (since Net Sell = Sell - Buy, use Sell's Lot/F and Lot/Or)
         const netSellLotPerFreq = sellData.sellerLotPerFreqWeight > 0 ? sellData.sellerLotPerFreqSum / sellData.sellerLotPerFreqWeight : 0;
         const netSellLotPerOrdNum = sellData.sellerLotPerOrdNumWeight > 0 ? sellData.sellerLotPerOrdNumSum / sellData.sellerLotPerOrdNumWeight : 0;
-        
+
         if (netSellLot > 0) {
           const netSellLotVolume = netSellLot * 100;
           const netSellAvg = netSellLotVolume > 0 ? netSellValue / netSellLotVolume : 0;
-          
+
           // Create Net Sell data object
           const netSellData: BrokerTransactionData = {
             Emiten: stock,
@@ -3171,25 +3171,25 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             TransactionCount: 0,
             TotalValue: 0
           };
-          
+
           netSellDataArray.push({ stock, data: netSellData });
         }
       });
-      
+
       // Sort by value (highest to lowest)
       netBuyDataArray.sort((a, b) => (b.data.NBVal || 0) - (a.data.NBVal || 0));
       netSellDataArray.sort((a, b) => (b.data.NSVal || 0) - (a.data.NSVal || 0));
-      
+
       netBuyStocksByDate.set(date, netBuyDataArray);
       netSellStocksByDate.set(date, netSellDataArray);
     });
-    
+
     // Get all unique stocks for each section separately (for Total column)
     const allBuyStocks = new Set<string>();
     const allSellStocks = new Set<string>();
     const allNetBuyStocks = new Set<string>();
     const allNetSellStocks = new Set<string>();
-    
+
     datesToProcess.forEach(date => {
       const dateData = transactionData.get(date) || [];
       dateData.forEach(item => {
@@ -3199,61 +3199,61 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         if (item.NSCode) allNetSellStocks.add(item.NSCode);
       });
     });
-    
+
     // For backward compatibility
     const uniqueStocks = Array.from(new Set([...allBuyStocks, ...allSellStocks, ...allNetBuyStocks, ...allNetSellStocks]));
     const filteredStocks = uniqueStocks;
-    
+
     // For backward compatibility, create sortedStocksByDate and sortedNetStocksByDate
     const sortedStocksByDate = new Map<string, string[]>();
     datesToProcess.forEach(date => {
       const buyData = buyStocksByDate.get(date) || [];
       sortedStocksByDate.set(date, buyData.map(d => d.stock));
     });
-    
+
     const sortedNetStocksByDate = new Map<string, string[]>();
     datesToProcess.forEach(date => {
       const sellData = sellStocksByDate.get(date) || [];
       sortedNetStocksByDate.set(date, sellData.map(d => d.stock));
     });
-    
+
     // Calculate total data aggregated across all dates for each stock - for VALUE table
     // Aggregate per section separately: Buy section by BCode, Sell section by SCode
     const totalBuyDataByStock = new Map<string, {
-        buyerVol: number;
-        buyerValue: number;
-        buyerAvg: number;
-        buyerFreq: number;
-        buyerOrdNum: number;
-        buyerLot: number;
-        buyerLotPerFreq: number;
-        buyerLotPerOrdNum: number;
+      buyerVol: number;
+      buyerValue: number;
+      buyerAvg: number;
+      buyerFreq: number;
+      buyerOrdNum: number;
+      buyerLot: number;
+      buyerLotPerFreq: number;
+      buyerLotPerOrdNum: number;
       buyerAvgCount: number;
-        buyerLotPerFreqSum: number; // For weighted average calculation
-        buyerLotPerFreqWeight: number; // For weighted average calculation
-        buyerLotPerOrdNumSum: number; // For weighted average calculation
-        buyerLotPerOrdNumWeight: number; // For weighted average calculation
+      buyerLotPerFreqSum: number; // For weighted average calculation
+      buyerLotPerFreqWeight: number; // For weighted average calculation
+      buyerLotPerOrdNumSum: number; // For weighted average calculation
+      buyerLotPerOrdNumWeight: number; // For weighted average calculation
     }>();
-    
+
     const totalSellDataByStock = new Map<string, {
-        sellerVol: number;
-        sellerValue: number;
-        sellerAvg: number;
-        sellerFreq: number;
-        sellerOrdNum: number;
-        sellerLot: number;
-        sellerLotPerFreq: number;
-        sellerLotPerOrdNum: number;
-        sellerAvgCount: number;
-        sellerLotPerFreqSum: number; // For weighted average calculation
-        sellerLotPerFreqWeight: number; // For weighted average calculation
-        sellerLotPerOrdNumSum: number; // For weighted average calculation
-        sellerLotPerOrdNumWeight: number; // For weighted average calculation
-      }>();
-      
-      datesToProcess.forEach(date => {
-        const dateData = transactionData.get(date) || [];
-        dateData.forEach(dayData => {
+      sellerVol: number;
+      sellerValue: number;
+      sellerAvg: number;
+      sellerFreq: number;
+      sellerOrdNum: number;
+      sellerLot: number;
+      sellerLotPerFreq: number;
+      sellerLotPerOrdNum: number;
+      sellerAvgCount: number;
+      sellerLotPerFreqSum: number; // For weighted average calculation
+      sellerLotPerFreqWeight: number; // For weighted average calculation
+      sellerLotPerOrdNumSum: number; // For weighted average calculation
+      sellerLotPerOrdNumWeight: number; // For weighted average calculation
+    }>();
+
+    datesToProcess.forEach(date => {
+      const dateData = transactionData.get(date) || [];
+      dateData.forEach(dayData => {
         // Aggregate Buy section by BCode
         const buyStock = dayData.BCode || '';
         if (buyStock) {
@@ -3282,13 +3282,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Use Lot/F and Lot/ON from CSV only - no manual calculation
           const dayLotPerFreq = dayData.BLotPerFreq;
           const dayLotPerOrdNum = dayData.BLotPerOrdNum;
-          
+
           total.buyerVol += Number(dayData.BuyerVol) || 0;
           total.buyerValue += Number(dayData.BuyerValue) || 0;
           total.buyerFreq += dayFreq;
           total.buyerOrdNum += dayOrdNum; // This now uses NewBuyerOrdNum
           total.buyerLot += dayLot;
-          
+
           // Weighted average for Lot/F and Lot/ON
           if (dayFreq > 0 && dayLotPerFreq !== undefined && dayLotPerFreq !== null) {
             total.buyerLotPerFreqSum += dayLotPerFreq * dayFreq;
@@ -3298,13 +3298,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             total.buyerLotPerOrdNumSum += dayLotPerOrdNum * Math.abs(dayOrdNum);
             total.buyerLotPerOrdNumWeight += Math.abs(dayOrdNum);
           }
-          
+
           if (dayData.BuyerAvg || (dayData.BuyerVol && dayData.BuyerVol > 0)) {
             total.buyerAvg += dayData.BuyerAvg || ((dayData.BuyerValue || 0) / (dayData.BuyerVol || 1));
             total.buyerAvgCount += 1;
           }
         }
-        
+
         // Aggregate Sell section by SCode
         const sellStock = dayData.SCode || '';
         if (sellStock) {
@@ -3333,13 +3333,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Use Lot/F and Lot/ON from CSV only - no manual calculation
           const dayLotPerFreq = dayData.SLotPerFreq;
           const dayLotPerOrdNum = dayData.SLotPerOrdNum;
-          
+
           total.sellerVol += Number(dayData.SellerVol) || 0;
           total.sellerValue += Number(dayData.SellerValue) || 0;
           total.sellerFreq += dayFreq;
           total.sellerOrdNum += dayOrdNum; // This now uses NewSellerOrdNum
           total.sellerLot += dayLot;
-          
+
           // Weighted average for Lot/F and Lot/ON
           if (dayFreq > 0 && dayLotPerFreq !== undefined && dayLotPerFreq !== null) {
             total.sellerLotPerFreqSum += dayLotPerFreq * dayFreq;
@@ -3349,7 +3349,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             total.sellerLotPerOrdNumSum += dayLotPerOrdNum * Math.abs(dayOrdNum);
             total.sellerLotPerOrdNumWeight += Math.abs(dayOrdNum);
           }
-          
+
           if (dayData.SellerAvg || (dayData.SellerVol && dayData.SellerVol > 0)) {
             total.sellerAvg += dayData.SellerAvg || ((dayData.SellerValue || 0) / (dayData.SellerVol || 1));
             total.sellerAvgCount += 1;
@@ -3357,24 +3357,24 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         }
       });
     });
-    
-      // Calculate final averages and Lot/F, Lot/ON
+
+    // Calculate final averages and Lot/F, Lot/ON
     totalBuyDataByStock.forEach((total) => {
-        total.buyerAvg = total.buyerAvgCount > 0 ? total.buyerAvg / total.buyerAvgCount : (total.buyerVol > 0 ? total.buyerValue / total.buyerVol : 0);
-        total.buyerLotPerFreq = total.buyerLotPerFreqWeight > 0 ? total.buyerLotPerFreqSum / total.buyerLotPerFreqWeight : 0;
-        total.buyerLotPerOrdNum = total.buyerLotPerOrdNumWeight > 0 ? total.buyerLotPerOrdNumSum / total.buyerLotPerOrdNumWeight : 0;
+      total.buyerAvg = total.buyerAvgCount > 0 ? total.buyerAvg / total.buyerAvgCount : (total.buyerVol > 0 ? total.buyerValue / total.buyerVol : 0);
+      total.buyerLotPerFreq = total.buyerLotPerFreqWeight > 0 ? total.buyerLotPerFreqSum / total.buyerLotPerFreqWeight : 0;
+      total.buyerLotPerOrdNum = total.buyerLotPerOrdNumWeight > 0 ? total.buyerLotPerOrdNumSum / total.buyerLotPerOrdNumWeight : 0;
     });
     totalSellDataByStock.forEach((total) => {
-        total.sellerAvg = total.sellerAvgCount > 0 ? total.sellerAvg / total.sellerAvgCount : (total.sellerVol > 0 ? total.sellerValue / total.sellerVol : 0);
-        total.sellerLotPerFreq = total.sellerLotPerFreqWeight > 0 ? total.sellerLotPerFreqSum / total.sellerLotPerFreqWeight : 0;
-        total.sellerLotPerOrdNum = total.sellerLotPerOrdNumWeight > 0 ? total.sellerLotPerOrdNumSum / total.sellerLotPerOrdNumWeight : 0;
-      });
-      
-      // Sort stocks by total buyer value (highest to lowest) for Total column
+      total.sellerAvg = total.sellerAvgCount > 0 ? total.sellerAvg / total.sellerAvgCount : (total.sellerVol > 0 ? total.sellerValue / total.sellerVol : 0);
+      total.sellerLotPerFreq = total.sellerLotPerFreqWeight > 0 ? total.sellerLotPerFreqSum / total.sellerLotPerFreqWeight : 0;
+      total.sellerLotPerOrdNum = total.sellerLotPerOrdNumWeight > 0 ? total.sellerLotPerOrdNumSum / total.sellerLotPerOrdNumWeight : 0;
+    });
+
+    // Sort stocks by total buyer value (highest to lowest) for Total column
     const sortedTotalBuyStocks = Array.from(totalBuyDataByStock.entries())
-        .sort((a, b) => b[1].buyerValue - a[1].buyerValue)
-        .map(([stock]) => stock);
-    
+      .sort((a, b) => b[1].buyerValue - a[1].buyerValue)
+      .map(([stock]) => stock);
+
     // For backward compatibility, create combined totalDataByStock
     const totalDataByStock = new Map<string, {
       buyerVol: number;
@@ -3396,7 +3396,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       buyerAvgCount: number;
       sellerAvgCount: number;
     }>();
-    
+
     // Combine Buy and Sell data (for backward compatibility with rendering code)
     Array.from(totalBuyDataByStock.entries()).forEach(([stock, buyData]) => {
       totalDataByStock.set(stock, {
@@ -3420,7 +3420,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         sellerAvgCount: 0,
       });
     });
-    
+
     Array.from(totalSellDataByStock.entries()).forEach(([stock, sellData]) => {
       const existing = totalDataByStock.get(stock);
       if (existing) {
@@ -3456,9 +3456,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         });
       }
     });
-    
+
     const sortedTotalStocks = sortedTotalBuyStocks; // Use Buy stocks for backward compatibility
-    
+
     // Calculate total Net data aggregated across all dates for each stock - for NET table
     // Aggregate per section separately: Net Buy section by NBCode, Net Sell section by NSCode
     const totalNetBuyDataByStock = new Map<string, {
@@ -3476,7 +3476,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       netBuyLotPerOrdNumSum: number; // For weighted average calculation
       netBuyLotPerOrdNumWeight: number; // For weighted average calculation
     }>();
-    
+
     const totalNetSellDataByStock = new Map<string, {
       netSellVol: number;
       netSellValue: number;
@@ -3492,7 +3492,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       netSellLotPerOrdNumSum: number; // For weighted average calculation
       netSellLotPerOrdNumWeight: number; // For weighted average calculation
     }>();
-    
+
     datesToProcess.forEach(date => {
       const dateData = transactionData.get(date) || [];
       dateData.forEach(dayData => {
@@ -3525,13 +3525,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Use Lot/F and Lot/ON from CSV only - no manual calculation
           const nbLotPerFreq = dayData.NBLotPerFreq;
           const nbLotPerOrdNum = dayData.NBLotPerOrdNum;
-          
+
           total.netBuyVol += nbVol;
           total.netBuyValue += nbVal;
           total.netBuyFreq += nbFreq;
           total.netBuyOrdNum += nbOrdNum;
           total.netBuyLot += nbLot;
-          
+
           // Weighted average for Lot/F and Lot/ON (using absolute values for Net)
           if (nbFreq !== 0 && nbLotPerFreq !== undefined && nbLotPerFreq !== null) {
             total.netBuyLotPerFreqSum += nbLotPerFreq * Math.abs(nbFreq);
@@ -3541,13 +3541,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             total.netBuyLotPerOrdNumSum += nbLotPerOrdNum * Math.abs(nbOrdNum);
             total.netBuyLotPerOrdNumWeight += Math.abs(nbOrdNum);
           }
-          
+
           if (nbVol > 0) {
             total.netBuyAvg += nbVal / nbVol;
             total.netBuyAvgCount += 1;
           }
         }
-        
+
         // Aggregate Net Sell section by NSCode
         const netSellStock = dayData.NSCode || '';
         if (netSellStock) {
@@ -3577,13 +3577,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Use Lot/F and Lot/ON from CSV only - no manual calculation
           const nsLotPerFreq = dayData.NSLotPerFreq;
           const nsLotPerOrdNum = dayData.NSLotPerOrdNum;
-          
+
           total.netSellVol += nsVol;
           total.netSellValue += nsVal;
           total.netSellFreq += nsFreq;
           total.netSellOrdNum += nsOrdNum;
           total.netSellLot += nsLot;
-          
+
           // Weighted average for Lot/F and Lot/ON (using absolute values for Net)
           if (nsFreq !== 0 && nsLotPerFreq !== undefined && nsLotPerFreq !== null) {
             total.netSellLotPerFreqSum += nsLotPerFreq * Math.abs(nsFreq);
@@ -3593,7 +3593,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             total.netSellLotPerOrdNumSum += nsLotPerOrdNum * Math.abs(nsOrdNum);
             total.netSellLotPerOrdNumWeight += Math.abs(nsOrdNum);
           }
-          
+
           if (nsVol > 0) {
             total.netSellAvg += nsVal / nsVol;
             total.netSellAvgCount += 1;
@@ -3601,7 +3601,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         }
       });
     });
-    
+
     // Calculate final averages and Lot/F, Lot/ON
     totalNetBuyDataByStock.forEach((total) => {
       total.netBuyAvg = total.netBuyAvgCount > 0 ? total.netBuyAvg / total.netBuyAvgCount : (total.netBuyVol > 0 ? total.netBuyValue / total.netBuyVol : 0);
@@ -3613,12 +3613,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       total.netSellLotPerFreq = total.netSellLotPerFreqWeight > 0 ? total.netSellLotPerFreqSum / total.netSellLotPerFreqWeight : 0;
       total.netSellLotPerOrdNum = total.netSellLotPerOrdNumWeight > 0 ? total.netSellLotPerOrdNumSum / total.netSellLotPerOrdNumWeight : 0;
     });
-    
+
     // Sort stocks by total net sell value (highest to lowest) for Total column
     const sortedTotalNetSellStocks = Array.from(totalNetSellDataByStock.entries())
       .sort((a, b) => b[1].netSellValue - a[1].netSellValue)
       .map(([stock]) => stock);
-    
+
     // For backward compatibility, create combined totalNetDataByStock
     const totalNetDataByStock = new Map<string, {
       netBuyVol: number;
@@ -3640,7 +3640,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       netBuyAvgCount: number;
       netSellAvgCount: number;
     }>();
-    
+
     // Combine Net Buy and Net Sell data (for backward compatibility with rendering code)
     Array.from(totalNetBuyDataByStock.entries()).forEach(([stock, netBuyData]) => {
       totalNetDataByStock.set(stock, {
@@ -3664,7 +3664,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         netSellAvgCount: 0,
       });
     });
-    
+
     Array.from(totalNetSellDataByStock.entries()).forEach(([stock, netSellData]) => {
       const existing = totalNetDataByStock.get(stock);
       if (existing) {
@@ -3700,9 +3700,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         });
       }
     });
-    
+
     const sortedTotalNetStocks = sortedTotalNetSellStocks; // Use Net Sell stocks for backward compatibility
-    
+
     return {
       uniqueStocks,
       filteredStocks,
@@ -3751,7 +3751,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
 
   const stockColorCache = useMemo(() => {
     const cache = new Map<string, { color: string; className: string }>();
-    
+
     return {
       get: (stockCode: string, stockToSectorMap: { [stock: string]: string }): { color: string; className: string } => {
         if (!stockCode) return { color: '#FFFFFF', className: 'font-semibold' };
@@ -3786,7 +3786,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       .map(([stock]) => stock);
   }, [totalSellDataByStock]);
 
-    // Calculate max rows for virtual scrolling - use max rows from all sections (Buy, Sell, Net Buy, Net Sell)
+  // Calculate max rows for virtual scrolling - use max rows from all sections (Buy, Sell, Net Buy, Net Sell)
   // FIXED: Use all dates from buyStocksByDate/sellStocksByDate/etc, not selectedDates to prevent re-calculation on input change
   const maxRows = useMemo(() => {
     let maxBuyRows = 0;
@@ -3818,7 +3818,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // OPTIMIZED: Simplify - always calculate if maxRows > 0
   const visibleRowIndices = useMemo(() => {
     if (maxRows === 0) return [];
-    
+
     const maxVisible = Math.min(visibleRowCount, maxRows);
     const indices: number[] = [];
     for (let i = 0; i < maxVisible; i++) {
@@ -3901,56 +3901,56 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     if (!isDataReady) {
       return null;
     }
-    
+
     // FIXED: Removed input validation check - we don't need to check selectedBrokers/selectedDates here
     // Data is already filtered when fetched, so we just render what's available
     // Even if there's no data, we should still render the tables to show "No Data Available" message inside the table
     // (This matches BrokerSummaryPage.tsx behavior)
-    
+
     // VALUE Table - Shows Buyer and Seller data
     const renderValueTable = () => {
       // Determine if we should show only Total column (when > 7 days selected)
       const showOnlyTotal = selectedDates.length > 7;
-      
+
       // Helper function to get stock color class based on sector (using memoized cache)
       // CRITICAL: This should always work regardless of ticker selection - coloring is independent of filtering
       const getStockColorClass = (stockCode: string): { color: string; className: string } => {
         return stockColorCache.get(stockCode, stockToSectorMap);
       };
-      
+
       // For VALUE table: Get max row count across all dates for Buy and Sell sections separately
       // CRITICAL: Filtering is done in loadTransactionData, so no need to filter here
       // Data is already filtered by ticker or sector at fetch time
-      
+
       // CRITICAL: Total column ALWAYS uses sorted stocks from aggregated data
       // Reuse memoized sorted stocks to avoid recalculation
       const sortedTotalBuyStocks = sortedTotalBuyStocksMemo;
       const sortedTotalSellStocks = sortedTotalSellStocksMemo;
-      
+
       let maxBuyRows = sortedTotalBuyStocks.length;
       let maxSellRows = sortedTotalSellStocks.length;
-      
+
       if (!showOnlyTotal) {
         // When showing per-date, also check per-date rows to ensure we show all data
-      selectedDates.forEach(date => {
+        selectedDates.forEach(date => {
           const buyData = buyStocksByDate.get(date) || [];
           const sellData = sellStocksByDate.get(date) || [];
-        maxBuyRows = Math.max(maxBuyRows, buyData.length);
-        maxSellRows = Math.max(maxSellRows, sellData.length);
-      });
+          maxBuyRows = Math.max(maxBuyRows, buyData.length);
+          maxSellRows = Math.max(maxSellRows, sellData.length);
+        });
       }
       const tableMaxRows = Math.max(maxBuyRows, maxSellRows);
-      
+
       // Use visible row indices for virtual scrolling
       // FIXED: Simplify logic - always show data if available, limit to 20 rows initially
       // CRITICAL: Ensure rowIndices is never empty if tableMaxRows > 0
       const displayRows = Math.min(tableMaxRows, Math.max(visibleRowCount, MAX_DISPLAY_ROWS));
-      
+
       // ALWAYS use fallback if we have data - simpler and more reliable
-      const rowIndices = tableMaxRows > 0 
+      const rowIndices = tableMaxRows > 0
         ? Array.from({ length: Math.min(displayRows, tableMaxRows) }, (_, i) => i)
         : [];
-      
+
       // Calculate total columns for "No Data Available" message
       // Base columns: BCode/Broker, BVal, BLot, BAvg, #, SCode/Stock, SVal, SLot, SAvg = 9
       // Optional: BFreq, Lot/F (2), BOr, Lot/Or (2), SFreq, Lot/F (2), SOr, Lot/Or (2) = 8
@@ -3958,7 +3958,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       const optionalCols = (showFrequency ? 4 : 0) + (showOrder ? 4 : 0);
       const colsPerDate = baseCols + optionalCols;
       const totalCols = showOnlyTotal ? colsPerDate : (selectedDates.length * colsPerDate + colsPerDate);
-      
+
       return (
         <div className="w-full max-w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
@@ -3971,9 +3971,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   {/* Date Header Row */}
                   <tr className="border-t-2 border-white">
                     {!showOnlyTotal && selectedDates.map((date, dateIndex) => (
-                      <th 
-                        key={date} 
-                        className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
+                      <th
+                        key={date}
+                        className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}
                         colSpan={colsPerDate}
                       >
                         {formatDisplayDate(date)}
@@ -4006,7 +4006,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>SAvg</th>
                         ) : (
                           <>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
+                            <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
                             {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>}
                             {showFrequency && <th className={`text-center py-[1px] px-[6px] font-bold text-white w-8 ${!showOrder && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrder && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/F</th>}
                             {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOr</th>}
@@ -4045,8 +4045,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   {tableMaxRows === 0 || transactionData.size === 0 ? (
                     // If no data, show "No Data Available" message
                     <tr className="border-b-2 border-white">
-                      <td 
-                        colSpan={totalCols} 
+                      <td
+                        colSpan={totalCols}
                         className="text-center py-[2.06px] text-muted-foreground font-bold"
                         style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
                       >
@@ -4054,21 +4054,21 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       </td>
                     </tr>
                   ) : rowIndices.length > 0 ? rowIndices.map((rowIdx: number) => {
-                          return (
+                    return (
                       <tr key={rowIdx}>
                         {!showOnlyTotal && selectedDates.map((date: string, dateIndex: number) => {
                           // Get Buy data at this row index for this date
                           // CRITICAL: Data is already filtered in loadTransactionData
                           const buyDataForDate = buyStocksByDate.get(date) || [];
                           const buyRowData = buyDataForDate[rowIdx];
-                          
+
                           // Get Sell data at this row index for this date
                           // CRITICAL: Data is already filtered in loadTransactionData
                           const sellDataForDate = sellStocksByDate.get(date) || [];
                           const sellRowData = sellDataForDate[rowIdx];
-                        
-                        return (
-                          <React.Fragment key={date}>
+
+                          return (
+                            <React.Fragment key={date}>
                               {/* Buyer Columns - from buyStocksByDate */}
                               {buyRowData ? (
                                 <>
@@ -4079,8 +4079,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     // Use BVal (BuyerValue) from CSV column 2
                                     const buyerVal = dayData.BuyerValue || 0;
                                     // Use BAvg from CSV column 3, or calculate from BLot and BVal if BAvg is 0/missing
-                                    const buyerAvg = (dayData.BuyerAvg && dayData.BuyerAvg !== 0) 
-                                      ? dayData.BuyerAvg 
+                                    const buyerAvg = (dayData.BuyerAvg && dayData.BuyerAvg !== 0)
+                                      ? dayData.BuyerAvg
                                       : (buyerLot > 0 ? buyerVal / (buyerLot * 100) : 0);
 
                                     // Use BFreq from CSV column 4
@@ -4093,25 +4093,25 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     // CRITICAL: For Broker pivot, use BLotPerOrdNum directly from CSV column 7, not calculated
                                     // This is the Lot/Or value for Buy section
                                     const buyerLotPerOrdNum = dayData.BLotPerOrdNum ?? 0;
-                                    
+
                                     const bCode = dayData.BCode || buyRowData.stock;
                                     // For Stock pivot: BCode is a broker code, use getBrokerColorClass
                                     // For Broker pivot: BCode is a stock code, use getStockColorClass
-                                    const bCodeColor = pivotFilter === 'Stock' 
+                                    const bCodeColor = pivotFilter === 'Stock'
                                       ? getBrokerColorClass(bCode)
                                       : getStockColorClass(bCode);
                                     return (
                                       <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${bCodeColor.className} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ ...(dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }), color: bCodeColor.color }}>
+                                        <td className={`text-center py-[1px] px-[3px] font-bold ${bCodeColor.className} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ ...(dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }), color: bCodeColor.color }}>
                                           {bCode}
-                            </td>
+                                        </td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(buyerVal)}</td>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(buyerLot)}</td>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(buyerAvg ?? 0)}</td>
-                            {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-lime-400 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{buyerFreq}</td>}
-                            {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-lime-400 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(buyerLotPerFreq ?? 0)}</td>}
-                            {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-teal-400 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{buyerOrdNum}</td>}
-                            {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-teal-400 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(buyerLotPerOrdNum ?? 0)}</td>}
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(buyerLot)}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(buyerAvg ?? 0)}</td>
+                                        {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-lime-400 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{buyerFreq}</td>}
+                                        {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-lime-400 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(buyerLotPerFreq ?? 0)}</td>}
+                                        {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-teal-400 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{buyerOrdNum}</td>}
+                                        {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-teal-400 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(buyerLotPerOrdNum ?? 0)}</td>}
                                       </>
                                     );
                                   })()}
@@ -4128,7 +4128,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   {showOrder && <td className="text-right py-[1px] px-[6px] text-gray-400 w-16">-</td>}
                                 </>
                               )}
-                            {/* Separator */}
+                              {/* Separator */}
                               <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-auto min-w-[2.5rem] whitespace-nowrap">{rowIdx + 1}</td>
                               {/* Seller Columns - from sellStocksByDate */}
                               {sellRowData ? (
@@ -4152,33 +4152,33 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     // CRITICAL: For Broker pivot, use SLotPerOrdNum directly from CSV column 15, not calculated
                                     // This is the Lot/Or value for Sell section
                                     const sellerLotPerOrdNum = dayData.SLotPerOrdNum ?? 0;
-                                    
+
                                     // OPTIMIZED: Removed debug logging to improve performance
-                                    
+
                                     const sCode = String(dayData.SCode || sellRowData.stock || '');
                                     // For Stock pivot: SCode is a broker code, use getBrokerColorClass
                                     // For Broker pivot: SCode is a stock code, use getStockColorClass
-                                    const sCodeColor = pivotFilter === 'Stock' 
+                                    const sCodeColor = pivotFilter === 'Stock'
                                       ? getBrokerColorClass(sCode)
                                       : getStockColorClass(sCode);
                                     return (
                                       <>
                                         <td className={`text-center py-[1px] px-[3px] font-bold ${sCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', color: sCodeColor.color }}>{sCode}</td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(sellerVal)}</td>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(sellerLot)}</td>
-                            {!showFrequency && !showOrder ? (
-                              <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellerAvg ?? 0)}</td>
-                            ) : (
-                              <>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellerAvg ?? 0)}</td>
-                                {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-pink-400 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{sellerFreq}</td>}
-                                {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-pink-400 w-8 ${!showOrder && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrder && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(sellerLotPerFreq ?? 0)}</td>}
-                                {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-rose-500 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{sellerOrdNum}</td>}
-                                {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold text-rose-500 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatLotPerFreqOrOrdNum(sellerLotPerOrdNum ?? 0)}
-                                </td>}
-                              </>
-                            )}
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(sellerLot)}</td>
+                                        {!showFrequency && !showOrder ? (
+                                          <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellerAvg ?? 0)}</td>
+                                        ) : (
+                                          <>
+                                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellerAvg ?? 0)}</td>
+                                            {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-amber-500 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{sellerFreq}</td>}
+                                            {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-amber-500 w-8 ${!showOrder && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrder && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(sellerLotPerFreq ?? 0)}</td>}
+                                            {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-[#e5c3d1] w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{sellerOrdNum}</td>}
+                                            {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold text-[#e5c3d1] w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                              {formatLotPerFreqOrOrdNum(sellerLotPerOrdNum ?? 0)}
+                                            </td>}
+                                          </>
+                                        )}
                                       </>
                                     );
                                   })()}
@@ -4193,7 +4193,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   ) : (
                                     <>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                      <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
                                       {showFrequency && <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>}
                                       {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>}
                                       {showOrder && <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>}
@@ -4202,35 +4202,35 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   )}
                                 </>
                               )}
-                          </React.Fragment>
-                        );
-                      })}
+                            </React.Fragment>
+                          );
+                        })}
                         {/* Total Column - aggregate Buy and Sell data separately by stock code */}
-                      {(() => {
+                        {(() => {
                           // CRITICAL: Total column ALWAYS uses sorted stocks from aggregated data
                           // Sort by buyerValue (highest to lowest) for Buy section
                           const sortedBuyStocks = Array.from(totalBuyDataByStock.entries())
                             .sort((a, b) => b[1].buyerValue - a[1].buyerValue)
                             .map(([stock]) => stock);
-                          
+
                           // Sort by sellerValue (highest to lowest) for Sell section
                           const sortedSellStocks = Array.from(totalSellDataByStock.entries())
                             .sort((a, b) => b[1].sellerValue - a[1].sellerValue)
                             .map(([stock]) => stock);
-                          
+
                           // Get Buy stock code at this row index (always from sorted stocks)
                           const buyStockCode = sortedBuyStocks[rowIdx] || '';
                           const totalBuyBCode = buyStockCode || '-';
-                          
+
                           // Get Sell stock code at this row index (always from sorted stocks)
                           const sellStockCode = sortedSellStocks[rowIdx] || '';
                           const totalSellSCode = sellStockCode || '-';
-                          
+
                           // Get aggregated data for Buy and Sell
                           // Use Lot/F and Lot/ON from aggregated data (calculated from CSV values)
                           const buyTotalData = buyStockCode ? totalBuyDataByStock.get(buyStockCode) : null;
                           const sellTotalData = sellStockCode ? totalSellDataByStock.get(sellStockCode) : null;
-                          
+
                           // Get aggregated values (always use from totalBuyDataByStock and totalSellDataByStock for consistency)
                           const totalBuyValue = buyTotalData ? buyTotalData.buyerValue : 0;
                           const totalBuyFreq = buyTotalData ? buyTotalData.buyerFreq : 0;
@@ -4238,49 +4238,49 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           const totalSellValue = sellTotalData ? sellTotalData.sellerValue : 0;
                           const totalSellFreq = sellTotalData ? sellTotalData.sellerFreq : 0;
                           const totalSellOrdNum = sellTotalData ? sellTotalData.sellerOrdNum : 0;
-                          
+
                           const totalBuyLot = buyTotalData?.buyerLot || 0;
                           const totalSellLot = sellTotalData?.sellerLot || 0;
                           const totalBuyLotPerFreq = buyTotalData?.buyerLotPerFreq || 0;
                           const totalSellLotPerFreq = sellTotalData?.sellerLotPerFreq || 0;
                           const totalBuyLotPerOrdNum = buyTotalData?.buyerLotPerOrdNum || 0;
                           const totalSellLotPerOrdNum = sellTotalData?.sellerLotPerOrdNum || 0;
-                          
+
                           // Calculate final averages (use from aggregated data)
                           const finalBuyAvg = buyTotalData ? buyTotalData.buyerAvg : 0;
                           const finalSellAvg = sellTotalData ? sellTotalData.sellerAvg : 0;
-                          
+
                           // Hide Total row if both Buy and Sell are empty
                           if (totalBuyBCode === '-' && totalSellSCode === '-') {
-                          return (
-                            <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={baseCols + optionalCols}>
+                            return (
+                              <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={baseCols + optionalCols}>
                                 -
-                            </td>
-                          );
-                        }
-                        
-                        // Get color classes for codes based on pivot type
-                        // For Stock pivot: BCode/SCode are broker codes, use getBrokerColorClass
-                        // For Broker pivot: BCode/SCode are stock codes, use getStockColorClass
-                        const buyBCodeColor = totalBuyBCode !== '-' 
-                          ? (pivotFilter === 'Stock' 
+                              </td>
+                            );
+                          }
+
+                          // Get color classes for codes based on pivot type
+                          // For Stock pivot: BCode/SCode are broker codes, use getBrokerColorClass
+                          // For Broker pivot: BCode/SCode are stock codes, use getStockColorClass
+                          const buyBCodeColor = totalBuyBCode !== '-'
+                            ? (pivotFilter === 'Stock'
                               ? getBrokerColorClass(totalBuyBCode)
                               : getStockColorClass(totalBuyBCode))
-                          : { color: '#FFFFFF', className: 'font-semibold' };
-                        const sellSCodeColor = totalSellSCode !== '-' 
-                          ? (pivotFilter === 'Stock' 
+                            : { color: '#FFFFFF', className: 'font-semibold' };
+                          const sellSCodeColor = totalSellSCode !== '-'
+                            ? (pivotFilter === 'Stock'
                               ? getBrokerColorClass(totalSellSCode)
                               : getStockColorClass(totalSellSCode))
-                          : { color: '#FFFFFF', className: 'font-semibold' };
-                        
-                        return (
-                          <React.Fragment>
+                            : { color: '#FFFFFF', className: 'font-semibold' };
+
+                          return (
+                            <React.Fragment>
                               {/* Buyer Total Columns */}
                               {totalBuyBCode !== '-' && Math.abs(totalBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${buyBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={showOnlyTotal || selectedDates.length === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none', color: buyBCodeColor.color } : { width: '48px', minWidth: '48px', maxWidth: '48px', color: buyBCodeColor.color }}>
+                                  <td className={`text-center py-[1px] px-[3px] font-bold ${buyBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={showOnlyTotal || selectedDates.length === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none', color: buyBCodeColor.color } : { width: '48px', minWidth: '48px', maxWidth: '48px', color: buyBCodeColor.color }}>
                                     {totalBuyBCode}
-                            </td>
+                                  </td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(totalBuyValue)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalBuyLot)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(finalBuyAvg)}</td>
@@ -4307,14 +4307,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   )}
                                 </>
                               )}
-                            {/* Separator */}
+                              {/* Separator */}
                               <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-auto min-w-[2.5rem] whitespace-nowrap">{rowIdx + 1}</td>
                               {/* Seller Total Columns */}
                               {totalSellSCode !== '-' && Math.abs(totalSellLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${sellSCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: sellSCodeColor.color }}>
+                                  <td className={`text-center py-[1px] px-[3px] font-bold ${sellSCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: sellSCodeColor.color }}>
                                     {totalSellSCode}
-                            </td>
+                                  </td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(totalSellValue)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalSellLot)}</td>
                                   {!showFrequency && !showOrder ? (
@@ -4322,11 +4322,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   ) : (
                                     <>
                                       <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(finalSellAvg)}</td>
-                                      {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-pink-400 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalSellFreq}</td>}
-                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-pink-400 w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalSellLotPerFreq)}</td>}
-                                      {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-rose-500 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalSellOrdNum}</td>}
-                                      {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-rose-500 w-16 border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatLotPerFreqOrOrdNum(totalSellLotPerOrdNum)}
+                                      {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-amber-500 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalSellFreq}</td>}
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-amber-500 w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalSellLotPerFreq)}</td>}
+                                      {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-[#e5c3d1] w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalSellOrdNum}</td>}
+                                      {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-[#e5c3d1] w-16 border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        {formatLotPerFreqOrOrdNum(totalSellLotPerOrdNum)}
                                       </td>}
                                     </>
                                   )}
@@ -4349,20 +4349,20 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   )}
                                 </>
                               )}
-                          </React.Fragment>
-                        );
-                      })()}
+                            </React.Fragment>
+                          );
+                        })()}
+                      </tr>
+                    );
+                  }) : null}
+                  {/* Lazy loading sentinel - triggers load more when scrolled into view */}
+                  {visibleRowCount < maxRows && rowIndices.length > 0 && (
+                    <tr>
+                      <td colSpan={totalCols} ref={valueTableSentinelRef} className="h-10">
+                        {/* Invisible sentinel for intersection observer */}
+                      </td>
                     </tr>
-                  );
-                }) : null}
-                {/* Lazy loading sentinel - triggers load more when scrolled into view */}
-                {visibleRowCount < maxRows && rowIndices.length > 0 && (
-                  <tr>
-                    <td colSpan={totalCols} ref={valueTableSentinelRef} className="h-10">
-                      {/* Invisible sentinel for intersection observer */}
-                    </td>
-                  </tr>
-                )}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -4370,19 +4370,19 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         </div>
       );
     };
-    
+
     // NET Table - Shows Net Buy/Sell data
     const renderNetTable = () => {
       // Determine if we should show only Total column (when > 7 days selected)
       const showOnlyTotal = selectedDates.length > 7;
-      
+
       // Helper function to get stock color class based on sector (same as Value table)
       // CRITICAL: This should always work regardless of ticker selection - coloring is independent of filtering
       const getStockColorClass = (stockCode: string): { color: string; className: string } => {
         if (!stockCode) return { color: '#FFFFFF', className: 'font-semibold' };
         const stockSector = stockToSectorMap[stockCode.toUpperCase()];
         if (!stockSector) return { color: '#FFFFFF', className: 'font-semibold' };
-        
+
         // Color mapping based on sector - Using 11 distinct colors from provided palette
         // NO GREEN/RED to avoid conflict with Buy/Sell colors (same as Value table)
         // Colors: Royal Blue, Sky Blue, Deep Purple, Gold, Orange, Cyan, Brown, Slate Gray, Hot Pink, Khaki, White
@@ -4399,87 +4399,87 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           'Technology': '#FF69B4', // Hot Pink
           'Transportation & Logistic': '#C3B091' // Khaki
         };
-        
+
         const color = sectorColors[stockSector] || '#FFFFFF';
         return { color, className: 'font-semibold' };
       };
-      
+
       // For NET table: Calculate Net from B/S Total data
       // Get all unique stocks from both Buy and Sell totals
       const allStocksSetForNet = new Set<string>();
       totalBuyDataByStock.forEach((_, stock) => allStocksSetForNet.add(stock));
       totalSellDataByStock.forEach((_, stock) => allStocksSetForNet.add(stock));
-      
+
       // Calculate Net for each stock: Net = Buy - Sell
       const netDataByStockForRows = Array.from(allStocksSetForNet).map(stock => {
         const buyData = totalBuyDataByStock.get(stock);
         const sellData = totalSellDataByStock.get(stock);
-        
+
         const buyValue = buyData?.buyerValue || 0;
         const buyLot = buyData?.buyerLot || 0;
         const sellValue = sellData?.sellerValue || 0;
         const sellLot = sellData?.sellerLot || 0;
-        
+
         // Calculate Net = Buy - Sell
         const netValue = buyValue - sellValue;
         const netLot = buyLot - sellLot;
-        
+
         return {
           stock,
           netValue,
           netLot
         };
       });
-      
+
       // Separate into Net Buy (positive) and Net Sell (negative) lists
       // Filter out zero values and sort each list separately
       const netBuyStocksForTotal = netDataByStockForRows
         .filter(item => item.netValue > 0 && (Math.abs(item.netLot) > 0 || Math.abs(item.netValue) > 0))
         .sort((a, b) => b.netValue - a.netValue); // Sort by Net Value descending
-      
+
       const netSellStocksForTotal = netDataByStockForRows
         .filter(item => item.netValue < 0 && (Math.abs(item.netLot) > 0 || Math.abs(item.netValue) > 0))
         .sort((a, b) => Math.abs(b.netValue) - Math.abs(a.netValue)); // Sort by absolute Net Value descending
-      
+
       // For Total column, use the max of Buy and Sell stocks count
       const maxNetTotalRows = Math.max(netBuyStocksForTotal.length, netSellStocksForTotal.length);
-      
+
       // For backward compatibility, keep sortedTotalNetBuyStocks and sortedTotalNetSellStocks for per-date rendering
       const sortedTotalNetBuyStocks = Array.from(totalNetBuyDataByStock.entries())
         .filter(([, data]) => Math.abs(data.netBuyLot || 0) > 0)
         .sort((a, b) => (b[1].netBuyValue || 0) - (a[1].netBuyValue || 0))
         .map(([stock]) => stock);
-      
+
       const sortedTotalNetSellStocks = Array.from(totalNetSellDataByStock.entries())
         .filter(([, data]) => Math.abs(data.netSellLot || 0) > 0)
         .sort((a, b) => (b[1].netSellValue || 0) - (a[1].netSellValue || 0))
         .map(([stock]) => stock);
-      
+
       let maxNetBuyRows = sortedTotalNetBuyStocks.length;
       let maxNetSellRows = sortedTotalNetSellStocks.length;
-      
+
       if (!showOnlyTotal) {
         // When showing per-date, also check per-date rows to ensure we show all data
-      selectedDates.forEach(date => {
+        selectedDates.forEach(date => {
           const netBuyData = netBuyStocksByDate.get(date) || [];
           const netSellData = netSellStocksByDate.get(date) || [];
-        maxNetBuyRows = Math.max(maxNetBuyRows, netBuyData.length);
-        maxNetSellRows = Math.max(maxNetSellRows, netSellData.length);
-      });
+          maxNetBuyRows = Math.max(maxNetBuyRows, netBuyData.length);
+          maxNetSellRows = Math.max(maxNetSellRows, netSellData.length);
+        });
       }
       // For Total column, use maxNetTotalRows; for per-date, use max of Buy and Sell rows
       const tableMaxRows = showOnlyTotal ? maxNetTotalRows : Math.max(maxNetBuyRows, maxNetSellRows);
-      
+
       // Use visible row indices for virtual scrolling
       // FIXED: Simplify logic - always show data if available, limit to 20 rows initially
       // CRITICAL: Ensure rowIndices is never empty if tableMaxRows > 0
       const displayRows = Math.min(tableMaxRows, Math.max(visibleRowCount, MAX_DISPLAY_ROWS));
-      
+
       // ALWAYS use fallback if we have data - simpler and more reliable
-      const rowIndices = tableMaxRows > 0 
+      const rowIndices = tableMaxRows > 0
         ? Array.from({ length: Math.min(displayRows, tableMaxRows) }, (_, i) => i)
         : [];
-      
+
       // Calculate total columns for "No Data Available" message (NET table)
       // Base columns: BCode/Broker, BVal, BLot, BAvg, #, SCode/Stock, SVal, SLot, SAvg = 9
       // Optional: BFreq, Lot/F (2), BOr, Lot/Or (2), SFreq, Lot/F (2), SOr, Lot/Or (2) = 8
@@ -4487,8 +4487,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       const netOptionalCols = (showFrequency ? 4 : 0) + (showOrder ? 4 : 0);
       const netColsPerDate = netBaseCols + netOptionalCols;
       const netTotalCols = showOnlyTotal ? netColsPerDate : (selectedDates.length * netColsPerDate + netColsPerDate);
-    
-    return (
+
+      return (
         <div className="w-full max-w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
             <h3 className="font-semibold text-sm">NET - {pivotFilter === 'Stock' ? (selectedTickers.length > 0 ? selectedTickers.join(', ') : '') : selectedBrokers.join(', ')}</h3>
@@ -4500,9 +4500,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   {/* Date Header Row */}
                   <tr className="border-t-2 border-white">
                     {!showOnlyTotal && selectedDates.map((date, dateIndex) => (
-                      <th 
-                        key={date} 
-                        className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
+                      <th
+                        key={date}
+                        className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}
                         colSpan={netColsPerDate}
                       >
                         {formatDisplayDate(date)}
@@ -4535,7 +4535,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>SAvg</th>
                         ) : (
                           <>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
+                            <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
                             {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>}
                             {showFrequency && <th className={`text-center py-[1px] px-[6px] font-bold text-white w-8 ${!showOrder && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrder && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/F</th>}
                             {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOr</th>}
@@ -4574,8 +4574,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   {tableMaxRows === 0 || transactionData.size === 0 ? (
                     // If no data, show "No Data Available" message
                     <tr className="border-b-2 border-white">
-                      <td 
-                        colSpan={netTotalCols} 
+                      <td
+                        colSpan={netTotalCols}
                         className="text-center py-[2.06px] text-muted-foreground font-bold"
                         style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
                       >
@@ -4583,21 +4583,21 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       </td>
                     </tr>
                   ) : rowIndices.length > 0 ? rowIndices.map((rowIdx: number) => {
-                          return (
+                    return (
                       <tr key={rowIdx}>
                         {!showOnlyTotal && selectedDates.map((date: string, dateIndex: number) => {
                           // Get Net Buy data at this row index for this date
                           // CRITICAL: Data is already filtered in loadTransactionData
                           const netBuyDataForDate = netBuyStocksByDate.get(date) || [];
                           const netBuyRowData = netBuyDataForDate[rowIdx];
-                          
+
                           // Get Net Sell data at this row index for this date
                           // CRITICAL: Data is already filtered in loadTransactionData
                           const netSellDataForDate = netSellStocksByDate.get(date) || [];
                           const netSellRowData = netSellDataForDate[rowIdx];
-                        
-                        return (
-                          <React.Fragment key={date}>
+
+                          return (
+                            <React.Fragment key={date}>
                               {/* Net Buy Columns - from netBuyStocksByDate */}
                               {netBuyRowData ? (
                                 <>
@@ -4606,7 +4606,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     const nbCode = dayData.NBCode || netBuyRowData.stock;
                                     // For Stock pivot: NBCode is a broker code, use getBrokerColorClass
                                     // For Broker pivot: NBCode is a stock code, use getStockColorClass
-                                    const nbCodeColor = pivotFilter === 'Stock' 
+                                    const nbCodeColor = pivotFilter === 'Stock'
                                       ? getBrokerColorClass(nbCode)
                                       : getStockColorClass(nbCode);
                                     const nbLot = dayData.NBLot || 0;
@@ -4621,21 +4621,21 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     const nbOrdNum = dayData.NBOrdNum || 0;
                                     // Use value from CSV, no fallback
                                     const nbLotPerOrdNum = dayData.NBLotPerOrdNum;
-                                    
+
                                     return (
                                       <>
                                         <td className={`text-center py-[1px] px-[3px] font-bold ${nbCodeColor.className} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ ...(dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }), color: nbCodeColor.color }}>
                                           {nbCode}
-                            </td>
+                                        </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {formatValue(nbVal)}
-                            </td>
+                                        </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {formatLot(nbLot)}
-                            </td>
+                                        </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {formatAverage(nbAvg ?? 0)}
-                            </td>
+                                        </td>
                                         {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-lime-400 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {nbFreq}
                                         </td>}
@@ -4659,10 +4659,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   {!showFrequency && !showOrder ? (
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                    <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   ) : (
                                     <>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                      <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                       {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>}
                                       {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>}
                                       {showOrder && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>}
@@ -4671,7 +4671,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   )}
                                 </>
                               )}
-                            {/* Separator */}
+                              {/* Separator */}
                               <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-auto min-w-[2.5rem] whitespace-nowrap">{rowIdx + 1}</td>
                               {/* Net Sell Columns - from netSellStocksByDate */}
                               {netSellRowData ? (
@@ -4681,7 +4681,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     const nsCode = dayData.NSCode || netSellRowData.stock;
                                     // For Stock pivot: NSCode is a broker code, use getBrokerColorClass
                                     // For Broker pivot: NSCode is a stock code, use getStockColorClass
-                                    const nsCodeColor = pivotFilter === 'Stock' 
+                                    const nsCodeColor = pivotFilter === 'Stock'
                                       ? getBrokerColorClass(nsCode)
                                       : getStockColorClass(nsCode);
                                     const nsLot = dayData.NSLot || 0;
@@ -4696,37 +4696,37 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     const nsOrdNum = dayData.NSOrdNum || 0;
                                     // Use value from CSV, no fallback
                                     const nsLotPerOrdNum = dayData.NSLotPerOrdNum;
-                                    
+
                                     return (
                                       <>
                                         <td className={`text-center py-[1px] px-[3px] font-bold ${nsCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', color: nsCodeColor.color }}>
                                           {nsCode}
-                            </td>
+                                        </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {formatValue(nsVal)}
-                            </td>
+                                        </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {formatLot(nsLot)}
-                            </td>
+                                        </td>
                                         {!showFrequency && !showOrder ? (
                                           <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatAverage(nsAvg ?? 0)}
-                            </td>
+                                            {formatAverage(nsAvg ?? 0)}
+                                          </td>
                                         ) : (
                                           <>
-                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                            <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                               {formatAverage(nsAvg ?? 0)}
-                            </td>
-                                            {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-pink-400 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                            </td>
+                                            {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-amber-500 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                               {nsFreq}
                                             </td>}
-                                            {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-pink-400 w-8 ${!showOrder && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrder && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                            {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-amber-500 w-8 ${!showOrder && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrder && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                               {formatLotPerFreqOrOrdNum(nsLotPerFreq ?? 0)}
                                             </td>}
-                                            {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold text-rose-500 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {nsOrdNum}
+                                            {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold text-[#e5c3d1] w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                              {nsOrdNum}
                                             </td>}
-                                            {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold text-rose-500 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                            {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold text-[#e5c3d1] w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                               {formatLotPerFreqOrOrdNum(nsLotPerOrdNum ?? 0)}
                                             </td>}
                                           </>
@@ -4742,10 +4742,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   {!showFrequency && !showOrder ? (
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                    <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   ) : (
                                     <>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                      <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                       {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>}
                                       {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>}
                                       {showOrder && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>}
@@ -4754,22 +4754,22 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   )}
                                 </>
                               )}
-                          </React.Fragment>
-                        );
-                      })}
+                            </React.Fragment>
+                          );
+                        })}
                         {/* Total Column - Calculate NET from B/S Total (Buy - Sell) */}
-                      {(() => {
+                        {(() => {
                           // FIXED: Calculate Net from B/S Total data, not from Net Buy/Sell data
                           // Get all unique stocks from both Buy and Sell totals
                           const allStocksSet = new Set<string>();
                           totalBuyDataByStock.forEach((_, stock) => allStocksSet.add(stock));
                           totalSellDataByStock.forEach((_, stock) => allStocksSet.add(stock));
-                          
+
                           // Calculate Net for each stock: Net = Buy - Sell
                           const allNetDataByStock = Array.from(allStocksSet).map(stock => {
                             const buyData = totalBuyDataByStock.get(stock);
                             const sellData = totalSellDataByStock.get(stock);
-                            
+
                             const buyValue = buyData?.buyerValue || 0;
                             const buyLot = buyData?.buyerLot || 0;
                             const buyVol = buyData?.buyerVol || 0;
@@ -4777,7 +4777,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             const buyOrdNum = buyData?.buyerOrdNum || 0;
                             const buyLotPerFreq = buyData?.buyerLotPerFreq || 0;
                             const buyLotPerOrdNum = buyData?.buyerLotPerOrdNum || 0;
-                            
+
                             const sellValue = sellData?.sellerValue || 0;
                             const sellLot = sellData?.sellerLot || 0;
                             const sellVol = sellData?.sellerVol || 0;
@@ -4785,19 +4785,19 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             const sellOrdNum = sellData?.sellerOrdNum || 0;
                             const sellLotPerFreq = sellData?.sellerLotPerFreq || 0;
                             const sellLotPerOrdNum = sellData?.sellerLotPerOrdNum || 0;
-                            
+
                             // Calculate Net = Buy - Sell
                             const netValue = buyValue - sellValue;
                             const netLot = buyLot - sellLot;
                             const netVol = buyVol - sellVol;
-                            
+
                             // Calculate Net Avg: Net Value / Net Vol (if Net Vol > 0)
                             const netAvg = netVol !== 0 ? netValue / netVol : 0;
-                            
+
                             // Net Freq and OrdNum: use the larger value (or difference if needed)
                             const netFreq = buyFreq - sellFreq;
                             const netOrdNum = buyOrdNum - sellOrdNum;
-                            
+
                             // Lot/F and Lot/ON: weighted average based on frequency/ordnum
                             let netLotPerFreq = 0;
                             if (buyFreq > 0 || sellFreq > 0) {
@@ -4806,7 +4806,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                 netLotPerFreq = ((buyLotPerFreq * Math.abs(buyFreq)) + (sellLotPerFreq * Math.abs(sellFreq))) / totalFreq;
                               }
                             }
-                            
+
                             let netLotPerOrdNum = 0;
                             if (buyOrdNum !== 0 || sellOrdNum !== 0) {
                               const totalOrdNum = Math.abs(buyOrdNum) + Math.abs(sellOrdNum);
@@ -4814,7 +4814,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                 netLotPerOrdNum = ((buyLotPerOrdNum * Math.abs(buyOrdNum)) + (sellLotPerOrdNum * Math.abs(sellOrdNum))) / totalOrdNum;
                               }
                             }
-                            
+
                             return {
                               stock,
                               netValue,
@@ -4829,21 +4829,21 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               sellValue
                             };
                           });
-                          
+
                           // Separate into Net Buy (positive) and Net Sell (negative) lists
                           // Filter out zero values and sort each list separately
                           const netBuyStocks = allNetDataByStock
                             .filter(item => item.netValue > 0 && (Math.abs(item.netLot) > 0 || Math.abs(item.netValue) > 0))
                             .sort((a, b) => b.netValue - a.netValue); // Sort by Net Value descending
-                          
+
                           const netSellStocks = allNetDataByStock
                             .filter(item => item.netValue < 0 && (Math.abs(item.netLot) > 0 || Math.abs(item.netValue) > 0))
                             .sort((a, b) => Math.abs(b.netValue) - Math.abs(a.netValue)); // Sort by absolute Net Value descending
-                          
+
                           // Get stock at this row index for Buy side and Sell side separately
                           const buyStockData = netBuyStocks[rowIdx] || null;
                           const sellStockData = netSellStocks[rowIdx] || null;
-                          
+
                           // If both are empty, hide row
                           if (!buyStockData && !sellStockData) {
                             return (
@@ -4852,7 +4852,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               </td>
                             );
                           }
-                          
+
                           // Prepare Buy side data
                           const buyStockCode = buyStockData?.stock || '';
                           const buyNetValue = buyStockData?.netValue || 0;
@@ -4862,7 +4862,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           const buyNetOrdNum = buyStockData?.netOrdNum || 0;
                           const buyNetLotPerFreq = buyStockData?.netLotPerFreq || 0;
                           const buyNetLotPerOrdNum = buyStockData?.netLotPerOrdNum || 0;
-                          
+
                           // Prepare Sell side data
                           const sellStockCode = sellStockData?.stock || '';
                           const sellNetValue = sellStockData?.netValue || 0;
@@ -4872,59 +4872,59 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           const sellNetOrdNum = sellStockData?.netOrdNum || 0;
                           const sellNetLotPerFreq = sellStockData?.netLotPerFreq || 0;
                           const sellNetLotPerOrdNum = sellStockData?.netLotPerOrdNum || 0;
-                          
+
                           // Get color classes for codes based on pivot type
                           // For Stock pivot: NBCode/NSCode are broker codes, use getBrokerColorClass
                           // For Broker pivot: NBCode/NSCode are stock codes, use getStockColorClass
-                          const buyCodeColor = buyStockCode !== '' 
-                            ? (pivotFilter === 'Stock' 
-                                ? getBrokerColorClass(buyStockCode)
-                                : getStockColorClass(buyStockCode))
+                          const buyCodeColor = buyStockCode !== ''
+                            ? (pivotFilter === 'Stock'
+                              ? getBrokerColorClass(buyStockCode)
+                              : getStockColorClass(buyStockCode))
                             : { color: '#FFFFFF', className: 'font-semibold' };
-                          
-                          const sellCodeColor = sellStockCode !== '' 
-                            ? (pivotFilter === 'Stock' 
-                                ? getBrokerColorClass(sellStockCode)
-                                : getStockColorClass(sellStockCode))
+
+                          const sellCodeColor = sellStockCode !== ''
+                            ? (pivotFilter === 'Stock'
+                              ? getBrokerColorClass(sellStockCode)
+                              : getStockColorClass(sellStockCode))
                             : { color: '#FFFFFF', className: 'font-semibold' };
-                          
+
                           // Color for values: Net Buy values are green, Net Sell values are red
                           const totalNetBuyColor = 'text-green-600';
                           const totalNetSellColor = 'text-red-600';
                           // Color for frequency columns: Net Buy frequency is neon green, Net Sell frequency is bright pink
                           const totalNetBuyFreqColor = 'text-lime-400';
-                          const totalNetSellFreqColor = 'text-pink-400';
+                          const totalNetSellFreqColor = 'text-amber-500';
                           // Color for order columns: Net Buy order is teal (more contrast than green-600), Net Sell order is rose (more contrast than red-600)
                           const totalNetBuyOrderColor = 'text-teal-400';
-                          const totalNetSellOrderColor = 'text-rose-500';
-                        
-                        return (
-                          <React.Fragment>
+                          const totalNetSellOrderColor = 'text-[#e5c3d1]';
+
+                          return (
+                            <React.Fragment>
                               {/* Net Buy Total Columns - Show if we have Buy stock at this row */}
                               {buyStockData && Math.abs(buyNetLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${buyCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={showOnlyTotal || selectedDates.length === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none', color: buyCodeColor.color } : { width: '48px', minWidth: '48px', maxWidth: '48px', color: buyCodeColor.color }}>
+                                  <td className={`text-center py-[1px] px-[3px] font-bold ${buyCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={showOnlyTotal || selectedDates.length === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none', color: buyCodeColor.color } : { width: '48px', minWidth: '48px', maxWidth: '48px', color: buyCodeColor.color }}>
                                     {buyStockCode}
-                            </td>
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  </td>
+                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatValue(Math.abs(buyNetValue))}
-                            </td>
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  </td>
+                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatLot(Math.abs(buyNetLot))}
-                            </td>
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  </td>
+                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatAverage(Math.abs(buyNetAvg))}
-                            </td>
-                            {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyFreqColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  </td>
+                                  {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyFreqColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {Math.abs(buyNetFreq)}
-                            </td>}
-                            {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyFreqColor} w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  </td>}
+                                  {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyFreqColor} w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatLotPerFreqOrOrdNum(Math.abs(buyNetLotPerFreq))}
                                   </td>}
-                            {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyOrderColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyOrderColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {Math.abs(buyNetOrdNum)}
                                   </td>}
-                            {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyOrderColor} w-16`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyOrderColor} w-16`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatLotPerFreqOrOrdNum(Math.abs(buyNetLotPerOrdNum))}
                                   </td>}
                                 </>
@@ -4946,43 +4946,43 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   )}
                                 </>
                               )}
-                            {/* Separator */}
+                              {/* Separator */}
                               <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold">{rowIdx + 1}</td>
                               {/* Net Sell Total Columns - Show if we have Sell stock at this row */}
                               {sellStockData && Math.abs(sellNetLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${sellCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: sellCodeColor.color }}>
+                                  <td className={`text-center py-[1px] px-[3px] font-bold ${sellCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: sellCodeColor.color }}>
                                     {sellStockCode}
-                            </td>
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  </td>
+                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatValue(Math.abs(sellNetValue))}
-                            </td>
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  </td>
+                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatLot(Math.abs(sellNetLot))}
-                            </td>
-                            {!showFrequency && !showOrder ? (
-                              <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6 border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(Math.abs(sellNetAvg))}
-                            </td>
-                            ) : (
-                              <>
-                                <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  </td>
+                                  {!showFrequency && !showOrder ? (
+                                    <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6 border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                      {formatAverage(Math.abs(sellNetAvg))}
+                                    </td>
+                                  ) : (
+                                    <>
+                                      <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {formatAverage(Math.abs(sellNetAvg))}
-                            </td>
-                                {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellFreqColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                      </td>
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellFreqColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {Math.abs(sellNetFreq)}
-                                </td>}
-                                {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellFreqColor} w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                      </td>}
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellFreqColor} w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {formatLotPerFreqOrOrdNum(Math.abs(sellNetLotPerFreq))}
-                                  </td>}
-                                {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellOrderColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {Math.abs(sellNetOrdNum)}
-                                  </td>}
-                                {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellOrderColor} w-16 border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                      </td>}
+                                      {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellOrderColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        {Math.abs(sellNetOrdNum)}
+                                      </td>}
+                                      {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellOrderColor} w-16 border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {formatLotPerFreqOrOrdNum(Math.abs(sellNetLotPerOrdNum))}
-                                  </td>}
-                              </>
-                            )}
+                                      </td>}
+                                    </>
+                                  )}
                                 </>
                               ) : (
                                 <>
@@ -4991,7 +4991,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     <td className={`text-right py-[1px] px-[6px] text-gray-400 border-r-2 border-white`}>-</td>
                                   ) : (
                                     <>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
+                                      <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
                                       {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>}
                                       {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`}>-</td>}
                                       {showOrder && <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>}
@@ -5000,20 +5000,20 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   )}
                                 </>
                               )}
-                          </React.Fragment>
-                        );
-                      })()}
+                            </React.Fragment>
+                          );
+                        })()}
+                      </tr>
+                    );
+                  }) : null}
+                  {/* Lazy loading sentinel - triggers load more when scrolled into view */}
+                  {visibleRowCount < maxRows && rowIndices.length > 0 && (
+                    <tr>
+                      <td colSpan={showOnlyTotal ? netColsPerDate : (selectedDates.length * netColsPerDate + netColsPerDate)} ref={netTableSentinelRef} className="h-10">
+                        {/* Invisible sentinel for intersection observer */}
+                      </td>
                     </tr>
-                  );
-                }) : null}
-                {/* Lazy loading sentinel - triggers load more when scrolled into view */}
-                {visibleRowCount < maxRows && rowIndices.length > 0 && (
-                  <tr>
-                    <td colSpan={showOnlyTotal ? netColsPerDate : (selectedDates.length * netColsPerDate + netColsPerDate)} ref={netTableSentinelRef} className="h-10">
-                      {/* Invisible sentinel for intersection observer */}
-                    </td>
-                  </tr>
-                )}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -5025,7 +5025,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     // Total Table - Per Date Totals with 8 columns (Buy and Sell separate)
     const renderAggregateSummaryTable = () => {
       const showOnlyTotal = selectedDates.length > 7;
-      
+
       // Calculate totals per date - separate Buy and Sell
       const totalsByDate = new Map<string, {
         // Buy side
@@ -5062,7 +5062,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           const sellVal = Number(item.SellerValue) || 0;
           const buyLot = Number(item.BLot) || 0;
           const sellLot = Number(item.SLot) || 0;
-          
+
           // Buy side totals
           dateBuyTotalValue += buyVal;
           dateBuyTotalLot += buyLot;
@@ -5117,13 +5117,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     {!showOnlyTotal && selectedDates.map((date, dateIndex) => {
                       const dateWidth = dateColumnWidthsRef.current.get(date);
                       return (
-                        <th 
-                          key={date} 
-                          className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
-                          colSpan={8} 
-                          style={{ 
-                            textAlign: 'center', 
-                            width: dateWidth ? `${dateWidth}px` : undefined, 
+                        <th
+                          key={date}
+                          className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}
+                          colSpan={8}
+                          style={{
+                            textAlign: 'center',
+                            width: dateWidth ? `${dateWidth}px` : undefined,
                             minWidth: dateWidth ? `${dateWidth}px` : undefined,
                             maxWidth: dateWidth ? `${dateWidth}px` : undefined
                           }}
@@ -5132,12 +5132,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         </th>
                       );
                     })}
-                    <th 
-                      className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} 
-                      colSpan={8} 
-                      style={{ 
-                        textAlign: 'center', 
-                        width: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined, 
+                    <th
+                      className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}
+                      colSpan={8}
+                      style={{
+                        textAlign: 'center',
+                        width: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined,
                         minWidth: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined,
                         maxWidth: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined
                       }}
@@ -5190,7 +5190,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       const dateTotals = totalsByDate.get(date);
                       const dateWidth = dateColumnWidthsRef.current.get(date);
                       const colWidth = dateWidth ? dateWidth / 8 : undefined;
-                      
+
                       if (!dateTotals) {
                         return (
                           <React.Fragment key={date}>
@@ -5213,30 +5213,30 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
 
                       return (
                         <React.Fragment key={date}>
-                          {/* Buy columns */}
-                          <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                          {/* Buy columns FNVal dkk */}
+                          <td className={`text-center py-[1px] px-[6px] text-green-600 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
                             {formatValue(dateTotals.buyTotalValue)}
                           </td>
-                          <td className={`text-center py-[1px] px-[6px] font-bold ${buyForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                          <td className={`text-center py-[1px] px-[6px] text-green-600 font-bold ${buyForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
                             {formatValue(dateTotals.buyForeignValue)}
                           </td>
-                          <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                          <td className="text-center py-[1px] px-[6px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
                             {formatLot(dateTotals.buyTotalLot)}
                           </td>
-                          <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                          <td className="text-center py-[1px] px-[6px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
                             {formatAverage(dateTotals.buyAvgPrice)}
                           </td>
-                          {/* Sell columns */}
-                          <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                          {/* Sell columns FNVal dkk */}
+                          <td className="text-center py-[1px] px-[6px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
                             {formatValue(dateTotals.sellTotalValue)}
                           </td>
-                          <td className={`text-center py-[1px] px-[6px] font-bold ${sellForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                          <td className={`text-center py-[1px] px-[6px] text-red-600 font-bold ${sellForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
                             {formatValue(dateTotals.sellForeignValue)}
                           </td>
-                          <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                          <td className="text-center py-[1px] px-[6px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
                             {formatLot(dateTotals.sellTotalLot)}
                           </td>
-                          <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                          <td className={`text-center py-[1px] px-[6px] text-red-600 font-bold ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
                             {formatAverage(dateTotals.sellAvgPrice)}
                           </td>
                         </React.Fragment>
@@ -5251,29 +5251,29 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       return (
                         <React.Fragment>
                           {/* Buy columns */}
-                          <td className={`text-center py-[1px] px-[5px] text-white font-bold ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                          <td className={`text-center py-[1px] px-[5px] text-green-600 font-bold ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
                             {formatValue(grandBuyTotalValue)}
                           </td>
-                          <td className={`text-center py-[1px] px-[5px] font-bold ${grandBuyForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                          <td className={`text-center py-[1px] px-[5px] text-green-600 font-bold ${grandBuyForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
                             {formatValue(grandBuyForeignValue)}
                           </td>
-                          <td className="text-center py-[1px] px-[5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                          <td className="text-center py-[1px] px-[5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
                             {formatLot(grandBuyTotalLot)}
                           </td>
-                          <td className="text-center py-[1px] px-[5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                          <td className="text-center py-[1px] px-[5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
                             {formatAverage(grandBuyAvgPrice)}
                           </td>
                           {/* Sell columns */}
-                          <td className="text-center py-[1px] px-[5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                          <td className="text-center py-[1px] px-[5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
                             {formatValue(grandSellTotalValue)}
                           </td>
-                          <td className={`text-center py-[1px] px-[5px] font-bold ${grandSellForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                          <td className={`text-center py-[1px] px-[5px] text-red-600 font-bold ${grandSellForeignClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
                             {formatValue(grandSellForeignValue)}
                           </td>
-                          <td className="text-center py-[1px] px-[5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                          <td className="text-center py-[1px] px-[5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
                             {formatLot(grandSellTotalLot)}
                           </td>
-                          <td className="text-center py-[1px] px-[7px] text-white font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                          <td className="text-center py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
                             {formatAverage(grandSellAvgPrice)}
                           </td>
                         </React.Fragment>
@@ -5287,7 +5287,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         </div>
       );
     };
-    
+
     return (
       <div className="w-full">
         {renderValueTable()}
@@ -5295,7 +5295,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         {renderAggregateSummaryTable()}
       </div>
     );
-    }, [filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, visibleRowIndices, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, isDataReady, selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap, pivotFilter, selectedTickers, selectedBrokers]); // CRITICAL: Added selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap, pivotFilter, selectedTickers, and selectedBrokers to dependencies to react to showOnlyTotal, sector filter changes, pivot type changes, and header text updates
+  }, [filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, visibleRowIndices, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, isDataReady, selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap, pivotFilter, selectedTickers, selectedBrokers]); // CRITICAL: Added selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap, pivotFilter, selectedTickers, and selectedBrokers to dependencies to react to showOnlyTotal, sector filter changes, pivot type changes, and header text updates
 
   // Helper function to get broker color class based on type
   // Memoize broker color cache for O(1) lookup
@@ -5303,7 +5303,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     const cache = new Map<string, { color: string; className: string }>();
     const govSet = new Set(GOVERNMENT_BROKERS);
     const foreignSet = new Set(FOREIGN_BROKERS);
-    
+
     return {
       get: (brokerCode: string): { color: string; className: string } => {
         if (cache.has(brokerCode)) {
@@ -5322,7 +5322,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       }
     };
   }, []);
-  
+
   const getBrokerColorClass = useCallback((brokerCode: string): { color: string; className: string } => {
     return brokerColorCache.get(brokerCode);
   }, [brokerColorCache]);
@@ -5339,44 +5339,44 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             <div className="flex items-center gap-2 w-full md:w-auto">
               {/* Broker Input with selected count */}
               <div className="relative flex-1 md:flex-none" ref={dropdownBrokerRef}>
-                  <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                  <input
-                    type="text"
-                    value={brokerInput}
-                    onChange={(e) => {
-                      const v = e.target.value.toUpperCase();
-                      setBrokerInput(v);
-                      setShowBrokerSuggestions(true);
-                      setHighlightedIndex(0);
-                    }}
-                    onFocus={() => setShowBrokerSuggestions(true)}
-                    onKeyDown={(e) => {
+                <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                <input
+                  type="text"
+                  value={brokerInput}
+                  onChange={(e) => {
+                    const v = e.target.value.toUpperCase();
+                    setBrokerInput(v);
+                    setShowBrokerSuggestions(true);
+                    setHighlightedIndex(0);
+                  }}
+                  onFocus={() => setShowBrokerSuggestions(true)}
+                  onKeyDown={(e) => {
                     const suggestions = filteredBrokersList.slice(0, 10);
-                    
-                      if (e.key === 'ArrowDown' && suggestions.length) {
-                        e.preventDefault();
+
+                    if (e.key === 'ArrowDown' && suggestions.length) {
+                      e.preventDefault();
                       setHighlightedIndex((prev) => (prev + 1) % suggestions.length);
-                      } else if (e.key === 'ArrowUp' && suggestions.length) {
-                        e.preventDefault();
+                    } else if (e.key === 'ArrowUp' && suggestions.length) {
+                      e.preventDefault();
                       setHighlightedIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-                      } else if (e.key === 'Enter' && showBrokerSuggestions) {
-                        e.preventDefault();
-                        const idx = highlightedIndex >= 0 ? highlightedIndex : 0;
-                        const choice = suggestions[idx];
+                    } else if (e.key === 'Enter' && showBrokerSuggestions) {
+                      e.preventDefault();
+                      const idx = highlightedIndex >= 0 ? highlightedIndex : 0;
+                      const choice = suggestions[idx];
                       if (choice) handleBrokerSelect(choice);
-                      } else if (e.key === 'Escape') {
-                        setShowBrokerSuggestions(false);
-                        setHighlightedIndex(-1);
-                      }
-                    }}
+                    } else if (e.key === 'Escape') {
+                      setShowBrokerSuggestions(false);
+                      setHighlightedIndex(-1);
+                    }
+                  }}
                   placeholder={selectedBrokers.length > 0 ? (selectedBrokers.length === 1 ? selectedBrokers[0] : selectedBrokers.join(' | ')) : "Add broker"}
                   className={`w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedBrokers.length > 0 ? 'placeholder:text-white' : ''}`}
-                    role="combobox"
-                    aria-expanded={showBrokerSuggestions}
-                    aria-controls="broker-suggestions"
-                    aria-autocomplete="list"
-                  />
-                  {showBrokerSuggestions && (
+                  role="combobox"
+                  aria-expanded={showBrokerSuggestions}
+                  aria-controls="broker-suggestions"
+                  aria-autocomplete="list"
+                />
+                {showBrokerSuggestions && (
                   <div id="broker-suggestions" role="listbox" className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-y-auto w-40"
                     onScroll={(e) => {
                       const target = e.target as HTMLElement;
@@ -5386,11 +5386,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       }
                     }}
                   >
-                      {availableBrokers.length === 0 ? (
-                        <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                          Loading brokers...
-                        </div>
+                    {availableBrokers.length === 0 ? (
+                      <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        Loading brokers...
+                      </div>
                     ) : (
                       <>
                         {/* Selected Brokers Section */}
@@ -5408,7 +5408,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               >
                                 Clear
                               </button>
-                        </div>
+                            </div>
                             {selectedBrokers.map(broker => {
                               const brokerColor = broker !== 'ALL' ? getBrokerColorClass(broker) : null;
                               return (
@@ -5450,25 +5450,25 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               </div>
                             )}
                             {visibleFilteredBrokers.map((broker, idx) => (
-                          <div
-                            key={broker}
-                            onClick={() => handleBrokerSelect(broker)}
+                              <div
+                                key={broker}
+                                onClick={() => handleBrokerSelect(broker)}
                                 className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-accent' : ''}`}
                                 onMouseEnter={() => setHighlightedIndexOptimized(idx)}
-                          >
-                            {broker}
-                          </div>
-                        ))}
+                              >
+                                {broker}
+                              </div>
+                            ))}
                             {brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length && (
                               <div className="px-3 py-2 text-xs text-muted-foreground text-center">
                                 Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, filteredBrokersList.length)} / {filteredBrokersList.length})
                               </div>
                             )}
-                      </>
-                    ) : (() => {
+                          </>
+                        ) : (() => {
                           const searchLower = debouncedBrokerInput.toLowerCase();
                           const isAllMatch = 'all'.includes(searchLower) && !selectedBrokers.includes('ALL');
-                      return (
+                          return (
                             <>
                               {isAllMatch && (
                                 <div
@@ -5476,41 +5476,41 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-semibold text-primary"
                                 >
                                   ALL
-                          </div>
+                                </div>
                               )}
                               {visibleFilteredBrokers.length > 0 ? (
                                 visibleFilteredBrokers.map((broker, idx) => (
-                              <div
-                                key={broker}
-                                onClick={() => handleBrokerSelect(broker)}
-                                className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-accent' : ''}`}
-                              onMouseEnter={() => setHighlightedIndex(idx)}
-                              >
-                                {broker}
-                              </div>
-                            ))
-                          ) : (
-                            <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                              No brokers found
-                            </div>
-                          )}
+                                  <div
+                                    key={broker}
+                                    onClick={() => handleBrokerSelect(broker)}
+                                    className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-accent' : ''}`}
+                                    onMouseEnter={() => setHighlightedIndex(idx)}
+                                  >
+                                    {broker}
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
+                                  No brokers found
+                                </div>
+                              )}
                               {brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length && (
                                 <div className="px-3 py-2 text-xs text-muted-foreground text-center">
                                   Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, filteredBrokersList.length)} / {filteredBrokersList.length})
-                            </div>
-                          )}
+                                </div>
+                              )}
                             </>
-                      );
-                    })()}
+                          );
+                        })()}
                       </>
                     )}
-                    </div>
-                  )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-              {/* Ticker Multi-Select (Combined) - Dropdown only */}
+          {/* Ticker Multi-Select (Combined) - Dropdown only */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
             <div className="flex items-center gap-2 w-full md:w-auto">
@@ -5527,7 +5527,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     if (selectedSectors.length > 0) {
                       allSelected.push(...selectedSectors);
                     }
-                    
+
                     if (allSelected.length > 0) {
                       return allSelected.join(' | ');
                     }
@@ -5549,7 +5549,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       ...filteredSectorsList.map(s => ({ type: 'sector' as const, value: s }))
                     ];
                     const suggestions = allSuggestions.slice(0, 20);
-                    
+
                     if (e.key === 'ArrowDown' && suggestions.length) {
                       e.preventDefault();
                       setHighlightedTickerIndex(prev => (prev < suggestions.length - 1 ? prev + 1 : prev));
@@ -5572,15 +5572,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     }
                   }}
                 />
-              {showTickerSuggestions && (
-                <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-64">
-                  {isLoadingStocks || (availableTickers.length === 0 && availableStocksFromAPI.length === 0) ? (
-                    <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                      Loading stocks...
-                    </div>
-                  ) : (
-                    <>
+                {showTickerSuggestions && (
+                  <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-64">
+                    {isLoadingStocks || (availableTickers.length === 0 && availableStocksFromAPI.length === 0) ? (
+                      <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        Loading stocks...
+                      </div>
+                    ) : (
+                      <>
                         {/* Selected Items Section */}
                         {(selectedTickers.length > 0 || selectedSectors.length > 0) && (
                           <div className="border-b border-[#3a4252] overflow-y-auto" style={{ minHeight: '120px', maxHeight: `${Math.min((selectedTickers.length + selectedSectors.length) * 24 + 30, 250)}px` }}>
@@ -5648,10 +5648,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             })}
                           </div>
                         )}
-                      {/* Search Results Section */}
-                      <div className="flex flex-row flex-1 overflow-hidden">
-                        {/* Left column: Tickers */}
-                          <div 
+                        {/* Search Results Section */}
+                        <div className="flex flex-row flex-1 overflow-hidden">
+                          {/* Left column: Tickers */}
+                          <div
                             className="flex-1 border-r border-[#3a4252] overflow-y-auto"
                             onScroll={(e) => {
                               const target = e.target as HTMLElement;
@@ -5662,127 +5662,127 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             }}
                           >
                             {debouncedTickerInput === '' ? (
-                            <>
-                              <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                              <>
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                   Stocks ({filteredTickersList.length})
-                              </div>
-                              {visibleFilteredTickers.map((ticker, idx) => {
-                                return (
-                                  <div
-                                    key={`ticker-${ticker}`}
-                                    onClick={() => handleTickerSelect(ticker)}
-                                    className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedTickerIndex ? 'bg-accent' : ''}`}
-                                    onMouseEnter={() => setHighlightedTickerIndexOptimized(idx)}
-                                  >
-                                    {ticker}
-                                  </div>
-                                );
-                              })}
-                              {tickerScrollOffset + ITEMS_PER_PAGE < filteredTickersList.length && (
-                                <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                  Loading more... ({Math.min(tickerScrollOffset + ITEMS_PER_PAGE, filteredTickersList.length)} / {filteredTickersList.length})
                                 </div>
-                              )}
-                            </>
-                          ) : filteredTickersList.length > 0 ? (
-                            <>
+                                {visibleFilteredTickers.map((ticker, idx) => {
+                                  return (
+                                    <div
+                                      key={`ticker-${ticker}`}
+                                      onClick={() => handleTickerSelect(ticker)}
+                                      className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedTickerIndex ? 'bg-accent' : ''}`}
+                                      onMouseEnter={() => setHighlightedTickerIndexOptimized(idx)}
+                                    >
+                                      {ticker}
+                                    </div>
+                                  );
+                                })}
+                                {tickerScrollOffset + ITEMS_PER_PAGE < filteredTickersList.length && (
+                                  <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                    Loading more... ({Math.min(tickerScrollOffset + ITEMS_PER_PAGE, filteredTickersList.length)} / {filteredTickersList.length})
+                                  </div>
+                                )}
+                              </>
+                            ) : filteredTickersList.length > 0 ? (
+                              <>
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                  Stocks ({filteredTickersList.length})
+                                </div>
+                                {visibleFilteredTickers.map((ticker, idx) => {
+                                  return (
+                                    <div
+                                      key={`ticker-${ticker}`}
+                                      onClick={() => handleTickerSelect(ticker)}
+                                      className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedTickerIndex ? 'bg-accent' : ''}`}
+                                      onMouseEnter={() => setHighlightedTickerIndexOptimized(idx)}
+                                    >
+                                      {ticker}
+                                    </div>
+                                  );
+                                })}
+                                {tickerScrollOffset + ITEMS_PER_PAGE < filteredTickersList.length && (
+                                  <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                    Loading more... ({Math.min(tickerScrollOffset + ITEMS_PER_PAGE, filteredTickersList.length)} / {filteredTickersList.length})
+                                  </div>
+                                )}
+                              </>
+                            ) : (
                               <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                Stocks ({filteredTickersList.length})
+                                Stocks (0)
                               </div>
-                              {visibleFilteredTickers.map((ticker, idx) => {
-                                return (
-                                  <div
-                                    key={`ticker-${ticker}`}
-                                    onClick={() => handleTickerSelect(ticker)}
-                                    className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedTickerIndex ? 'bg-accent' : ''}`}
-                                    onMouseEnter={() => setHighlightedTickerIndexOptimized(idx)}
-                                  >
-                                    {ticker}
-                                  </div>
-                                );
-                              })}
-                              {tickerScrollOffset + ITEMS_PER_PAGE < filteredTickersList.length && (
-                                <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                  Loading more... ({Math.min(tickerScrollOffset + ITEMS_PER_PAGE, filteredTickersList.length)} / {filteredTickersList.length})
+                            )}
+                          </div>
+                          {/* Right column: Sectors */}
+                          <div
+                            className="flex-1 overflow-y-auto"
+                            onScroll={(e) => {
+                              const target = e.target as HTMLElement;
+                              const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                              if (scrollBottom < 100 && sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length) {
+                                setSectorScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                              }
+                            }}
+                          >
+                            {debouncedTickerInput === '' ? (
+                              <>
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                  Sectors ({filteredSectorsList.length})
                                 </div>
-                              )}
-                            </>
-                          ) : (
-                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                              Stocks (0)
-                            </div>
-                          )}
+                                {visibleFilteredSectors.map((sector, idx) => {
+                                  const itemIndex = filteredTickersList.length + idx;
+                                  return (
+                                    <div
+                                      key={`sector-${sector}`}
+                                      onClick={() => handleSectorSelect(sector)}
+                                      className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${itemIndex === highlightedTickerIndex ? 'bg-accent' : ''}`}
+                                      onMouseEnter={() => setHighlightedTickerIndexOptimized(itemIndex)}
+                                    >
+                                      {sector === 'IDX' ? 'IDX Composite' : sector}
+                                    </div>
+                                  );
+                                })}
+                                {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
+                                  <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                    Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
+                                  </div>
+                                )}
+                              </>
+                            ) : filteredSectorsList.length > 0 ? (
+                              <>
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                  Sectors ({filteredSectorsList.length})
+                                </div>
+                                {visibleFilteredSectors.map((sector, idx) => {
+                                  const itemIndex = filteredTickersList.length + idx;
+                                  return (
+                                    <div
+                                      key={`sector-${sector}`}
+                                      onClick={() => handleSectorSelect(sector)}
+                                      className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${itemIndex === highlightedTickerIndex ? 'bg-accent' : ''}`}
+                                      onMouseEnter={() => setHighlightedTickerIndexOptimized(itemIndex)}
+                                    >
+                                      {sector === 'IDX' ? 'IDX Composite' : sector}
+                                    </div>
+                                  );
+                                })}
+                                {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
+                                  <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                    Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                Sectors (0)
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        {/* Right column: Sectors */}
-                        <div 
-                          className="flex-1 overflow-y-auto"
-                          onScroll={(e) => {
-                            const target = e.target as HTMLElement;
-                            const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-                            if (scrollBottom < 100 && sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length) {
-                              setSectorScrollOffset(prev => prev + ITEMS_PER_PAGE);
-                            }
-                          }}
-                        >
-                          {debouncedTickerInput === '' ? (
-                            <>
-                              <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                Sectors ({filteredSectorsList.length})
-                              </div>
-                              {visibleFilteredSectors.map((sector, idx) => {
-                                const itemIndex = filteredTickersList.length + idx;
-                                return (
-                                  <div
-                                    key={`sector-${sector}`}
-                                    onClick={() => handleSectorSelect(sector)}
-                                    className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${itemIndex === highlightedTickerIndex ? 'bg-accent' : ''}`}
-                                    onMouseEnter={() => setHighlightedTickerIndexOptimized(itemIndex)}
-                                  >
-                                    {sector === 'IDX' ? 'IDX Composite' : sector}
-                                  </div>
-                                );
-                              })}
-                              {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
-                                <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                  Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
-                                </div>
-                              )}
-                            </>
-                          ) : filteredSectorsList.length > 0 ? (
-                            <>
-                              <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                Sectors ({filteredSectorsList.length})
-                              </div>
-                              {visibleFilteredSectors.map((sector, idx) => {
-                                const itemIndex = filteredTickersList.length + idx;
-                                return (
-                                  <div
-                                    key={`sector-${sector}`}
-                                    onClick={() => handleSectorSelect(sector)}
-                                    className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${itemIndex === highlightedTickerIndex ? 'bg-accent' : ''}`}
-                                    onMouseEnter={() => setHighlightedTickerIndexOptimized(itemIndex)}
-                                  >
-                                    {sector === 'IDX' ? 'IDX Composite' : sector}
-                                  </div>
-                                );
-                              })}
-                              {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
-                                <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                  Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                              Sectors (0)
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -5791,108 +5791,108 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
             <div className="flex items-center gap-2 w-full md:w-auto">
-            <div 
-              className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
-              onClick={() => triggerDatePicker(startDateRef)}
-            >
-                  <input
-                ref={startDateRef}
-                    type="date"
-                value={formatDateForInput(startDate)}
-                onChange={(e) => {
-                  const selectedDate = new Date(e.target.value);
-                  const dayOfWeek = selectedDate.getDay();
-                  if (dayOfWeek === 0 || dayOfWeek === 6) {
-                    showToast({
-                      type: 'warning',
-                      title: 'Peringatan',
-                      message: 'Tidak bisa memilih hari Sabtu atau Minggu'
-                    });
-                    return;
-                  }
-                  
-                  // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
-                  // This ensures data only changes when Show button is clicked
+              <div
+                className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => triggerDatePicker(startDateRef)}
+              >
+                <input
+                  ref={startDateRef}
+                  type="date"
+                  value={formatDateForInput(startDate)}
+                  onChange={(e) => {
+                    const selectedDate = new Date(e.target.value);
+                    const dayOfWeek = selectedDate.getDay();
+                    if (dayOfWeek === 0 || dayOfWeek === 6) {
+                      showToast({
+                        type: 'warning',
+                        title: 'Peringatan',
+                        message: 'Tidak bisa memilih hari Sabtu atau Minggu'
+                      });
+                      return;
+                    }
+
+                    // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
+                    // This ensures data only changes when Show button is clicked
                     shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
                     setShouldFetchData(false); // SILENT
-                  
-                  setStartDate(e.target.value);
-                  if (!endDate || new Date(e.target.value) > new Date(endDate)) {
-                    setEndDate(e.target.value);
-                  }
-                }}
-                onKeyDown={(e) => e.preventDefault()}
-                onPaste={(e) => e.preventDefault()}
-                onInput={(e) => e.preventDefault()}
-                max={formatDateForInput(endDate)}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                style={{ caretColor: 'transparent' }}
-              />
-              <div className="flex items-center gap-2 h-full px-3">
-                <Calendar className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm text-foreground">
-                  {startDate ? new Date(startDate).toLocaleDateString('en-GB', { 
-                    day: '2-digit', 
-                    month: '2-digit', 
-                    year: 'numeric' 
-                  }) : 'DD/MM/YYYY'}
-                </span>
+
+                    setStartDate(e.target.value);
+                    if (!endDate || new Date(e.target.value) > new Date(endDate)) {
+                      setEndDate(e.target.value);
+                    }
+                  }}
+                  onKeyDown={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onInput={(e) => e.preventDefault()}
+                  max={formatDateForInput(endDate)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  style={{ caretColor: 'transparent' }}
+                />
+                <div className="flex items-center gap-2 h-full px-3">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-foreground">
+                    {startDate ? new Date(startDate).toLocaleDateString('en-GB', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric'
+                    }) : 'DD/MM/YYYY'}
+                  </span>
                 </div>
               </div>
-            <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
-            <div 
-              className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
-              onClick={() => triggerDatePicker(endDateRef)}
-            >
-                  <input
-                ref={endDateRef}
-                    type="date"
-                value={formatDateForInput(endDate)}
-                onChange={(e) => {
-                  const selectedDate = new Date(e.target.value);
-                  const dayOfWeek = selectedDate.getDay();
-                  if (dayOfWeek === 0 || dayOfWeek === 6) {
-                    showToast({
-                      type: 'warning',
-                      title: 'Peringatan',
-                      message: 'Tidak bisa memilih hari Sabtu atau Minggu'
-                    });
-                    return;
-                  }
-                  
-                  // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
-                  // This ensures data only changes when Show button is clicked
+              <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
+              <div
+                className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => triggerDatePicker(endDateRef)}
+              >
+                <input
+                  ref={endDateRef}
+                  type="date"
+                  value={formatDateForInput(endDate)}
+                  onChange={(e) => {
+                    const selectedDate = new Date(e.target.value);
+                    const dayOfWeek = selectedDate.getDay();
+                    if (dayOfWeek === 0 || dayOfWeek === 6) {
+                      showToast({
+                        type: 'warning',
+                        title: 'Peringatan',
+                        message: 'Tidak bisa memilih hari Sabtu atau Minggu'
+                      });
+                      return;
+                    }
+
+                    // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
+                    // This ensures data only changes when Show button is clicked
                     shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
                     setShouldFetchData(false); // SILENT
-                  
-                  const newEndDate = e.target.value;
-                  setEndDate(newEndDate);
-                  
-                  // If endDate is before startDate, update startDate
-                  if (startDate && new Date(newEndDate) < new Date(startDate)) {
-                    setStartDate(newEndDate);
-                  }
-                }}
-                onKeyDown={(e) => e.preventDefault()}
-                onPaste={(e) => e.preventDefault()}
-                onInput={(e) => e.preventDefault()}
-                min={formatDateForInput(startDate)}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                style={{ caretColor: 'transparent' }}
-              />
-              <div className="flex items-center gap-2 h-full px-3">
-                <Calendar className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm text-foreground">
-                  {endDate ? new Date(endDate).toLocaleDateString('en-GB', { 
-                    day: '2-digit', 
-                    month: '2-digit', 
-                    year: 'numeric' 
-                  }) : 'DD/MM/YYYY'}
-                </span>
-                </div>
+
+                    const newEndDate = e.target.value;
+                    setEndDate(newEndDate);
+
+                    // If endDate is before startDate, update startDate
+                    if (startDate && new Date(newEndDate) < new Date(startDate)) {
+                      setStartDate(newEndDate);
+                    }
+                  }}
+                  onKeyDown={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onInput={(e) => e.preventDefault()}
+                  min={formatDateForInput(startDate)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  style={{ caretColor: 'transparent' }}
+                />
+                <div className="flex items-center gap-2 h-full px-3">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-foreground">
+                    {endDate ? new Date(endDate).toLocaleDateString('en-GB', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric'
+                    }) : 'DD/MM/YYYY'}
+                  </span>
                 </div>
               </div>
             </div>
+          </div>
 
           {/* Pivot Filter */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
@@ -5980,7 +5980,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 // Parse dates as local dates (YYYY-MM-DD format) to avoid timezone issues
                 const startParts = startDate.split('-').map(Number);
                 const endParts = endDate.split('-').map(Number);
-                
+
                 if (startParts.length === 3 && endParts.length === 3) {
                   const startYear = startParts[0];
                   const startMonth = startParts[1];
@@ -5988,18 +5988,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   const endYear = endParts[0];
                   const endMonth = endParts[1];
                   const endDay = endParts[2];
-                  
+
                   if (startYear !== undefined && startMonth !== undefined && startDay !== undefined &&
-                      endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
+                    endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
                     const start = new Date(startYear, startMonth - 1, startDay);
                     const end = new Date(endYear, endMonth - 1, endDay);
-                    
+
                     // Check if range is valid
                     if (start <= end) {
                       // Generate date array (only trading days)
                       const dateArray: string[] = [];
                       const currentDate = new Date(start);
-                      
+
                       while (currentDate <= end) {
                         const dayOfWeek = currentDate.getDay();
                         // Skip weekends (Saturday = 6, Sunday = 0)
@@ -6014,53 +6014,53 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         // Move to next day
                         currentDate.setDate(currentDate.getDate() + 1);
                       }
-                      
+
                       // Sort by date (oldest first) for display
                       datesToUse = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
                     }
                   }
                 }
               }
-              
+
               // Determine active sector filter from selectedSectors
               // If multiple sectors selected, use first one (or could combine logic)
               // For now, if any sector selected, use first one; otherwise 'All'
               const newActiveSectorFilter: string = selectedSectors.length > 0 ? (selectedSectors[0] ?? 'All') : 'All';
-              
+
               // CRITICAL: Always update activeSectorFilter first - sector filter should always work
               // Update activeSectorFilter from selectedSectors BEFORE checking for changes
               setActiveSectorFilter(newActiveSectorFilter);
-              
+
               // Check if only sector filter changed (and data already exists)
               // CRITICAL: Also check if tickers changed - if tickers changed, need to refetch data
               const lastParams = lastFetchParamsRef.current;
               const previousTickers = lastParams?.tickers || [];
               const previousSectors = lastParams?.sectors || [];
-              const tickersChanged = !lastParams || 
+              const tickersChanged = !lastParams ||
                 JSON.stringify(previousTickers.sort()) !== JSON.stringify(selectedTickers.sort());
               const sectorsChanged = !lastParams ||
                 JSON.stringify(previousSectors.sort()) !== JSON.stringify(selectedSectors.sort());
-              
+
               // IMPORTANT: selectedTickers can be empty (length === 0) which means "show all tickers"
               // This is handled in loadTransactionData where filtering only happens if selectedTickers.length > 0
-              
+
               // CRITICAL: Update selectedDates FIRST before checking for changes
               // This ensures that date comparison works correctly
               setSelectedDates(datesToUse);
-              
+
               // CRITICAL: Check if only sector filter changed (and data already exists)
               // This allows sector filter to work without re-fetching data
               // Compare dates using datesToUse (what user selected) - now that selectedDates is updated
-              const datesUnchanged = lastParams && 
+              const datesUnchanged = lastParams &&
                 JSON.stringify(lastParams.dates.sort()) === JSON.stringify([...datesToUse].sort());
-              
+
               const brokersUnchanged = lastParams &&
                 JSON.stringify(lastParams.brokers.sort()) === JSON.stringify([...selectedBrokers].sort());
-              
+
               const pivotUnchanged = lastParams && lastParams.pivot === pivotFilter;
               const invUnchanged = lastParams && lastParams.inv === invFilter;
               const boardUnchanged = lastParams && lastParams.board === boardFilter;
-              
+
               const onlySectorChanged = lastParams &&
                 isDataReady &&
                 !tickersChanged && // Tickers must not have changed
@@ -6070,16 +6070,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 pivotUnchanged && // Pivot must not have changed
                 invUnchanged && // Inv must not have changed
                 boardUnchanged; // Board must not have changed
-              
+
               if (onlySectorChanged) {
                 // Only sector filter changed (and tickers didn't change) - filter existing data without re-fetching
                 // CRITICAL: We need to re-filter rawTransactionData based on new selectedSectors
-                
+
                 // Re-filter rawTransactionData based on new selectedSectors
                 const newFilteredData = new Map<string, BrokerTransactionData[]>();
                 rawTransactionData.forEach((rawRows, date) => {
                   let filteredRows = [...rawRows];
-                  
+
                   // Apply sector filter (same logic as in loadTransactionData)
                   // CRITICAL: Sector is used to FILTER stocks by sector (not to fetch sector_ALL.csv)
                   // - IDX Composite = show all stocks (no filter)
@@ -6092,29 +6092,29 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       // Check Emiten field - this is the stock code for both Broker and Stock pivot
                       const emiten = row.Emiten || '';
                       if (!emiten) return false;
-                      
+
                       // Special case: IDX Composite = show all stocks (no filter)
                       if (selectedSectors.includes('IDX')) {
                         return true;
                       }
-                      
+
                       // For other sectors, filter by sector
                       const emitenSector = stockToSectorMap[emiten.toUpperCase()];
                       if (emitenSector && selectedSectors.includes(emitenSector)) {
                         return true;
                       }
-                      
+
                       // If Emiten doesn't match, exclude this row
                       return false;
                     });
                   }
-                  
+
                   newFilteredData.set(date, filteredRows);
                 });
-                
+
                 // Update transactionData with filtered data
                 setTransactionData(newFilteredData);
-                
+
                 // Update last fetch params to track sector change
                 lastFetchParamsRef.current = {
                   ...lastParams,
@@ -6125,10 +6125,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 setIsDataReady(true);
                 return;
               }
-              
+
               // Brokers, dates, market, tickers, or sectors changed - need to fetch new data from API
               // NOTE: If selectedTickers is empty, it will show all tickers (no filtering)
-              
+
               // Update last fetch params
               lastFetchParamsRef.current = {
                 brokers: [...selectedBrokers],
@@ -6139,12 +6139,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 tickers: [...selectedTickers], // Track selectedTickers
                 sectors: [...selectedSectors] // Track selectedSectors
               };
-              
+
               // Clear existing data before fetching new data
               setTransactionData(new Map());
               setRawTransactionData(new Map()); // Clear raw data too
               setIsDataReady(false);
-              
+
               // CRITICAL: Reset column width sync flag when clearing data
               hasSyncedColumnWidthsRef.current = false;
               columnWidthsRef.current = [];
@@ -6152,9 +6152,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               shouldFetchDataRef.current = true;
               setShouldFetchData(true);
             }}
-            disabled={isLoading || 
-              (pivotFilter === 'Broker' && selectedBrokers.length === 0 && selectedSectors.length === 0) || 
-              (pivotFilter === 'Stock' && selectedTickers.length === 0 && selectedSectors.length === 0) || 
+            disabled={isLoading ||
+              (pivotFilter === 'Broker' && selectedBrokers.length === 0 && selectedSectors.length === 0) ||
+              (pivotFilter === 'Stock' && selectedTickers.length === 0 && selectedSectors.length === 0) ||
               !startDate || !endDate}
             // NOTE: For Stock pivot, either selectedTickers or selectedSectors must be selected
             // selectedTickers can be empty if selectedSectors is selected (for sector/IDX data)
@@ -6187,7 +6187,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
 
       {/* Main Data Display */}
       <div className="pt-2">
-      {!isLoading && !error && isDataReady && renderHorizontalView()}
+        {!isLoading && !error && isDataReady && renderHorizontalView()}
       </div>
     </div>
   );
