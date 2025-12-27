@@ -6,11 +6,12 @@ import { Search, X } from 'lucide-react';
 import { api } from '../../services/api';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
+import { STOCK_LIST, loadStockList, searchStocks } from '../../data/stockList';
 
 // Colors for charts
 const stackColors = {
   controlling: '#3b82f6',
-  public: '#06b6d4', 
+  public: '#06b6d4',
   affiliate: '#8b5cf6',
   others: '#10b981'
 };
@@ -23,7 +24,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
   const [searchParams] = useSearchParams();
   const urlStock = searchParams.get('stock');
   const urlView = searchParams.get('view');
-  
+
   const [selectedStock, setSelectedStock] = useState(urlStock || propSelectedStock || 'BBCA');
   const [selectedView, setSelectedView] = useState(urlView || 'summary');
   const [dataRange, setDataRange] = useState(6); // Default 6 months
@@ -31,22 +32,19 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   const [loading, setLoading] = useState(false);
-  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
   const [shareholdersData, setShareholdersData] = useState<any>(null);
-  
+
   // Cache for API responses (5 minutes)
   const cacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-  
+
   // Control menu ref and spacer height for fixed positioning
   const controlMenuRef = useRef<HTMLDivElement>(null);
   const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
 
   // Constants for search display
   const MAX_DISPLAYED = 10;
-  
-  // Fallback stock list in case API fails
-  const FALLBACK_STOCKS = ['BBCA', 'BBRI', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
+
   const views = [
     { key: 'summary', label: 'Summary' },
     { key: 'detailed', label: 'Detailed' }
@@ -67,11 +65,11 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
       console.log(`📊 Fetching shareholders data for ${stockCode}...`);
       // Don't pass limit to get ALL shareholders
       const response = await api.getShareholdersData(stockCode);
-      
+
       if (response.success && response.data) {
         console.log(`✅ Shareholders data loaded for ${stockCode}`, response.data);
         setShareholdersData(response.data);
-        
+
         // Cache the data
         cacheRef.current.set(stockCode, {
           data: response.data,
@@ -95,7 +93,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
   useEffect(() => {
     const urlStock = searchParams.get('stock');
     const urlView = searchParams.get('view');
-    
+
     if (urlStock && urlStock !== selectedStock) {
       setSelectedStock(urlStock);
       setStockInput(urlStock);
@@ -103,29 +101,21 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
       setSelectedStock(propSelectedStock);
       setStockInput(propSelectedStock);
     }
-    
+
     if (urlView && urlView !== selectedView) {
       setSelectedView(urlView);
     }
   }, [propSelectedStock, selectedStock, searchParams, selectedView]);
 
-  // Load available stocks from shareholders directory on mount
+  // Load available stocks from stockList.ts on mount
   useEffect(() => {
     const loadStocks = async () => {
       try {
-        console.log('📊 Loading shareholders stock list...');
-        const response = await api.getShareholdersStockList();
-        console.log('📊 Shareholders stock list response:', response);
-        if (response.success && response.data?.stocks) {
-          console.log('📊 Setting available stocks from shareholders:', response.data.stocks);
-          setAvailableStocks(Array.isArray(response.data.stocks) ? response.data.stocks : []);
-        } else {
-          console.log('📊 No shareholders stock data available, using fallback');
-          setAvailableStocks(FALLBACK_STOCKS);
-        }
+        console.log('📊 Loading stock list from stockList.ts...');
+        await loadStockList();
+        console.log('📊 Stock list loaded:', STOCK_LIST.length, 'stocks');
       } catch (error) {
-        console.error('Failed to load shareholders stock list:', error);
-        setAvailableStocks(FALLBACK_STOCKS);
+        console.error('Failed to load stock list:', error);
       }
     };
     loadStocks();
@@ -138,11 +128,8 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
     }
   }, [selectedStock]);
 
-  // Use available stocks from API or fallback to default
-  const stockList = (availableStocks || []).length > 0 ? availableStocks : FALLBACK_STOCKS;
-  const filteredStocks = stockList.filter(stock => 
-    stock.toLowerCase().includes(stockInput.toLowerCase())
-  );
+  // Use searchStocks for filtering
+  const filteredStocks = searchStocks(stockInput);
   const hasMore = filteredStocks.length > MAX_DISPLAYED;
   const displayedStocks = filteredStocks.slice(0, MAX_DISPLAYED);
   const moreCount = filteredStocks.length - MAX_DISPLAYED;
@@ -157,7 +144,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
     setStockInput(value.toUpperCase());
     setShowStockSuggestions(true);
     // Auto-select if exact match
-    if (stockList.includes(value.toUpperCase())) {
+    if (STOCK_LIST.includes(value.toUpperCase())) {
       setSelectedStock(value.toUpperCase());
     }
   };
@@ -209,7 +196,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
 
     const colors = ['#3b82f6', '#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6'];
     const shareholders = shareholdersData.data.shareholders;
-    
+
     // Get major shareholders (>= 2%) - ensure percentage is a valid number
     const majorShareholders = shareholders
       .filter((s: any) => {
@@ -229,12 +216,12 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
       const percentage = Number(s.PemegangSaham_Persentase);
       return !isNaN(percentage) && percentage < 2;
     });
-    
+
     const othersTotal = minorShareholders.reduce((sum: number, s: any) => {
       const percentage = Number(s.PemegangSaham_Persentase);
       return sum + (isNaN(percentage) ? 0 : percentage);
     }, 0);
-    
+
     const othersShares = minorShareholders.reduce((sum: number, s: any) => {
       const shares = Number(s.PemegangSaham_JmlSaham);
       return sum + (isNaN(shares) ? 0 : shares);
@@ -289,7 +276,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
     }
 
     const historical = shareholdersData.data.historical;
-    
+
     // Format dates to show month/year and ensure numbers are valid
     const formattedHistorical = historical
       .filter((h: any) => h.period) // Filter out invalid entries
@@ -324,15 +311,15 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
 
     const summary = shareholdersData.data.summary;
     const shareholders = shareholdersData.data.shareholders;
-    
+
     // Find controlling shareholder name
-    const controllingHolder = shareholders.find((s: any) => 
+    const controllingHolder = shareholders.find((s: any) =>
       s.PemegangSaham_Kategori?.toLowerCase().includes('pengendali') ||
       s.PemegangSaham_Kategori?.toLowerCase().includes('lebih dari 5')
     );
-    
+
     // Find public holder name
-    const publicHolder = shareholders.find((s: any) => 
+    const publicHolder = shareholders.find((s: any) =>
       s.PemegangSaham_Kategori?.toLowerCase().includes('masyarakat')
     );
 
@@ -408,7 +395,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                   <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-64 overflow-y-auto">
                     {stockInput === '' && (
                       <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                        All Stocks ({stockList.length} available)
+                        All Stocks ({STOCK_LIST.length} available)
                       </div>
                     )}
                     {displayedStocks.length > 0 ? (
@@ -439,7 +426,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                 )}
               </div>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium whitespace-nowrap">View:</label>
               <div className="flex gap-1 border border-border rounded-lg p-1 h-10">
@@ -484,7 +471,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                 <p className="text-sm text-muted-foreground">Number of shareholders</p>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardContent className="p-4">
                 <h3 className="font-medium mb-2">Controlling Shareholder</h3>
@@ -494,7 +481,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                 </p>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardContent className="p-4">
                 <h3 className="font-medium mb-2">Public Ownership</h3>
@@ -522,7 +509,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                       </div>
                     );
                   }
-                  
+
                   // Ensure data is properly formatted
                   const chartData = ownershipData.map((entry: any) => ({
                     name: entry.name,
@@ -530,14 +517,14 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                     value: Number(entry.percentage), // Add value for compatibility
                     color: entry.color
                   }));
-                  
+
                   // Debug: Log chart data
                   console.log('📊 Chart data:', chartData);
                   console.log('📊 Chart data length:', chartData.length);
-                  console.log('📊 Chart data validation:', chartData.every((d: any) => 
+                  console.log('📊 Chart data validation:', chartData.every((d: any) =>
                     !isNaN(d.percentage) && d.percentage > 0 && d.color
                   ));
-                  
+
                   if (chartData.length === 0 || !chartData.every((d: any) => !isNaN(d.percentage) && d.percentage > 0)) {
                     return (
                       <div className="h-80 flex items-center justify-center text-muted-foreground">
@@ -545,7 +532,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                       </div>
                     );
                   }
-                  
+
                   return (
                     <>
                       <ResponsiveContainer width="100%" height={300}>
@@ -564,7 +551,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                               <Cell key={`cell-${index}-${entry.name}`} fill={entry.color} />
                             ))}
                           </Pie>
-                          <Tooltip 
+                          <Tooltip
                             formatter={(value: any, _name: any, props: any) => [
                               `${Number(value).toFixed(2)}%`,
                               props.payload.name
@@ -583,8 +570,8 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                               color: 'hsl(var(--popover-foreground))'
                             }}
                           />
-                          <Legend 
-                            verticalAlign="bottom" 
+                          <Legend
+                            verticalAlign="bottom"
                             height={36}
                           />
                         </PieChart>
@@ -609,24 +596,24 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                       </div>
                     );
                   }
-                  
+
                   return (
                     <div className="overflow-x-auto overflow-y-auto max-h-80">
                       <table className="w-full text-sm">
-                         <thead className="sticky top-0 bg-muted/50">
-                           <tr className="border-b border-border">
-                             <th className="text-left p-2 text-foreground">Shareholder</th>
-                             <th className="text-right p-2 text-foreground">%</th>
-                             <th className="text-right p-2 text-foreground">Shares</th>
-                           </tr>
-                         </thead>
+                        <thead className="sticky top-0 bg-muted/50">
+                          <tr className="border-b border-border">
+                            <th className="text-left p-2 text-foreground">Shareholder</th>
+                            <th className="text-right p-2 text-foreground">%</th>
+                            <th className="text-right p-2 text-foreground">Shares</th>
+                          </tr>
+                        </thead>
                         <tbody>
                           {ownershipData.map((owner: any, index: number) => (
                             <tr key={index} className="border-b border-border/50 hover:bg-muted/20">
                               <td className="p-2">
                                 <div className="flex items-center gap-2">
-                                  <div 
-                                    className="w-3 h-3 rounded-full" 
+                                  <div
+                                    className="w-3 h-3 rounded-full"
                                     style={{ backgroundColor: owner.color }}
                                   ></div>
                                   <span className="truncate text-foreground" title={owner.name}>
@@ -676,7 +663,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                     </div>
                   );
                 }
-                
+
                 return (
                   <div className="h-80">
                     <ResponsiveContainer width="100%" height="100%">
@@ -685,19 +672,19 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                         margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                        <XAxis 
-                          dataKey="period" 
+                        <XAxis
+                          dataKey="period"
                           axisLine={false}
                           tickLine={false}
                           tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
                         />
-                        <YAxis 
+                        <YAxis
                           axisLine={false}
                           tickLine={false}
                           tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
                           domain={[0, 100]}
                         />
-                        <Tooltip 
+                        <Tooltip
                           contentStyle={{
                             backgroundColor: 'hsl(var(--popover))',
                             border: '1px solid hsl(var(--border))',
@@ -711,7 +698,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                           formatter={(value, name) => [`${Number(value).toFixed(2)}%`, name]}
                         />
                         <Legend />
-                        
+
                         <Bar dataKey="controlling" stackId="ownership" fill={stackColors.controlling} name="Controlling" />
                         <Bar dataKey="public" stackId="ownership" fill={stackColors.public} name="Public" />
                         <Bar dataKey="affiliate" stackId="ownership" fill={stackColors.affiliate} name="Affiliate" />
@@ -741,20 +728,20 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                   </div>
                 );
               }
-              
+
               return (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                     <thead>
-                       <tr className="border-b border-border bg-muted/50">
-                         <th className="text-left p-3 text-foreground">Rank</th>
-                         <th className="text-left p-3 text-foreground">Holder Name</th>
-                         <th className="text-left p-3 text-foreground">Type</th>
-                         <th className="text-right p-3 text-foreground">Shares</th>
-                         <th className="text-right p-3 text-foreground">%</th>
-                         <th className="text-right p-3 text-foreground">Last Update</th>
-                       </tr>
-                     </thead>
+                    <thead>
+                      <tr className="border-b border-border bg-muted/50">
+                        <th className="text-left p-3 text-foreground">Rank</th>
+                        <th className="text-left p-3 text-foreground">Holder Name</th>
+                        <th className="text-left p-3 text-foreground">Type</th>
+                        <th className="text-right p-3 text-foreground">Shares</th>
+                        <th className="text-right p-3 text-foreground">%</th>
+                        <th className="text-right p-3 text-foreground">Last Update</th>
+                      </tr>
+                    </thead>
                     <tbody>
                       {detailedOwnership.map((holder: any, index: number) => (
                         <tr key={index} className="border-b border-border/50 hover:bg-muted/20">

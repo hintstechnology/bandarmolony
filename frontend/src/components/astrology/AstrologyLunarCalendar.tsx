@@ -125,19 +125,19 @@ const zodiacImages = {
 // Component to render zodiac with image or emoji fallback
 const ZodiacDisplay = ({ zodiac, size = 'text-xl' }: { zodiac: typeof chineseZodiac[0], size?: string }) => {
   const customImage = zodiacImages[zodiac.name as keyof typeof zodiacImages];
-  
+
   if (customImage) {
     return (
       <div className="flex items-center justify-center">
-        <img 
-          src={customImage} 
+        <img
+          src={customImage}
           alt={zodiac.name}
           className={`${size === 'text-2xl' ? 'w-16 h-16' : size === 'text-xl' ? 'w-14 h-14' : 'w-12 h-12'} object-contain`}
         />
       </div>
     );
   }
-  
+
   return (
     <div className="flex items-center justify-center">
       <span className={`${size === 'text-2xl' ? 'text-4xl' : size === 'text-xl' ? 'text-3xl' : 'text-2xl'}`}>{zodiac.emoji}</span>
@@ -150,13 +150,13 @@ const HeavenlyStemDisplay = ({ heavenlyStem, className = '' }: { heavenlyStem: s
   const customImage = heavenlyStemImages[heavenlyStem as keyof typeof heavenlyStemImages];
   const stemInfo = heavenlyStemInfo[heavenlyStem as keyof typeof heavenlyStemInfo];
   const elementColor = elementColors[stemInfo?.element as keyof typeof elementColors];
-  
+
   if (customImage && stemInfo) {
     return (
       <td className={`p-2 text-center border-r border-border ${className}`}>
         <div className="flex items-center justify-center">
-          <img 
-            src={customImage} 
+          <img
+            src={customImage}
             alt={`${stemInfo.polarity} ${stemInfo.element}`}
             className="w-16 h-16 object-contain"
           />
@@ -164,7 +164,7 @@ const HeavenlyStemDisplay = ({ heavenlyStem, className = '' }: { heavenlyStem: s
       </td>
     );
   }
-  
+
   // Fallback to basic element display (clean format)
   return (
     <td className={`p-2 text-center border-r border-border ${elementColor?.bg} ${className}`}>
@@ -181,7 +181,7 @@ const HeavenlyStemDisplay = ({ heavenlyStem, className = '' }: { heavenlyStem: s
 const getHeavenlyStemByDate = (date: Date, type: 'daily' | 'monthly' | 'yearly'): string => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   let baseIndex;
   if (type === 'daily') {
     // Today is Geng (index 6), yesterday was Ji (index 5), tomorrow is Xin (index 7)
@@ -195,7 +195,7 @@ const getHeavenlyStemByDate = (date: Date, type: 'daily' | 'monthly' | 'yearly')
     const yearsDiff = date.getFullYear() - today.getFullYear();
     baseIndex = (6 + yearsDiff) % 10;
   }
-  
+
   const finalIndex = ((baseIndex % 10) + 10) % 10;
   return heavenlyStems[finalIndex]!;
 };
@@ -209,7 +209,7 @@ const getElementByDate = (date: Date, type: 'daily' | 'monthly' | 'yearly'): str
 const getZodiacByDate = (date: Date, type: 'daily' | 'monthly' | 'yearly'): typeof chineseZodiac[0] => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   let baseIndex;
   if (type === 'daily') {
     // Today is Horse (index 4), yesterday was Snake (index 3), tomorrow is Goat (index 5)
@@ -223,7 +223,7 @@ const getZodiacByDate = (date: Date, type: 'daily' | 'monthly' | 'yearly'): type
     const yearsDiff = date.getFullYear() - today.getFullYear();
     baseIndex = (4 + yearsDiff) % 12;
   }
-  
+
   const finalIndex = ((baseIndex % 12) + 12) % 12;
   return chineseZodiac[finalIndex]!;
 };
@@ -274,14 +274,14 @@ interface StockOHLCData {
 
 // Function to generate astrology data from Azure stock data with caching
 const generateAstrologyDataFromAzure = async (
-  stocks: string[], 
-  days: number = 30, 
+  stocks: string[],
+  days: number = 30,
   cache: Map<string, AstrologyData[]>,
   setCache: React.Dispatch<React.SetStateAction<Map<string, AstrologyData[]>>>
 ): Promise<AstrologyData[]> => {
   const data: AstrologyData[] = [];
   const currentDate = new Date();
-  
+
   try {
     // Check cache first
     const cacheKey = `${stocks.sort().join(',')}_${days}`;
@@ -289,33 +289,33 @@ const generateAstrologyDataFromAzure = async (
       console.log('📊 Using cached astrology data for:', stocks);
       return cache.get(cacheKey) || [];
     }
-    
+
     // Get stock data for all selected stocks in parallel
     const stockDataPromises = stocks.map(async (stock) => {
       const endDate = currentDate.toISOString().split('T')[0];
       const startDate = new Date(currentDate);
       startDate.setDate(currentDate.getDate() - days);
       const startDateStr = startDate.toISOString().split('T')[0];
-      
+
       const result = await api.getStockData(stock, startDateStr, endDate, days);
       return { stock, data: result.success ? result.data?.data || [] : [] };
     });
-    
+
     const stockDataResults = await Promise.all(stockDataPromises);
-    
+
     // Process each stock's data
     stockDataResults.forEach(({ stock, data: stockData }) => {
       if (stockData.length === 0) return;
-      
+
       // Sort by date (oldest first)
-      const sortedData = stockData.sort((a: StockOHLCData, b: StockOHLCData) => 
+      const sortedData = stockData.sort((a: StockOHLCData, b: StockOHLCData) =>
         a.Date.localeCompare(b.Date)
       );
-      
+
       // Process each day's data
       sortedData.forEach((dayData: StockOHLCData, index: number) => {
         const date = new Date(dayData.Date);
-        
+
         // Get detailed Heavenly Stems
         const yearHeavenlyStem = getHeavenlyStemByDate(date, 'yearly');
         const yearElement = getElementByDate(date, 'yearly');
@@ -326,22 +326,22 @@ const generateAstrologyDataFromAzure = async (
         const dayHeavenlyStem = getHeavenlyStemByDate(date, 'daily');
         const dayElement = getElementByDate(date, 'daily');
         const dayZodiac = getZodiacByDate(date, 'daily');
-        
+
         // Get previous day close price
         const prevClose = index > 0 ? sortedData[index - 1].Close : dayData.Close;
-        
+
         // Calculate % kenaikan (close today vs close yesterday)
         const priceChange = ((dayData.Close - prevClose) / prevClose) * 100;
-        
+
         // Calculate % spike (close yesterday vs high today)
         const spikeChange = ((dayData.High - prevClose) / prevClose) * 100;
-        
+
         // Calculate AVG = (% change + % spike) / 2
         const avgChange = (priceChange + spikeChange) / 2;
-        
+
         // Formula analysis: avg > 5%
         const isRising = avgChange > 5;
-        
+
         data.push({
           id: `${dayData.Date}-${stock}`,
           date: dayData.Date,
@@ -373,16 +373,16 @@ const generateAstrologyDataFromAzure = async (
         });
       });
     });
-    
+
     // Sort by date (newest first)
     const sortedData = data.sort((a, b) => b.date.localeCompare(a.date));
-    
+
     // Cache the result
     setCache(prev => new Map(prev).set(cacheKey, sortedData));
     console.log('📊 Cached astrology data for:', stocks);
-    
+
     return sortedData;
-    
+
   } catch (error) {
     console.error('Error generating astrology data from Azure:', error);
     return [];
@@ -397,7 +397,7 @@ export function AstrologyLunarCalendar() {
   const [spikeFilter, setSpikeFilter] = useState('all'); // all, 5%, 10%
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Individual column filters
   const [yearElementFilter, setYearElementFilter] = useState('all');
   const [yearZodiacFilter, setYearZodiacFilter] = useState('all');
@@ -405,21 +405,21 @@ export function AstrologyLunarCalendar() {
   const [monthZodiacFilter, setMonthZodiacFilter] = useState('all');
   const [dayElementFilter, setDayElementFilter] = useState('all');
   const [dayZodiacFilter, setDayZodiacFilter] = useState('all');
-  
+
   const [astrologyData, setAstrologyData] = useState<AstrologyData[]>([]);
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
-  
+
   // Search and dropdown states
   const [stockSearchQuery, setStockSearchQuery] = useState('');
   const [showStockDropdown, setShowStockDropdown] = useState(false);
   const [stockLoading, setStockLoading] = useState(false);
-  
+
   // Cache for stock data
   const [stockDataCache, setStockDataCache] = useState<Map<string, AstrologyData[]>>(new Map());
   const stockSearchRef = useRef<HTMLDivElement>(null);
   const menuContainerRef = useRef<HTMLDivElement>(null);
   const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
-  
+
   // Load available stocks from Azure
   useEffect(() => {
     const loadStocks = async () => {
@@ -439,20 +439,20 @@ export function AstrologyLunarCalendar() {
         setLoading(false);
       }
     };
-    
+
     loadStocks();
   }, []);
-  
+
   // Load astrology data when stocks change with caching
   useEffect(() => {
     const loadAstrologyData = async () => {
       if (availableStocks.length === 0) return;
-      
+
       try {
         setLoading(true);
         setStockLoading(true);
         setError(null);
-        
+
         const stocksToLoad = selectedStock === 'ALL' ? availableStocks.slice(0, 8) : [selectedStock];
         const data = await generateAstrologyDataFromAzure(stocksToLoad, 30, stockDataCache, setStockDataCache);
         setAstrologyData(data);
@@ -464,10 +464,10 @@ export function AstrologyLunarCalendar() {
         setStockLoading(false);
       }
     };
-    
+
     loadAstrologyData();
   }, [selectedStock, availableStocks, stockDataCache]);
-  
+
   // Handle click outside dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -497,7 +497,7 @@ export function AstrologyLunarCalendar() {
 
     // Check on window resize
     window.addEventListener('resize', checkMenuHeight);
-    
+
     // Use ResizeObserver for more accurate detection
     let resizeObserver: ResizeObserver | null = null;
     if (menuContainerRef.current) {
@@ -518,17 +518,17 @@ export function AstrologyLunarCalendar() {
       clearTimeout(timeoutId);
     };
   }, [selectedStock, priceFilter, spikeFilter, showPivot]);
-  
+
   // When ALL is selected, show combined data from all stocks
   // When specific stock is selected, show data for that stock only
-  
+
   // Filter options for stock dropdown
   const getFilteredStockOptions = () => {
-    return availableStocks.filter(stock => 
+    return availableStocks.filter(stock =>
       stock.toLowerCase().includes(stockSearchQuery.toLowerCase())
     );
   };
-  
+
   // Get unique values for filters
   const uniqueYearElements = [...new Set(astrologyData.map(item => item.yearElement))];
   const uniqueYearZodiacs = [...new Set(astrologyData.map(item => item.yearZodiac.name))];
@@ -536,44 +536,44 @@ export function AstrologyLunarCalendar() {
   const uniqueMonthZodiacs = [...new Set(astrologyData.map(item => item.monthZodiac.name))];
   const uniqueDayElements = [...new Set(astrologyData.map(item => item.dayElement))];
   const uniqueDayZodiacs = [...new Set(astrologyData.map(item => item.dayZodiac.name))];
-  
+
   // Filter data based on selected criteria
   const filteredData = astrologyData.filter(item => {
     // Stock filter
     if (selectedStock !== 'ALL') {
       if (item.stock !== selectedStock) return false;
     }
-    
+
     // Year Element filter
     if (yearElementFilter !== 'all') {
       if (item.yearElement !== yearElementFilter) return false;
     }
-    
+
     // Year Zodiac filter
     if (yearZodiacFilter !== 'all') {
       if (item.yearZodiac.name !== yearZodiacFilter) return false;
     }
-    
+
     // Month Element filter
     if (monthElementFilter !== 'all') {
       if (item.monthElement !== monthElementFilter) return false;
     }
-    
+
     // Month Zodiac filter
     if (monthZodiacFilter !== 'all') {
       if (item.monthZodiac.name !== monthZodiacFilter) return false;
     }
-    
+
     // Day Element filter
     if (dayElementFilter !== 'all') {
       if (item.dayElement !== dayElementFilter) return false;
     }
-    
+
     // Day Zodiac filter
     if (dayZodiacFilter !== 'all') {
       if (item.dayZodiac.name !== dayZodiacFilter) return false;
     }
-    
+
     // Price change filter
     if (priceFilter === '5%') {
       if (Math.abs(item.priceChange) <= 5) return false;
@@ -581,7 +581,7 @@ export function AstrologyLunarCalendar() {
     if (priceFilter === '10%') {
       if (Math.abs(item.priceChange) <= 10) return false;
     }
-    
+
     // Spike filter
     if (spikeFilter === '5%') {
       if (Math.abs(item.spikeChange) <= 5) return false;
@@ -589,13 +589,13 @@ export function AstrologyLunarCalendar() {
     if (spikeFilter === '10%') {
       if (Math.abs(item.spikeChange) <= 10) return false;
     }
-    
+
     return true;
   });
 
   // Get rising stocks (avg > 5%)
   const risingStocks = filteredData.filter(item => item.avgChange > 5).slice(0, 10);
-  
+
   // Group data by different criteria for pivot
   const groupByYear = astrologyData.reduce((acc, item) => {
     const key = `${item.yearElement}-${item.yearZodiac.name}`;
@@ -647,8 +647,8 @@ export function AstrologyLunarCalendar() {
                 <div className="text-red-500 text-6xl mb-4">⚠️</div>
                 <h3 className="text-lg font-medium mb-2 text-red-600">Error Loading Data</h3>
                 <p className="text-muted-foreground mb-4">{error}</p>
-                <Button 
-                  onClick={() => window.location.reload()} 
+                <Button
+                  onClick={() => window.location.reload()}
                   variant="outline"
                 >
                   Retry
@@ -699,7 +699,7 @@ export function AstrologyLunarCalendar() {
                     </svg>
                   </button>
                 )}
-                
+
                 {/* Stock Search and Select Dropdown */}
                 {showStockDropdown && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
@@ -714,9 +714,8 @@ export function AstrologyLunarCalendar() {
                             setStockSearchQuery('');
                             setShowStockDropdown(false);
                           }}
-                          className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
-                            selectedStock === 'ALL' ? 'bg-accent' : ''
-                          }`}
+                          className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${selectedStock === 'ALL' ? 'bg-accent' : ''
+                            }`}
                         >
                           <span className="text-sm font-medium">ALL (All Stocks)</span>
                           <div className="flex items-center gap-2">
@@ -726,7 +725,7 @@ export function AstrologyLunarCalendar() {
                             <Plus className="w-3 h-3 text-muted-foreground" />
                           </div>
                         </button>
-                        
+
                         {/* Show filtered results */}
                         {getFilteredStockOptions()
                           .slice(0, 15)
@@ -738,9 +737,8 @@ export function AstrologyLunarCalendar() {
                                 setStockSearchQuery('');
                                 setShowStockDropdown(false);
                               }}
-                              className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
-                                selectedStock === stock ? 'bg-accent' : ''
-                              }`}
+                              className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${selectedStock === stock ? 'bg-accent' : ''
+                                }`}
                             >
                               <span className="text-sm">{stock}</span>
                               <div className="flex items-center gap-2">
@@ -751,14 +749,14 @@ export function AstrologyLunarCalendar() {
                               </div>
                             </button>
                           ))}
-                        
+
                         {/* Show "more available" message */}
                         {!stockSearchQuery && getFilteredStockOptions().length > 15 && (
                           <div className="text-xs text-muted-foreground px-3 py-2 border-t border-[#3a4252]">
                             +{getFilteredStockOptions().length - 15} more stocks available (use search to find specific stocks)
                           </div>
                         )}
-                        
+
                         {/* Show "no results" message */}
                         {stockSearchQuery && getFilteredStockOptions().length === 0 && (
                           <div className="p-2 text-sm text-muted-foreground">
@@ -824,413 +822,413 @@ export function AstrologyLunarCalendar() {
         <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
 
         <div className="flex-1 min-h-0 overflow-y-auto space-y-6 py-4 sm:py-6 px-4 sm:px-6">
-      {/* Main Astrology Table */}
-      <Card>
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-medium">Input Data Astrology</h3>
-            <div className="text-sm text-muted-foreground flex items-center gap-2">
+          {/* Main Astrology Table */}
+          <Card>
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-medium">Input Data Astrology</h3>
+                <div className="text-sm text-muted-foreground flex items-center gap-2">
+                  {stockLoading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                      <span>Loading data...</span>
+                    </>
+                  ) : (
+                    `Total Records: ${filteredData.length}`
+                  )}
+                </div>
+              </div>
+
+              {/* Individual Column Filters */}
+              <div className="mb-4">
+                <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-muted-foreground">Year Element:</label>
+                    <select
+                      value={yearElementFilter}
+                      onChange={(e) => setYearElementFilter(e.target.value)}
+                      className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
+                    >
+                      <option value="all">All</option>
+                      {uniqueYearElements.map(element => (
+                        <option key={element} value={element}>{element}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-muted-foreground">Year Zodiac:</label>
+                    <select
+                      value={yearZodiacFilter}
+                      onChange={(e) => setYearZodiacFilter(e.target.value)}
+                      className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
+                    >
+                      <option value="all">All</option>
+                      {uniqueYearZodiacs.map(zodiac => (
+                        <option key={zodiac} value={zodiac}>{zodiac}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-muted-foreground">Month Element:</label>
+                    <select
+                      value={monthElementFilter}
+                      onChange={(e) => setMonthElementFilter(e.target.value)}
+                      className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
+                    >
+                      <option value="all">All</option>
+                      {uniqueMonthElements.map(element => (
+                        <option key={element} value={element}>{element}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-muted-foreground">Month Zodiac:</label>
+                    <select
+                      value={monthZodiacFilter}
+                      onChange={(e) => setMonthZodiacFilter(e.target.value)}
+                      className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
+                    >
+                      <option value="all">All</option>
+                      {uniqueMonthZodiacs.map(zodiac => (
+                        <option key={zodiac} value={zodiac}>{zodiac}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-muted-foreground">Day Element:</label>
+                    <select
+                      value={dayElementFilter}
+                      onChange={(e) => setDayElementFilter(e.target.value)}
+                      className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
+                    >
+                      <option value="all">All</option>
+                      {uniqueDayElements.map(element => (
+                        <option key={element} value={element}>{element}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-muted-foreground">Day Zodiac:</label>
+                    <select
+                      value={dayZodiacFilter}
+                      onChange={(e) => setDayZodiacFilter(e.target.value)}
+                      className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
+                    >
+                      <option value="all">All</option>
+                      {uniqueDayZodiacs.map(zodiac => (
+                        <option key={zodiac} value={zodiac}>{zodiac}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               {stockLoading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-                  <span>Loading data...</span>
-                </>
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                    <p className="text-sm text-muted-foreground">Loading astrology data...</p>
+                  </div>
+                </div>
               ) : (
-                `Total Records: ${filteredData.length}`
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/50">
+                        <th className="text-center py-2 px-1 border-r border-border">STOCK</th>
+                        <th className="text-center py-2 px-1 border-r border-border">Yearly Element</th>
+                        <th className="text-center py-2 px-1 border-r border-border">Yearly Animal</th>
+                        <th className="text-center py-2 px-1 border-r border-border">Monthly Element</th>
+                        <th className="text-center py-2 px-1 border-r border-border">Monthly Animal</th>
+                        <th className="text-center py-2 px-1 border-r border-border">Daily Element</th>
+                        <th className="text-center py-2 px-1 border-r border-border">Daily Animal</th>
+                        <th className="text-center py-2 px-1 border-r border-border bg-yellow-200 dark:bg-yellow-700">DATE</th>
+                        <th className="text-center py-2 px-1 border-r border-border">OPEN</th>
+                        <th className="text-center py-2 px-1 border-r border-border">HIGH</th>
+                        <th className="text-center py-2 px-1 border-r border-border">LOW</th>
+                        <th className="text-center py-2 px-1 border-r border-border">CLOSE</th>
+                        <th className="text-center py-2 px-1 border-r border-border">% CHANGE</th>
+                        <th className="text-center py-2 px-1 border-r border-border">% SPIKE</th>
+                        <th className="text-center py-2 px-1">AVG</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredData.map((row) => (
+                        <tr key={row.id} className={`border-b border-border/50 hover:bg-muted/20 ${row.isRising ? 'bg-green-50 dark:bg-green-950/20' : ''}`}>
+                          <td className="py-1 px-1 text-center border-r border-border">
+                            <div className="text-xs font-bold text-blue-600 dark:text-blue-400">{row.stock}</div>
+                          </td>
+                          <HeavenlyStemDisplay heavenlyStem={row.yearHeavenlyStem} className="py-1" />
+                          <td className="py-1 px-1 text-center border-r border-border">
+                            <ZodiacDisplay zodiac={row.yearZodiac} size="text-2xl" />
+                          </td>
+                          <HeavenlyStemDisplay heavenlyStem={row.monthHeavenlyStem} className="py-1" />
+                          <td className="py-1 px-1 text-center border-r border-border">
+                            <ZodiacDisplay zodiac={row.monthZodiac} size="text-xl" />
+                          </td>
+                          <HeavenlyStemDisplay heavenlyStem={row.dayHeavenlyStem} className="py-1" />
+                          <td className="py-1 px-1 text-center border-r border-border">
+                            <ZodiacDisplay zodiac={row.dayZodiac} size="text-xl" />
+                          </td>
+                          <td className="py-1 px-1 text-center border-r border-border bg-yellow-100 dark:bg-yellow-900/30 font-medium whitespace-nowrap">
+                            {row.dateFormatted}
+                          </td>
+                          <td className="py-1 px-1 text-right border-r border-border font-mono">{row.open.toLocaleString()}</td>
+                          <td className="py-1 px-1 text-right border-r border-border font-mono text-green-600">{row.high.toLocaleString()}</td>
+                          <td className="py-1 px-1 text-right border-r border-border font-mono text-red-600">{row.low.toLocaleString()}</td>
+                          <td className="py-1 px-1 text-right border-r border-border font-mono">{row.close.toLocaleString()}</td>
+                          <td className={`py-1 px-1 text-right border-r border-border font-mono font-medium ${row.priceChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {row.priceChange >= 0 ? '+' : ''}{row.priceChange.toFixed(2)}%
+                          </td>
+                          <td className={`py-1 px-1 text-right border-r border-border font-mono font-medium ${row.spikeChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {row.spikeChange >= 0 ? '+' : ''}{row.spikeChange.toFixed(2)}%
+                          </td>
+                          <td className={`py-1 px-1 text-right font-mono font-medium ${row.avgChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {row.avgChange >= 0 ? '+' : ''}{row.avgChange.toFixed(2)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
+          </Card>
+
+          {/* Analysis Panels */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Rising Stocks */}
+            <Card>
+              <div className="p-4">
+                <h3 className="font-medium mb-4">Highest Spike List</h3>
+                <div className="mb-3 flex gap-2">
+                  <Button
+                    variant={filterType === 'all' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setFilterType('all')}
+                  >
+                    All
+                  </Button>
+                  <Button
+                    variant={filterType === 'year' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setFilterType('year')}
+                  >
+                    By Year
+                  </Button>
+                  <Button
+                    variant={filterType === 'month' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setFilterType('month')}
+                  >
+                    By Month
+                  </Button>
+                  <Button
+                    variant={filterType === 'day' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setFilterType('day')}
+                  >
+                    By Day
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-muted-foreground mb-2">
+                    Formula: AVG = (% change + % spike) / 2 {'>'} 5%
+                  </div>
+
+                  <div className="max-h-64 overflow-y-auto">
+                    {risingStocks.map((stock) => (
+                      <div key={stock.id} className="flex items-center justify-between p-2 bg-green-50 dark:bg-green-950/20 rounded mb-1">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-shrink-0">
+                            <ZodiacDisplay zodiac={stock.dayZodiac} size="text-lg" />
+                          </div>
+                          <div>
+                            <div className="font-medium">{stock.dateFormatted}</div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-medium text-green-600">+{stock.avgChange.toFixed(2)}%</div>
+                          <div className="text-xs text-muted-foreground">AVG: {stock.avgChange.toFixed(2)}%</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Zodiac Elements Analysis */}
+            <Card>
+              <div className="p-4">
+                <h3 className="font-medium mb-4">Element Analysis</h3>
+                <div className="space-y-3">
+                  {['Water', 'Earth', 'Wood', 'Fire', 'Metal'].map(element => {
+                    const elementData = filteredData.filter(item => item.element === element);
+                    const avgPercentage = elementData.length > 0
+                      ? elementData.reduce((sum, item) => sum + item.avgChange, 0) / elementData.length
+                      : 0;
+                    const risingCount = elementData.filter(item => item.avgChange > 5).length;
+
+                    return (
+                      <div key={element} className={`p-3 rounded ${elementColors[element as keyof typeof elementColors].bg} ${elementColors[element as keyof typeof elementColors].border} border`}>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className={`font-medium ${elementColors[element as keyof typeof elementColors].text}`}>{element}</span>
+                          <span className={`font-medium ${avgPercentage > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {avgPercentage > 0 ? '+' : ''}{avgPercentage.toFixed(2)}%
+                          </span>
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          Rising Days: {risingCount}/{elementData.length} |
+                          Success Rate: {elementData.length > 0 ? Math.round((risingCount / elementData.length) * 100) : 0}%
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </Card>
           </div>
 
-          {/* Individual Column Filters */}
-          <div className="mb-4">
-            <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">Year Element:</label>
-                <select
-                  value={yearElementFilter}
-                  onChange={(e) => setYearElementFilter(e.target.value)}
-                  className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
-                >
-                  <option value="all">All</option>
-                  {uniqueYearElements.map(element => (
-                    <option key={element} value={element}>{element}</option>
-                  ))}
-                </select>
-              </div>
+          {/* Pivot Analysis (Conditional) */}
+          {showPivot && (
+            <Card>
+              <div className="p-4">
+                <h3 className="font-medium mb-4">Pivot Analysis by Element-Shio Combination</h3>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">Year Zodiac:</label>
-                <select
-                  value={yearZodiacFilter}
-                  onChange={(e) => setYearZodiacFilter(e.target.value)}
-                  className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
-                >
-                  <option value="all">All</option>
-                  {uniqueYearZodiacs.map(zodiac => (
-                    <option key={zodiac} value={zodiac}>{zodiac}</option>
-                  ))}
-                </select>
-              </div>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* By Year Zodiac */}
+                  <div>
+                    <h4 className="font-medium mb-3">By Yearly Element-Shio</h4>
+                    <div className="space-y-2">
+                      {Object.entries(groupByYear).map(([combo, data]) => {
+                        const avgGain = data.reduce((sum, item) => sum + item.avgChange, 0) / data.length;
+                        const risingCount = data.filter(item => item.avgChange > 5).length;
+                        const [element, zodiacName] = combo.split('-');
 
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">Month Element:</label>
-                <select
-                  value={monthElementFilter}
-                  onChange={(e) => setMonthElementFilter(e.target.value)}
-                  className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
-                >
-                  <option value="all">All</option>
-                  {uniqueMonthElements.map(element => (
-                    <option key={element} value={element}>{element}</option>
-                  ))}
-                </select>
-              </div>
+                        return (
+                          <div key={combo} className={`p-2 rounded text-sm ${elementColors[element as keyof typeof elementColors].bg} border ${elementColors[element as keyof typeof elementColors].border}`}>
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-shrink-0">
+                                  {zodiacImages[zodiacName as keyof typeof zodiacImages] ? (
+                                    <img
+                                      src={zodiacImages[zodiacName as keyof typeof zodiacImages]}
+                                      alt={zodiacName}
+                                      className="w-6 h-6 object-contain"
+                                    />
+                                  ) : (
+                                    <span className="text-sm">{chineseZodiac.find(z => z.name === zodiacName)?.emoji}</span>
+                                  )}
+                                </div>
+                                <span className={`text-sm ${elementColors[element as keyof typeof elementColors].text}`}>
+                                  {element}-{zodiacName}
+                                </span>
+                              </div>
+                              <span className={avgGain > 0 ? 'text-green-600' : 'text-red-600'}>
+                                {avgGain > 0 ? '+' : ''}{avgGain.toFixed(1)}%
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {risingCount}/{data.length} days rising
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">Month Zodiac:</label>
-                <select
-                  value={monthZodiacFilter}
-                  onChange={(e) => setMonthZodiacFilter(e.target.value)}
-                  className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
-                >
-                  <option value="all">All</option>
-                  {uniqueMonthZodiacs.map(zodiac => (
-                    <option key={zodiac} value={zodiac}>{zodiac}</option>
-                  ))}
-                </select>
-              </div>
+                  {/* By Month Zodiac */}
+                  <div>
+                    <h4 className="font-medium mb-3">By Monthly Element-Shio</h4>
+                    <div className="space-y-2">
+                      {Object.entries(groupByMonth).map(([combo, data]) => {
+                        const avgGain = data.reduce((sum, item) => sum + item.avgChange, 0) / data.length;
+                        const risingCount = data.filter(item => item.avgChange > 5).length;
+                        const [element, zodiacName] = combo.split('-');
 
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">Day Element:</label>
-                <select
-                  value={dayElementFilter}
-                  onChange={(e) => setDayElementFilter(e.target.value)}
-                  className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
-                >
-                  <option value="all">All</option>
-                  {uniqueDayElements.map(element => (
-                    <option key={element} value={element}>{element}</option>
-                  ))}
-                </select>
-              </div>
+                        return (
+                          <div key={combo} className={`p-2 rounded text-sm ${elementColors[element as keyof typeof elementColors].bg} border ${elementColors[element as keyof typeof elementColors].border}`}>
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-shrink-0">
+                                  {zodiacImages[zodiacName as keyof typeof zodiacImages] ? (
+                                    <img
+                                      src={zodiacImages[zodiacName as keyof typeof zodiacImages]}
+                                      alt={zodiacName}
+                                      className="w-6 h-6 object-contain"
+                                    />
+                                  ) : (
+                                    <span className="text-sm">{chineseZodiac.find(z => z.name === zodiacName)?.emoji}</span>
+                                  )}
+                                </div>
+                                <span className={`text-sm ${elementColors[element as keyof typeof elementColors].text}`}>
+                                  {element}-{zodiacName}
+                                </span>
+                              </div>
+                              <span className={avgGain > 0 ? 'text-green-600' : 'text-red-600'}>
+                                {avgGain > 0 ? '+' : ''}{avgGain.toFixed(1)}%
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {risingCount}/{data.length} days rising
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">Day Zodiac:</label>
-                <select
-                  value={dayZodiacFilter}
-                  onChange={(e) => setDayZodiacFilter(e.target.value)}
-                  className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
-                >
-                  <option value="all">All</option>
-                  {uniqueDayZodiacs.map(zodiac => (
-                    <option key={zodiac} value={zodiac}>{zodiac}</option>
-                  ))}
-                </select>
+                  {/* By Day Zodiac */}
+                  <div>
+                    <h4 className="font-medium mb-3">By Daily Element-Shio</h4>
+                    <div className="space-y-2">
+                      {Object.entries(groupByDay).map(([combo, data]) => {
+                        const avgGain = data.reduce((sum, item) => sum + item.avgChange, 0) / data.length;
+                        const risingCount = data.filter(item => item.avgChange > 5).length;
+                        const [element, zodiacName] = combo.split('-');
+
+                        return (
+                          <div key={combo} className={`p-2 rounded text-sm ${elementColors[element as keyof typeof elementColors].bg} border ${elementColors[element as keyof typeof elementColors].border}`}>
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-shrink-0">
+                                  {zodiacImages[zodiacName as keyof typeof zodiacImages] ? (
+                                    <img
+                                      src={zodiacImages[zodiacName as keyof typeof zodiacImages]}
+                                      alt={zodiacName}
+                                      className="w-6 h-6 object-contain"
+                                    />
+                                  ) : (
+                                    <span className="text-sm">{chineseZodiac.find(z => z.name === zodiacName)?.emoji}</span>
+                                  )}
+                                </div>
+                                <span className={`text-sm ${elementColors[element as keyof typeof elementColors].text}`}>
+                                  {element}-{zodiacName}
+                                </span>
+                              </div>
+                              <span className={avgGain > 0 ? 'text-green-600' : 'text-red-600'}>
+                                {avgGain > 0 ? '+' : ''}{avgGain.toFixed(1)}%
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {risingCount}/{data.length} days rising
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-          
-          {stockLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-                <p className="text-sm text-muted-foreground">Loading astrology data...</p>
-              </div>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/50">
-                <th className="text-center py-2 px-1 border-r border-border">STOCK</th>
-                <th className="text-center py-2 px-1 border-r border-border">Yearly Element</th>
-                <th className="text-center py-2 px-1 border-r border-border">Yearly Animal</th>
-                <th className="text-center py-2 px-1 border-r border-border">Monthly Element</th>
-                <th className="text-center py-2 px-1 border-r border-border">Monthly Animal</th>
-                <th className="text-center py-2 px-1 border-r border-border">Daily Element</th>
-                <th className="text-center py-2 px-1 border-r border-border">Daily Animal</th>
-                <th className="text-center py-2 px-1 border-r border-border bg-yellow-200 dark:bg-yellow-700">DATE</th>
-                <th className="text-center py-2 px-1 border-r border-border">OPEN</th>
-                <th className="text-center py-2 px-1 border-r border-border">HIGH</th>
-                <th className="text-center py-2 px-1 border-r border-border">LOW</th>
-                <th className="text-center py-2 px-1 border-r border-border">CLOSE</th>
-                <th className="text-center py-2 px-1 border-r border-border">% CHANGE</th>
-                <th className="text-center py-2 px-1 border-r border-border">% SPIKE</th>
-                <th className="text-center py-2 px-1">AVG</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredData.map((row) => (
-                <tr key={row.id} className={`border-b border-border/50 hover:bg-muted/20 ${row.isRising ? 'bg-green-50 dark:bg-green-950/20' : ''}`}>
-                  <td className="py-1 px-1 text-center border-r border-border">
-                    <div className="text-xs font-bold text-blue-600 dark:text-blue-400">{row.stock}</div>
-                  </td>
-                  <HeavenlyStemDisplay heavenlyStem={row.yearHeavenlyStem} className="py-1" />
-                  <td className="py-1 px-1 text-center border-r border-border">
-                    <ZodiacDisplay zodiac={row.yearZodiac} size="text-2xl" />
-                  </td>
-                  <HeavenlyStemDisplay heavenlyStem={row.monthHeavenlyStem} className="py-1" />
-                  <td className="py-1 px-1 text-center border-r border-border">
-                    <ZodiacDisplay zodiac={row.monthZodiac} size="text-xl" />
-                  </td>
-                  <HeavenlyStemDisplay heavenlyStem={row.dayHeavenlyStem} className="py-1" />
-                  <td className="py-1 px-1 text-center border-r border-border">
-                    <ZodiacDisplay zodiac={row.dayZodiac} size="text-xl" />
-                  </td>
-                  <td className="py-1 px-1 text-center border-r border-border bg-yellow-100 dark:bg-yellow-900/30 font-medium whitespace-nowrap">
-                    {row.dateFormatted}
-                  </td>
-                  <td className="py-1 px-1 text-right border-r border-border font-mono">{row.open.toLocaleString()}</td>
-                  <td className="py-1 px-1 text-right border-r border-border font-mono text-green-600">{row.high.toLocaleString()}</td>
-                  <td className="py-1 px-1 text-right border-r border-border font-mono text-red-600">{row.low.toLocaleString()}</td>
-                  <td className="py-1 px-1 text-right border-r border-border font-mono">{row.close.toLocaleString()}</td>
-                  <td className={`py-1 px-1 text-right border-r border-border font-mono font-medium ${row.priceChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {row.priceChange >= 0 ? '+' : ''}{row.priceChange.toFixed(2)}%
-                  </td>
-                  <td className={`py-1 px-1 text-right border-r border-border font-mono font-medium ${row.spikeChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {row.spikeChange >= 0 ? '+' : ''}{row.spikeChange.toFixed(2)}%
-                  </td>
-                  <td className={`py-1 px-1 text-right font-mono font-medium ${row.avgChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {row.avgChange >= 0 ? '+' : ''}{row.avgChange.toFixed(2)}%
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-            </div>
+            </Card>
           )}
-        </div>
-      </Card>
-
-      {/* Analysis Panels */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Rising Stocks */}
-        <Card>
-          <div className="p-4">
-            <h3 className="font-medium mb-4">Highest Spike List</h3>
-            <div className="mb-3 flex gap-2">
-              <Button 
-                variant={filterType === 'all' ? 'default' : 'outline'} 
-                size="sm"
-                onClick={() => setFilterType('all')}
-              >
-                All
-              </Button>
-              <Button 
-                variant={filterType === 'year' ? 'default' : 'outline'} 
-                size="sm"
-                onClick={() => setFilterType('year')}
-              >
-                By Year
-              </Button>
-              <Button 
-                variant={filterType === 'month' ? 'default' : 'outline'} 
-                size="sm"
-                onClick={() => setFilterType('month')}
-              >
-                By Month
-              </Button>
-              <Button 
-                variant={filterType === 'day' ? 'default' : 'outline'} 
-                size="sm"
-                onClick={() => setFilterType('day')}
-              >
-                By Day
-              </Button>
-            </div>
-          
-          <div className="space-y-2">
-            <div className="text-sm font-medium text-muted-foreground mb-2">
-              Formula: AVG = (% change + % spike) / 2 {'>'} 5%
-            </div>
-            
-            <div className="max-h-64 overflow-y-auto">
-              {risingStocks.map((stock) => (
-                <div key={stock.id} className="flex items-center justify-between p-2 bg-green-50 dark:bg-green-950/20 rounded mb-1">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-shrink-0">
-                      <ZodiacDisplay zodiac={stock.dayZodiac} size="text-lg" />
-                    </div>
-                    <div>
-                      <div className="font-medium">{stock.dateFormatted}</div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-medium text-green-600">+{stock.avgChange.toFixed(2)}%</div>
-                    <div className="text-xs text-muted-foreground">AVG: {stock.avgChange.toFixed(2)}%</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            </div>
-          </div>
-        </Card>
-
-        {/* Zodiac Elements Analysis */}
-        <Card>
-          <div className="p-4">
-            <h3 className="font-medium mb-4">Element Analysis</h3>
-          <div className="space-y-3">
-            {['Water', 'Earth', 'Wood', 'Fire', 'Metal'].map(element => {
-              const elementData = filteredData.filter(item => item.element === element);
-              const avgPercentage = elementData.length > 0 
-                ? elementData.reduce((sum, item) => sum + item.avgChange, 0) / elementData.length 
-                : 0;
-              const risingCount = elementData.filter(item => item.avgChange > 5).length;
-              
-              return (
-                <div key={element} className={`p-3 rounded ${elementColors[element as keyof typeof elementColors].bg} ${elementColors[element as keyof typeof elementColors].border} border`}>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className={`font-medium ${elementColors[element as keyof typeof elementColors].text}`}>{element}</span>
-                    <span className={`font-medium ${avgPercentage > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {avgPercentage > 0 ? '+' : ''}{avgPercentage.toFixed(2)}%
-                    </span>
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    Rising Days: {risingCount}/{elementData.length} | 
-                    Success Rate: {elementData.length > 0 ? Math.round((risingCount / elementData.length) * 100) : 0}%
-                  </div>
-                </div>
-              );
-            })}
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Pivot Analysis (Conditional) */}
-      {showPivot && (
-        <Card>
-          <div className="p-4">
-            <h3 className="font-medium mb-4">Pivot Analysis by Element-Shio Combination</h3>
-          
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* By Year Zodiac */}
-            <div>
-              <h4 className="font-medium mb-3">By Yearly Element-Shio</h4>
-              <div className="space-y-2">
-                {Object.entries(groupByYear).map(([combo, data]) => {
-                  const avgGain = data.reduce((sum, item) => sum + item.avgChange, 0) / data.length;
-                  const risingCount = data.filter(item => item.avgChange > 5).length;
-                  const [element, zodiacName] = combo.split('-');
-                  
-                  return (
-                    <div key={combo} className={`p-2 rounded text-sm ${elementColors[element as keyof typeof elementColors].bg} border ${elementColors[element as keyof typeof elementColors].border}`}>
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-shrink-0">
-                            {zodiacImages[zodiacName as keyof typeof zodiacImages] ? (
-                              <img 
-                                src={zodiacImages[zodiacName as keyof typeof zodiacImages]} 
-                                alt={zodiacName}
-                                className="w-6 h-6 object-contain"
-                              />
-                            ) : (
-                              <span className="text-sm">{chineseZodiac.find(z => z.name === zodiacName)?.emoji}</span>
-                            )}
-                          </div>
-                          <span className={`text-sm ${elementColors[element as keyof typeof elementColors].text}`}>
-                            {element}-{zodiacName}
-                          </span>
-                        </div>
-                        <span className={avgGain > 0 ? 'text-green-600' : 'text-red-600'}>
-                          {avgGain > 0 ? '+' : ''}{avgGain.toFixed(1)}%
-                        </span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {risingCount}/{data.length} days rising
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* By Month Zodiac */}
-            <div>
-              <h4 className="font-medium mb-3">By Monthly Element-Shio</h4>
-              <div className="space-y-2">
-                {Object.entries(groupByMonth).map(([combo, data]) => {
-                  const avgGain = data.reduce((sum, item) => sum + item.avgChange, 0) / data.length;
-                  const risingCount = data.filter(item => item.avgChange > 5).length;
-                  const [element, zodiacName] = combo.split('-');
-                  
-                  return (
-                    <div key={combo} className={`p-2 rounded text-sm ${elementColors[element as keyof typeof elementColors].bg} border ${elementColors[element as keyof typeof elementColors].border}`}>
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-shrink-0">
-                            {zodiacImages[zodiacName as keyof typeof zodiacImages] ? (
-                              <img 
-                                src={zodiacImages[zodiacName as keyof typeof zodiacImages]} 
-                                alt={zodiacName}
-                                className="w-6 h-6 object-contain"
-                              />
-                            ) : (
-                              <span className="text-sm">{chineseZodiac.find(z => z.name === zodiacName)?.emoji}</span>
-                            )}
-                          </div>
-                          <span className={`text-sm ${elementColors[element as keyof typeof elementColors].text}`}>
-                            {element}-{zodiacName}
-                          </span>
-                        </div>
-                        <span className={avgGain > 0 ? 'text-green-600' : 'text-red-600'}>
-                          {avgGain > 0 ? '+' : ''}{avgGain.toFixed(1)}%
-                        </span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {risingCount}/{data.length} days rising
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* By Day Zodiac */}
-            <div>
-              <h4 className="font-medium mb-3">By Daily Element-Shio</h4>
-              <div className="space-y-2">
-                {Object.entries(groupByDay).map(([combo, data]) => {
-                  const avgGain = data.reduce((sum, item) => sum + item.avgChange, 0) / data.length;
-                  const risingCount = data.filter(item => item.avgChange > 5).length;
-                  const [element, zodiacName] = combo.split('-');
-                  
-                  return (
-                    <div key={combo} className={`p-2 rounded text-sm ${elementColors[element as keyof typeof elementColors].bg} border ${elementColors[element as keyof typeof elementColors].border}`}>
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-shrink-0">
-                            {zodiacImages[zodiacName as keyof typeof zodiacImages] ? (
-                              <img 
-                                src={zodiacImages[zodiacName as keyof typeof zodiacImages]} 
-                                alt={zodiacName}
-                                className="w-6 h-6 object-contain"
-                              />
-                            ) : (
-                              <span className="text-sm">{chineseZodiac.find(z => z.name === zodiacName)?.emoji}</span>
-                            )}
-                          </div>
-                          <span className={`text-sm ${elementColors[element as keyof typeof elementColors].text}`}>
-                            {element}-{zodiacName}
-                          </span>
-                        </div>
-                        <span className={avgGain > 0 ? 'text-green-600' : 'text-red-600'}>
-                          {avgGain > 0 ? '+' : ''}{avgGain.toFixed(1)}%
-                        </span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {risingCount}/{data.length} days rising
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-          </div>
-        </Card>
-      )}
         </div>
       </div>
     </div>

@@ -257,6 +257,26 @@ export const api = {
       return { success: false, error: error?.message || 'Failed to fetch watchlist snapshot' };
     }
   },
+
+  async getEmitenList(): Promise<{ success: boolean; data?: string[]; error?: string }> {
+    try {
+      const response = await authenticatedFetch(`${API_URL}/api/stock/emiten-list`, {}, '/api/stock/emiten-list');
+      const json = await response.json();
+
+      if (!response.ok || !json?.success) {
+        throw new Error(json?.error || 'Failed to fetch emiten list');
+      }
+
+      return {
+        success: true,
+        data: Array.isArray(json?.data?.stocks) ? json.data.stocks : [],
+      };
+    } catch (error: any) {
+      console.error('❌ API: Failed to fetch emiten list', error);
+      return { success: false, error: error?.message || 'Failed to fetch emiten list' };
+    }
+  },
+
   async getProfile(): Promise<ProfileData> {
     console.log('🔍 API: Getting profile...');
 

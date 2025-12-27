@@ -6,6 +6,7 @@ import { X, Calendar, Loader2, Search } from 'lucide-react';
 // Removed unused imports
 import { api } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
+import { STOCK_LIST, loadStockList } from '../../data/stockList';
 import {
   createChart,
   ColorType,
@@ -36,7 +37,7 @@ interface InventoryTimeSeries {
 
 // Foreign brokers (red text)
 const FOREIGN_BROKERS = [
-  "AG", "AH", "AI", "AK", "BK", "BQ", "CG", "CS", "DP", "DR", "DU", "FS", "GW", "HD", "KK", 
+  "AG", "AH", "AI", "AK", "BK", "BQ", "CG", "CS", "DP", "DR", "DU", "FS", "GW", "HD", "KK",
   "KZ", "LH", "LG", "LS", "MS", "RB", "RX", "TX", "YP", "YU", "ZP"
 ];
 
@@ -60,44 +61,44 @@ const generateBrokerColor = (broker: string | undefined | null, allBrokers: stri
   if (!broker || typeof broker !== 'string') {
     return 'hsl(0, 0%, 50%)'; // Return gray color for invalid broker
   }
-  
+
   // Get all unique brokers and sort them for consistent color assignment
   const sortedBrokers = [...new Set(allBrokers)].sort();
   const brokerIndex = sortedBrokers.indexOf(broker);
-  
+
   if (brokerIndex === -1) {
     // Fallback for unknown brokers
     const hash = broker.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     const hue = hash % 360;
     return `hsl(${hue}, 70%, 45%)`;
   }
-  
+
   // Generate pastel colors based on broker position in the sorted list
   const totalBrokers = sortedBrokers.length;
   const hueStep = 360 / Math.max(totalBrokers, 1); // Distribute hues evenly
   const baseHue = (brokerIndex * hueStep) % 360;
-  
+
   // Add some variation to avoid too similar colors
   const variation = (brokerIndex * 7) % 30; // Small variation based on index
   const finalHue = (baseHue + variation) % 360;
-  
+
   // Pastel colors: lower saturation, darker lightness for better contrast
   const satVariation = (brokerIndex * 3) % 15;
   const lightVariation = (brokerIndex * 2) % 10;
-  
+
   const saturation = Math.max(40, Math.min(70, 55 + satVariation)); // Higher saturation for more color
   const lightness = Math.max(20, Math.min(40, 30 + lightVariation)); // Much darker lightness (reduced by 25%)
-  
+
   return `hsl(${finalHue}, ${saturation}%, ${lightness}%)`;
 };
 
 // Format lot numbers with K/M/B/T prefixes
 const formatLotNumber = (value: number): string => {
   if (value === 0) return '0';
-  
+
   const absValue = Math.abs(value);
   const sign = value < 0 ? '-' : '';
-  
+
   if (absValue >= 1000000000) {
     return `${sign}${(absValue / 1000000000).toFixed(1)}T`;
   } else if (absValue >= 1000000) {
@@ -173,7 +174,7 @@ const BrokerLegend = ({
   // Check if all brokers are visible
   const allVisible = brokers.length > 0 && brokers.every(broker => brokerVisibility[broker] !== false);
   const someVisible = brokers.some(broker => brokerVisibility[broker] !== false);
-  
+
   // Toggle all visibility
   const handleToggleAll = () => {
     brokers.forEach(broker => {
@@ -196,7 +197,7 @@ const BrokerLegend = ({
     <div className="rounded-lg border border-[#3a4252] bg-background/70 px-3 py-2">
       <div className="flex items-center justify-between mb-2">
         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
+          {title}
         </div>
         <div className="flex items-center gap-2">
           {onRemoveAll && brokers.length > 0 && (
@@ -311,7 +312,7 @@ const TradingViewChart = ({
     if (chartRef.current) {
       console.log(`🧹 TradingViewChart: Removing existing chart and all series before re-render`);
       try {
-      chartRef.current.remove();
+        chartRef.current.remove();
       } catch (e) {
         console.error('Error removing chart:', e);
       }
@@ -320,7 +321,7 @@ const TradingViewChart = ({
 
     // Only render chart if there are visible brokers OR if we need to show candlestick only
     const brokersToDisplay = Array.isArray(displayBrokers) && displayBrokers.length > 0 ? displayBrokers : [];
-    
+
     // If no brokers to display and no selected brokers, don't render chart at all
     if (brokersToDisplay.length === 0 && selectedBrokers.length === 0) {
       console.log(`🚫 TradingViewChart: No brokers selected - NOT rendering chart`);
@@ -408,67 +409,67 @@ const TradingViewChart = ({
 
       // Add inventory lines for each visible broker to Pane 0
       // Use right price scale for broker series (label broker di kanan)
-      
+
       // Only add broker series if there are visible brokers
       // IMPORTANT: Do NOT add any broker series if brokersToDisplay is empty
       if (brokersToDisplay.length === 0) {
         console.log(`🚫 TradingViewChart: brokersToDisplay is EMPTY - NOT adding any broker series`);
       } else {
         console.log(`✅ TradingViewChart: Adding broker series for ${brokersToDisplay.length} brokers:`, brokersToDisplay);
-      let firstBrokerSeries: any = null;
-      
-      brokersToDisplay.forEach(broker => {
-        const brokerColor = generateBrokerColor(broker, selectedBrokers);
-        
-        // Extract Net Volume data (BuyVol - SellVol) - one line per broker
-        const brokerData = inventoryData.map(d => ({
-          time: d.time,
-          value: d[broker] as number, // Net Volume (BuyVol - SellVol)
-        })).filter(d => d.value !== undefined && d.value !== null && !isNaN(d.value) && isFinite(d.value));
-        
-        console.log(`📊 TradingViewChart: Adding Net Volume series for broker ${broker}:`, {
-          dataLength: brokerData.length,
-          sampleData: brokerData.slice(0, 3)
-        });
-        
-        // Add one series per broker (Net Volume)
-        if (brokerData.length > 0) {
-          const lineSeries = chart.addSeries(LineSeries, {
-            color: brokerColor,
-            lineWidth: 2,
-            title: broker,
-            priceScaleId: 'right', // Use right price scale (label broker di kanan)
-            priceFormat: {
-              type: 'custom',
-              formatter: (price: number) => formatLotNumber(price),
-            },
-            lastValueVisible: true, // Show label on axis
-            priceLineVisible: false, // Hide connecting line between plotline and label
-          }, 0);
+        let firstBrokerSeries: any = null;
 
-          lineSeries.setData(brokerData);
-          
-          // Store first broker series for zero line
-          if (!firstBrokerSeries) {
-            firstBrokerSeries = lineSeries;
+        brokersToDisplay.forEach(broker => {
+          const brokerColor = generateBrokerColor(broker, selectedBrokers);
+
+          // Extract Net Volume data (BuyVol - SellVol) - one line per broker
+          const brokerData = inventoryData.map(d => ({
+            time: d.time,
+            value: d[broker] as number, // Net Volume (BuyVol - SellVol)
+          })).filter(d => d.value !== undefined && d.value !== null && !isNaN(d.value) && isFinite(d.value));
+
+          console.log(`📊 TradingViewChart: Adding Net Volume series for broker ${broker}:`, {
+            dataLength: brokerData.length,
+            sampleData: brokerData.slice(0, 3)
+          });
+
+          // Add one series per broker (Net Volume)
+          if (brokerData.length > 0) {
+            const lineSeries = chart.addSeries(LineSeries, {
+              color: brokerColor,
+              lineWidth: 2,
+              title: broker,
+              priceScaleId: 'right', // Use right price scale (label broker di kanan)
+              priceFormat: {
+                type: 'custom',
+                formatter: (price: number) => formatLotNumber(price),
+              },
+              lastValueVisible: true, // Show label on axis
+              priceLineVisible: false, // Hide connecting line between plotline and label
+            }, 0);
+
+            lineSeries.setData(brokerData);
+
+            // Store first broker series for zero line
+            if (!firstBrokerSeries) {
+              firstBrokerSeries = lineSeries;
+            }
+
+            console.log(`✅ TradingViewChart: Net Volume series added for broker ${broker} with ${brokerData.length} data points`);
           }
-          
-          console.log(`✅ TradingViewChart: Net Volume series added for broker ${broker} with ${brokerData.length} data points`);
-        }
-      });
-      
-      // Add zero line (0 lot) horizontal line on right price scale
-      if (firstBrokerSeries) {
-        firstBrokerSeries.createPriceLine({
-          price: 0,
-          color: '#6b7280', // Gray color
-          lineWidth: 1,
-          lineStyle: 0, // Solid line
-          axisLabelVisible: false,
-          title: '',
         });
-        console.log('✅ TradingViewChart: Zero line added at 0 lot');
-      }
+
+        // Add zero line (0 lot) horizontal line on right price scale
+        if (firstBrokerSeries) {
+          firstBrokerSeries.createPriceLine({
+            price: 0,
+            color: '#6b7280', // Gray color
+            lineWidth: 1,
+            lineStyle: 0, // Solid line
+            axisLabelVisible: false,
+            title: '',
+          });
+          console.log('✅ TradingViewChart: Zero line added at 0 lot');
+        }
       } // End of else (brokersToDisplay.length > 0)
 
       // Add volume series to separate pane (Pane 1) if volumeData is provided
@@ -505,17 +506,17 @@ const TradingViewChart = ({
       }
 
       chart.timeScale().fitContent();
-      
+
       // Subscribe to crosshair move for hover annotation
       const unsubscribeCrosshair = chart.subscribeCrosshairMove((param) => {
         const tooltip = tooltipRef.current;
         if (!tooltip) return;
-        
+
         if (param.point === undefined || !param.time || param.point.x < 0 || param.point.y < 0) {
           tooltip.style.display = 'none';
           return;
         }
-        
+
         // Convert time to string format for matching
         let timeStr: string = '';
         if (typeof param.time === 'string') {
@@ -525,13 +526,13 @@ const TradingViewChart = ({
           const isoStr = date.toISOString().split('T')[0];
           timeStr = isoStr ? isoStr : '';
         }
-        
+
         // Get candlestick data at hover time
         const candleData = candlestickData.find((d: any) => {
           const dTime = typeof d.time === 'string' ? d.time : new Date(d.time * 1000).toISOString().split('T')[0];
           return dTime === timeStr;
         });
-        
+
         // Get broker data at hover time
         const brokerValues: Array<{ broker: string; value: number; color: string }> = [];
         if (inventoryData && displayBrokers && displayBrokers.length > 0 && timeStr) {
@@ -539,7 +540,7 @@ const TradingViewChart = ({
             const dTime = typeof d.time === 'string' ? d.time : new Date(d.time * 1000).toISOString().split('T')[0];
             return dTime === timeStr;
           });
-          
+
           if (brokerDataPoint) {
             displayBrokers.forEach(broker => {
               if (brokerDataPoint[broker] !== undefined && brokerDataPoint[broker] !== null) {
@@ -553,12 +554,12 @@ const TradingViewChart = ({
             });
           }
         }
-        
+
         // Show tooltip
         tooltip.style.display = 'block';
         tooltip.style.left = `${param.point.x + 10}px`;
         tooltip.style.top = `${param.point.y - 10}px`;
-        
+
         // Format date for display
         const formatDisplayDate = (dateStr: string): string => {
           if (!dateStr) return '';
@@ -573,16 +574,16 @@ const TradingViewChart = ({
             return dateStr;
           }
         };
-        
+
         const displayDate = formatDisplayDate(timeStr);
-        
+
         // Update tooltip content
-        const priceInfo = candleData ? 
-          `O: ${candleData.open?.toFixed(0) || '-'} H: ${candleData.high?.toFixed(0) || '-'} L: ${candleData.low?.toFixed(0) || '-'} C: ${candleData.close?.toFixed(0) || '-'}` : 
+        const priceInfo = candleData ?
+          `O: ${candleData.open?.toFixed(0) || '-'} H: ${candleData.high?.toFixed(0) || '-'} L: ${candleData.low?.toFixed(0) || '-'} C: ${candleData.close?.toFixed(0) || '-'}` :
           'No price data';
-        
+
         // Format broker info dengan indikator warna plotline (garis horizontal kecil)
-        const brokerInfo = brokerValues.length > 0 ? 
+        const brokerInfo = brokerValues.length > 0 ?
           brokerValues.map(b => {
             // Tambahkan indikator warna plotline (garis horizontal kecil)
             return `
@@ -592,9 +593,9 @@ const TradingViewChart = ({
                 <span style="color: #9ca3af; margin-left: auto;">${formatLotNumber(b.value)}</span>
               </div>
             `;
-          }).join('') : 
+          }).join('') :
           '<div style="color: #9ca3af;">No broker data</div>';
-        
+
         tooltip.innerHTML = `
           <div style="padding: 8px; background: rgba(26, 30, 45, 0.95); border: 1px solid #3a4252; border-radius: 4px; font-size: 12px; color: #d1d5db; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); min-width: 200px;">
             ${ticker ? `<div style="margin-bottom: 4px; font-weight: bold; color: #f9fafb; font-size: 16px;">${ticker}</div>` : ''}
@@ -606,7 +607,7 @@ const TradingViewChart = ({
           </div>
         `;
       });
-      
+
       // Store unsubscribe function for cleanup
       (chart as any)._crosshairUnsubscribe = unsubscribeCrosshair;
     } catch (e) {
@@ -620,7 +621,7 @@ const TradingViewChart = ({
         if ((chartRef.current as any)._crosshairUnsubscribe) {
           (chartRef.current as any)._crosshairUnsubscribe();
         }
-        
+
         console.log(`🧹 TradingViewChart: Cleanup - removing chart`);
         try {
           chartRef.current.remove();
@@ -717,7 +718,7 @@ const TradingViewChart = ({
       </div>
 
       <div ref={containerRef} className="h-full w-full" />
-      
+
     </div>
   );
 };
@@ -1134,14 +1135,14 @@ const InventoryChart = ({
 
       brokersToDisplay.forEach(broker => {
         const brokerColor = generateBrokerColor(broker, selectedBrokers);
-        
+
         // Extract Net Volume data (BuyVol - SellVol) - one line per broker
         const brokerData = inventoryData
           .map(d => {
             const netValue = d[broker]; // Net Volume (BuyVol - SellVol)
             // Convert time to proper format (lightweight-charts expects YYYY-MM-DD string)
             let timeValue: string = String(d.time || '');
-            
+
             // Ensure time is in YYYY-MM-DD format
             const rawTime: any = d.time;
             if (typeof rawTime === 'string') {
@@ -1166,7 +1167,7 @@ const InventoryChart = ({
               const isoStr = date.toISOString().split('T')[0];
               timeValue = isoStr || '';
             }
-            
+
             return {
               time: timeValue,
               value: typeof netValue === 'number' ? netValue : 0
@@ -1181,12 +1182,12 @@ const InventoryChart = ({
             // Sort by time
             return a.time.localeCompare(b.time);
           });
-        
+
         console.log(`📊 InventoryChart: Adding Net Volume series for broker ${broker}:`, {
           dataLength: brokerData.length,
           sampleData: brokerData.slice(0, 3)
         });
-        
+
         // Add one series per broker (Net Volume)
         if (brokerData.length > 0) {
           const lineSeries = chart.addSeries(LineSeries, {
@@ -1203,12 +1204,12 @@ const InventoryChart = ({
           });
 
           lineSeries.setData(brokerData);
-          
+
           // Store first broker series for zero line
           if (!firstBrokerSeries) {
             firstBrokerSeries = lineSeries;
           }
-          
+
           console.log(`✅ InventoryChart: Net Volume series added for broker ${broker} with ${brokerData.length} data points`);
         }
       });
@@ -1309,7 +1310,7 @@ const cache = {
   stockData: new Map<string, { data: any[]; timestamp: number }>(),
   topBrokers: new Map<string, { data: any[]; timestamp: number }>(),
   latestDate: { date: null as string | null, timestamp: 0 },
-  
+
   get(key: string, cacheMap: Map<string, any>, ttl: number = 5 * 60 * 1000): any | null {
     const cached = cacheMap.get(key);
     if (cached && Date.now() - cached.timestamp < ttl) {
@@ -1317,11 +1318,11 @@ const cache = {
     }
     return null;
   },
-  
+
   set(key: string, data: any, cacheMap: Map<string, any>): void {
     cacheMap.set(key, { data, timestamp: Date.now() });
   },
-  
+
   clear(): void {
     cache.brokers.clear();
     cache.inventory.clear();
@@ -1330,13 +1331,13 @@ const cache = {
   }
 };
 
-export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({ 
+export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   selectedStock: propSelectedStock,
   defaultSplitView = false,
   hideControls = false,
   onlyShowInventoryChart = false,
   disableTickerSelection = false
-}: { 
+}: {
   selectedStock?: string;
   defaultSplitView?: boolean;
   hideControls?: boolean;
@@ -1344,10 +1345,10 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   disableTickerSelection?: boolean;
 }) {
   const { showToast } = useToast();
-  
+
   // Load preferences from cookies on mount
   const savedPrefs = loadPreferences();
-  
+
   // Load preferences from cookies on mount
   useEffect(() => {
     const prefs = menuPreferencesService.loadPreferences(PAGE_ID);
@@ -1364,7 +1365,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
       setBrokerSelectionMode(prefs.brokerSelectionMode);
     }
   }, []);
-  
+
   // State management
   // Always default to BBCA if no propSelectedStock or if it's empty
   const [selectedTicker, setSelectedTicker] = useState<string>(() => {
@@ -1461,7 +1462,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const [displayedFdFilter, setDisplayedFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Actual filter used for data display (updated when Show button clicked)
   const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG
   const [displayedMarket, setDisplayedMarket] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Market/Board displayed (updated when Show button clicked)
-  
+
   // Minimum date allowed: 19/09/2025
   const MIN_DATE = '2025-09-19';
 
@@ -1476,10 +1477,10 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     }
     return selectedTicker;
   }, [selectedTicker, sectorMapping]);
-  
+
   // Track previous selectedTicker to detect changes
   const prevSelectedTickerRef = useRef<string>('');
-  
+
   // Force selectedTicker to match propSelectedStock when disableTickerSelection is true
   useEffect(() => {
     if (disableTickerSelection && propSelectedStock && propSelectedStock.trim() !== '') {
@@ -1493,7 +1494,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   useEffect(() => {
     const currentTicker: string = selectedTicker || '';
     console.log(`[BrokerInventory] selectedTicker effect:`, { currentTicker, prev: prevSelectedTickerRef.current });
-    
+
     // Only reset broker selection and UI states if ticker actually changed (not on initial mount)
     if (currentTicker && currentTicker !== prevSelectedTickerRef.current) {
       // On initial mount, prevSelectedTickerRef.current will be empty, so we just update the ref
@@ -1599,7 +1600,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     };
   }, [hideControls, selectedTicker, selectedBrokers, startDate, endDate, topBrokersCount]);
 
-const visibleBrokers = useMemo(
+  const visibleBrokers = useMemo(
     () => {
       const visible = selectedBrokers.filter((broker) => brokerVisibility[broker] !== false);
       console.log(`👁️ visibleBrokers updated:`, {
@@ -1627,7 +1628,7 @@ const visibleBrokers = useMemo(
       setSelectedTicker('BBCA');
     }
   }, [selectedTicker]);
-  
+
   // Save preferences to localStorage with debounce to reduce write operations
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -1647,26 +1648,26 @@ const visibleBrokers = useMemo(
       }
       savePreferences(preferences);
     }, 500); // Debounce 500ms to reduce localStorage writes
-    
+
     return () => clearTimeout(timeout);
   }, [selectedTicker, selectedBrokers, fdFilter, marketFilter, brokerSelectionMode, startDate, endDate]);
-  
+
   // Auto-load data from saved preferences on mount (after initial data is loaded)
   useEffect(() => {
     // Only auto-load if we have saved preferences with dates
     if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
       return; // No saved preferences, don't auto-load
     }
-    
+
     const savedStartDate = savedPrefs.startDate;
     const savedEndDate = savedPrefs.endDate;
-    
+
     // Wait a bit to ensure initial data (stocks, dates) are loaded
     const timer = setTimeout(() => {
       // Generate date array from saved startDate and endDate (only trading days)
       const startParts = savedStartDate.split('-').map(Number);
       const endParts = savedEndDate.split('-').map(Number);
-      
+
       if (startParts.length === 3 && endParts.length === 3) {
         const startYear = startParts[0];
         const startMonth = startParts[1];
@@ -1674,18 +1675,18 @@ const visibleBrokers = useMemo(
         const endYear = endParts[0];
         const endMonth = endParts[1];
         const endDay = endParts[2];
-        
+
         if (startYear !== undefined && startMonth !== undefined && startDay !== undefined &&
-            endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
+          endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
           const start = new Date(startYear, startMonth - 1, startDay);
           const end = new Date(endYear, endMonth - 1, endDay);
-          
+
           // Check if range is valid
           if (start <= end) {
             // Generate date array (only trading days)
             const dateArray: string[] = [];
             const currentDate = new Date(start);
-            
+
             while (currentDate <= end) {
               const dayOfWeek = currentDate.getDay();
               // Skip weekends (Saturday = 6, Sunday = 0)
@@ -1700,10 +1701,10 @@ const visibleBrokers = useMemo(
               // Move to next day
               currentDate.setDate(currentDate.getDate() + 1);
             }
-            
+
             // Sort by date (oldest first) for display
             const datesToUse = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-            
+
             // Trigger auto-load by setting shouldFetchData to true
             // Use ref if available, otherwise use state directly
             setShouldFetchData(true);
@@ -1711,13 +1712,13 @@ const visibleBrokers = useMemo(
         }
       }
     }, 500); // Small delay to ensure initial data is loaded
-    
+
     return () => clearTimeout(timer);
   }, []); // Only run once on mount
 
   // Track previous ticker to detect changes
   const prevTickerForAutoFetchRef = useRef<string>('');
-  
+
   // Update selectedTicker when propSelectedStock changes
   useEffect(() => {
     // Only update if propSelectedStock is provided and valid, and different from current
@@ -1725,7 +1726,7 @@ const visibleBrokers = useMemo(
       console.log(`📊 Dashboard stock changed to ${propSelectedStock}`);
       setSelectedTicker(propSelectedStock);
       setTickerInput('');
-      
+
       // Only reset broker selection and UI states - keep chart data until Show is clicked
       setSelectedBrokers([]);
       setBrokerDataError(null);
@@ -1752,7 +1753,7 @@ const visibleBrokers = useMemo(
   const formatDisplayDate = (dateString: string): string => {
     const date = new Date(dateString);
     const isNewYear = date.getMonth() === 0 && date.getDate() === 1; // January 1st
-    
+
     return date.toLocaleDateString('id-ID', {
       day: '2-digit',
       month: 'short',
@@ -1776,34 +1777,30 @@ const visibleBrokers = useMemo(
   useEffect(() => {
     const loadInitialData = async () => {
       if (availableStocks.length > 0) return; // Already loaded
-      
+
       try {
         // Load both stock list and sector mapping in parallel
-        const [stockResult, sectorResult] = await Promise.all([
-          api.getStockList(),
-          api.getSectorMapping()
+        const [sectorResult] = await Promise.all([
+          api.getSectorMapping(),
+          loadStockList()
         ]);
-        
-        let stocks: string[] = [];
+
+        let stocks: string[] = STOCK_LIST;
         let sectors: string[] = [];
         let mapping: { [sector: string]: string[] } = {};
-        
-        if (stockResult.success && stockResult.data?.stocks && Array.isArray(stockResult.data.stocks)) {
-          stocks = stockResult.data.stocks;
-        }
-        
+
         if (sectorResult.success && sectorResult.data) {
           sectors = sectorResult.data.sectors || [];
           mapping = sectorResult.data.sectorMapping || {};
           setSectorMapping(mapping);
         }
-        
+
         // Remove IDX from ticker list (IDX is now a sector, not a ticker)
         const stocksWithoutIdx = stocks.filter(stock => stock !== 'IDX');
-        
+
         // Add sectors to the list (with prefix to distinguish from stocks)
         const sectorsWithPrefix = sectors.map(sector => `[SECTOR] ${sector}`);
-        
+
         // Combine stocks and sectors, then sort alphabetically
         // Ensure IDX is always first
         const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => {
@@ -1812,9 +1809,9 @@ const visibleBrokers = useMemo(
           if (b === '[SECTOR] IDX') return 1;
           return a.localeCompare(b);
         });
-        
+
         setAvailableStocks(allItems);
-        console.log(`📊 Loaded ${stocksWithoutIdx.length} stocks and ${sectors.length} sectors from API`);
+        console.log(`📊 Loaded ${stocksWithoutIdx.length} stocks and ${sectors.length} sectors from stockList.ts`);
       } catch (error) {
         console.error('Error loading initial data:', error);
         showToast({
@@ -1826,7 +1823,7 @@ const visibleBrokers = useMemo(
         setAvailableStocks(['[SECTOR] IDX']);
       }
     };
-    
+
     loadInitialData();
   }, [showToast, availableStocks.length]);
 
@@ -1838,16 +1835,16 @@ const visibleBrokers = useMemo(
         console.log(`[BrokerInventory] No actual ticker, skipping loadLatestDateForStock`);
         return;
       }
-      
+
       console.log(`[BrokerInventory] Loading latest date for ticker: ${actualTicker}`);
       try {
-        
+
         // Check if we have cached latest date for this stock
         const cachedDate = cache.latestDate.date;
         const cachedStock = (cache.latestDate as any).stockCode;
-        
+
         let latestDate: string | null = null;
-        
+
         if (cachedDate && cachedStock === actualTicker && Date.now() - cache.latestDate.timestamp < 5 * 60 * 1000) {
           latestDate = cachedDate;
           setLatestDataDate(latestDate);
@@ -1856,14 +1853,14 @@ const visibleBrokers = useMemo(
           // Fetch latest date for this specific stock
           console.log(`📊 Fetching latest date for stock: ${actualTicker}`);
           const latestResponse = await api.getLatestStockDate(actualTicker);
-          
+
           if (latestResponse.success && latestResponse.data?.latestDate) {
             latestDate = latestResponse.data.latestDate;
             // Cache with stock code
-            cache.latestDate = { 
-              date: latestDate, 
+            cache.latestDate = {
+              date: latestDate,
               timestamp: Date.now(),
-              stockCode: actualTicker 
+              stockCode: actualTicker
             } as any;
             // Store latest date in state for validation and display
             setLatestDataDate(latestDate);
@@ -1873,13 +1870,13 @@ const visibleBrokers = useMemo(
             setLatestDataDate(null);
           }
         }
-        
+
         if (latestDate) {
           // Set end date to latest date
           // Only set dates if no preferences exist (don't overwrite saved preferences)
           if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
             setEndDate(latestDate);
-            
+
             // Set start date to 1 month before latest date
             const latest = new Date(latestDate);
             const oneMonthAgo = new Date(latest);
@@ -1888,7 +1885,7 @@ const visibleBrokers = useMemo(
             if (startDateStr) {
               setStartDate(startDateStr);
             }
-            
+
             console.log(`📊 Default date range set for ${actualTicker}: ${startDateStr} to ${latestDate}`);
           } else {
             console.log(`📊 Using saved preferences for dates: ${savedPrefs.startDate} to ${savedPrefs.endDate}`);
@@ -1907,7 +1904,7 @@ const visibleBrokers = useMemo(
             console.log(`📊 Using fallback date range for ${actualTicker}`);
           }
         }
-        
+
       } catch (error) {
         console.error(`Error loading latest date for ${actualTicker}:`, error);
         // Fallback to current date
@@ -1925,7 +1922,7 @@ const visibleBrokers = useMemo(
         console.log(`[BrokerInventory] Finished loading latest date for ticker: ${actualTicker}`);
       }
     };
-    
+
     loadLatestDateForStock();
   }, [getActualTicker]);
 
@@ -1942,7 +1939,7 @@ const visibleBrokers = useMemo(
     if (!shouldFetchData) {
       return; // Don't load data until Show button is clicked
     }
-    
+
     const loadStockData = async () => {
       const actualTicker = getActualTicker;
       if (!actualTicker || !startDate || !endDate) {
@@ -1954,24 +1951,24 @@ const visibleBrokers = useMemo(
       // Check if ticker is a sector (starts with [SECTOR] prefix)
       const isSector = selectedTicker.startsWith('[SECTOR] ');
       const sectorName = isSector ? selectedTicker.replace('[SECTOR] ', '') : null;
-      
-      console.log(`[BrokerInventory] Loading ${isSector ? 'sector' : 'stock'} data for:`, { 
-        selectedTicker, 
-        actualTicker, 
-        isSector, 
-        sectorName, 
-        startDate, 
-        endDate 
+
+      console.log(`[BrokerInventory] Loading ${isSector ? 'sector' : 'stock'} data for:`, {
+        selectedTicker,
+        actualTicker,
+        isSector,
+        sectorName,
+        startDate,
+        endDate
       });
-      
+
       setIsLoadingData(true);
       setDataError(null);
-      
+
       try {
         // Check cache first (5 minutes TTL) - use selectedTicker for cache key to differentiate sector vs stock
         const cacheKey = `${selectedTicker}-${startDate}-${endDate}`;
         const cachedData = cache.get(cacheKey, cache.stockData, 5 * 60 * 1000);
-        
+
         if (cachedData) {
           console.log(`📊 Using cached ${isSector ? 'sector' : 'stock'} data for ${isSector ? sectorName : actualTicker}`);
           // Ensure cached data is sorted and deduplicated
@@ -1985,7 +1982,7 @@ const visibleBrokers = useMemo(
               if (a.time > b.time) return 1;
               return 0;
             });
-          
+
           const sortedVolume = (cachedData.volume || [])
             .filter((item: any, index: number, arr: any[]) => {
               // Remove duplicates (keep first occurrence)
@@ -1996,23 +1993,23 @@ const visibleBrokers = useMemo(
               if (a.time > b.time) return 1;
               return 0;
             });
-          
+
           setOhlcData(sortedCandlestick);
           setVolumeData(sortedVolume);
           setIsLoadingData(false);
           return;
         }
-        
+
         console.log(`📊 Loading ${isSector ? 'sector' : 'stock'} data for ${isSector ? sectorName : actualTicker} from ${startDate} to ${endDate}`);
-        
+
         let response: any;
-        
+
         if (isSector && sectorName) {
           // For sectors, use sector OHLC price API
           console.log(`📊 Fetching sector OHLC data for: "${sectorName}"`);
           console.log(`📊 Selected ticker: "${selectedTicker}", Extracted sector name: "${sectorName}"`);
           response = await api.getSectorOhlcPrice(sectorName, startDate, endDate, 1000);
-          
+
           if (!response.success) {
             console.error(`❌ Failed to fetch sector OHLC data:`, response.error);
             console.error(`❌ Sector name sent: "${sectorName}"`);
@@ -2023,17 +2020,17 @@ const visibleBrokers = useMemo(
           console.log(`📊 Fetching stock data for: ${actualTicker}`);
           response = await api.getStockData(actualTicker, startDate, endDate, 1000);
         }
-        
+
         if (response.success && response.data?.data) {
           const stockData = response.data.data;
           console.log(`📊 Received ${stockData.length} records for ${isSector ? `sector "${sectorName}"` : `stock ${actualTicker}`}`);
-          
+
           // Filter data by date range (additional client-side filter for safety)
           const filteredData = stockData.filter((row: any) => {
             const rowDate = row.Date;
             return rowDate >= startDate && rowDate <= endDate;
           });
-          
+
           // Convert to candlestick format for charts
           // First, create a map to handle duplicates (keep last occurrence)
           const candlestickMap = new Map<string, any>();
@@ -2041,14 +2038,14 @@ const visibleBrokers = useMemo(
             const time = row.Date;
             candlestickMap.set(time, {
               time: time,
-            open: row.Open || 0,
-            high: row.High || 0,
-            low: row.Low || 0,
-            close: row.Close || 0,
-            volume: row.Volume || 0
+              open: row.Open || 0,
+              high: row.High || 0,
+              low: row.Low || 0,
+              close: row.Close || 0,
+              volume: row.Volume || 0
             });
           });
-          
+
           // Convert map to array, sort by time, and remove duplicates
           const candlestickData = Array.from(candlestickMap.values())
             .sort((a, b) => {
@@ -2057,18 +2054,18 @@ const visibleBrokers = useMemo(
               if (a.time > b.time) return 1;
               return 0;
             });
-          
+
           // Convert to volume format for charts (using same deduplication)
           const volumeMap = new Map<string, any>();
           filteredData.forEach((row: any) => {
             const time = row.Date;
             volumeMap.set(time, {
               time: time,
-            value: row.Volume || 0,
-            color: (row.Close || 0) >= (row.Open || 0) ? '#16a34a' : '#dc2626'
+              value: row.Volume || 0,
+              color: (row.Close || 0) >= (row.Open || 0) ? '#16a34a' : '#dc2626'
             });
           });
-          
+
           const volumeChartData = Array.from(volumeMap.values())
             .sort((a, b) => {
               // Sort by time (ascending)
@@ -2076,7 +2073,7 @@ const visibleBrokers = useMemo(
               if (a.time > b.time) return 1;
               return 0;
             });
-          
+
           // Final validation: ensure no duplicates and proper sorting
           const finalCandlestick = candlestickData.filter((item: any, index: number, arr: any[]) => {
             if (index === 0) return true;
@@ -2090,7 +2087,7 @@ const visibleBrokers = useMemo(
             }
             return true;
           });
-          
+
           const finalVolume = volumeChartData.filter((item: any, index: number, arr: any[]) => {
             if (index === 0) return true;
             const prevTime = arr[index - 1].time;
@@ -2100,23 +2097,23 @@ const visibleBrokers = useMemo(
             }
             return true;
           });
-          
+
           console.log(`📊 Processed data: ${finalCandlestick.length} OHLC records (${candlestickData.length - finalCandlestick.length} duplicates removed), ${finalVolume.length} volume records (${volumeChartData.length - finalVolume.length} duplicates removed)`);
-          
+
           // Cache the cleaned data
           cache.set(cacheKey, { candlestick: finalCandlestick, volume: finalVolume }, cache.stockData);
-          
+
           setOhlcData(finalCandlestick);
           setVolumeData(finalVolume);
-          
+
           // Don't set isDataReady here - wait for broker inventory data to be loaded
           // Don't reset shouldFetchData here - let loadBrokerInventory handle it
-          
+
         } else {
           const errorMsg = response.error || `Failed to load ${isSector ? 'sector' : 'stock'} data`;
           throw new Error(errorMsg);
         }
-        
+
       } catch (error) {
         console.error(`Error loading ${isSector ? 'sector' : 'stock'} data:`, error);
         const errorMessage = error instanceof Error ? error.message : `Failed to load ${isSector ? 'sector' : 'stock'} data`;
@@ -2137,17 +2134,17 @@ const visibleBrokers = useMemo(
         // Don't reset shouldFetchData here - let loadBrokerInventory handle it
       }
     };
-    
+
     loadStockData();
   }, [shouldFetchData, getActualTicker, startDate, endDate, showToast]);
-  
+
   // Track previous ticker/date for comparison (but don't clear data immediately)
   // Data will be replaced only when new data is successfully loaded
   const prevTickerRef = useRef<string>('');
   const prevStartDateRef = useRef<string>('');
   const prevEndDateRef = useRef<string>('');
   const prevShouldFetchRef = useRef<boolean>(false);
-  
+
   useEffect(() => {
     // Track when user clicks Show button
     if (shouldFetchData && !prevShouldFetchRef.current) {
@@ -2155,7 +2152,7 @@ const visibleBrokers = useMemo(
       // Don't clear old data yet - keep showing it until new data is ready
       console.log(`[BrokerInventory] Show button clicked, loading new data...`);
     }
-    
+
     // Update refs
     prevTickerRef.current = getActualTicker || '';
     prevStartDateRef.current = startDate || '';
@@ -2166,11 +2163,11 @@ const visibleBrokers = useMemo(
   // REMOVED: Auto-fetch on initial load - user MUST click Show button to fetch data
   // This ensures no data is displayed automatically without user clicking Show
   // Tampilan awal akan kosong, sama seperti BrokerSummaryPage
-  
+
   // Track ticker changes for logging purposes only (no auto-fetch)
   useEffect(() => {
     const currentTicker = getActualTicker || '';
-    
+
     // Just update ticker ref for tracking, but never auto-fetch
     if (currentTicker && prevTickerForAutoFetchRef.current !== currentTicker) {
       const oldTicker = prevTickerForAutoFetchRef.current;
@@ -2190,7 +2187,7 @@ const visibleBrokers = useMemo(
       return; // Don't load data until Show button is clicked
     }
 
-      const loadTopBrokersData = async () => {
+    const loadTopBrokersData = async () => {
       // Load top brokers data for table (not for chart)
       // Use startDate and endDate from input field (not dependent on ohlcData)
       const actualTicker = getActualTicker;
@@ -2200,10 +2197,10 @@ const visibleBrokers = useMemo(
         setIsDataReady(false);
         return;
       }
-      
+
       setIsLoadingBrokerData(true);
       setBrokerDataError(null);
-      
+
       try {
         // Calculate trading days from startDate to endDate (same as BrokerSummaryPage)
         // This ensures date range matches the input field exactly
@@ -2212,7 +2209,7 @@ const visibleBrokers = useMemo(
           const start = new Date(startDate);
           const end = new Date(endDate);
           const current = new Date(start);
-          
+
           while (current <= end) {
             const dayOfWeek = current.getDay();
             // Only include trading days (Monday to Friday, excluding weekends)
@@ -2225,23 +2222,23 @@ const visibleBrokers = useMemo(
             current.setDate(current.getDate() + 1);
           }
         }
-        
+
         if (tradingDays.length === 0) {
           console.log('⚠️ No trading days in date range');
           setBrokerSummaryData([]);
           return;
         }
-        
+
         // For sectors, use sector name directly (not first stock) - same as BrokerSummaryPage
-        const tickerToFetch = selectedTicker.startsWith('[SECTOR] ') 
-          ? selectedTicker.replace('[SECTOR] ', '') 
+        const tickerToFetch = selectedTicker.startsWith('[SECTOR] ')
+          ? selectedTicker.replace('[SECTOR] ', '')
           : actualTicker;
-        
+
         // Load broker summary data for each date using getBrokerSummaryData API (same as BrokerSummaryPage)
         // This provides NetBuyValue and NetSellValue needed for top buyer/seller calculation (NET table)
         // OPTIMIZED: Use Promise.all for parallel loading instead of sequential for loop
         const isSector = selectedTicker.startsWith('[SECTOR] ');
-        
+
         // Load all dates in parallel for much faster performance
         const datePromises = tradingDays.map(async (dateStr) => {
           try {
@@ -2250,16 +2247,16 @@ const visibleBrokers = useMemo(
             const market = displayedMarket || '';
             const cacheKey = `broker-summary-${tickerToFetch}-${dateStr}-${market}`;
             let brokerData: any[] | null = cache.get(cacheKey, cache.topBrokers, 5 * 60 * 1000);
-            
+
             if (!brokerData) {
               // Use getBrokerSummaryData API (same as BrokerSummaryPage) to get buyerValue and sellerValue
               // For sectors, fetch sector data directly (not first stock)
               // Use market variable already defined above (from displayedMarket)
               const response = await api.getBrokerSummaryData(tickerToFetch, dateStr, market);
-              
+
               if (response.success && response.data?.brokerData) {
                 const brokers = response.data.brokerData;
-                
+
                 // Map broker summary format to our format (same structure as BrokerSummaryPage)
                 brokerData = brokers.map((broker: any) => {
                   // For sectors: swap NetBuy and NetSell (because CSV has swap) - same as BrokerSummaryPage
@@ -2267,7 +2264,7 @@ const visibleBrokers = useMemo(
                   let netSellVol = Number(broker.NetSellVol ?? 0);
                   let netBuyValue = Number(broker.NetBuyValue ?? 0);
                   let netSellValue = Number(broker.NetSellValue ?? 0);
-                  
+
                   if (isSector) {
                     // Swap NetBuy and NetSell for sectors (same as BrokerSummaryPage)
                     netBuyVol = Number(broker.NetSellVol ?? 0);
@@ -2275,7 +2272,7 @@ const visibleBrokers = useMemo(
                     netSellVol = Number(broker.NetBuyVol ?? 0);
                     netSellValue = Number(broker.NetBuyValue ?? 0);
                   }
-                  
+
                   return {
                     broker: broker.BrokerCode ?? broker.broker ?? broker.BROKER ?? broker.code ?? '',
                     BrokerCode: broker.BrokerCode ?? broker.broker ?? broker.BROKER ?? broker.code ?? '',
@@ -2297,7 +2294,7 @@ const visibleBrokers = useMemo(
                     time: dateStr
                   };
                 });
-                
+
                 // Cache the data
                 cache.set(cacheKey, brokerData, cache.topBrokers);
               } else {
@@ -2307,35 +2304,35 @@ const visibleBrokers = useMemo(
               // Update dates in cached data to match current date
               brokerData = brokerData.map((b: any) => ({ ...b, date: dateStr, time: dateStr }));
             }
-            
+
             return brokerData || [];
           } catch (error) {
             // Silently return empty array on error - don't log to improve performance
             return [];
           }
         });
-        
+
         // Wait for all promises to resolve in parallel
         const allDateResults = await Promise.all(datePromises);
         const allBrokerData = allDateResults.flat();
-        
+
         // Filter final data by date range (additional safety check)
         const filteredBrokerData = allBrokerData.filter((record: any) => {
           const recordDate = record.date || record.time;
           return recordDate >= startDate && recordDate <= endDate;
         });
-        
+
         if (filteredBrokerData.length === 0) {
           setBrokerDataError(`No broker summary data found for ${actualTicker} in date range ${startDate} to ${endDate}.`);
         } else {
           setBrokerDataError(null);
         }
-        
+
         // Apply F/D filter client-side (same as BrokerSummaryPage)
         let finalBrokerData = filteredBrokerData;
         if (displayedFdFilter === 'Foreign') {
-          finalBrokerData = filteredBrokerData.filter(row => 
-            FOREIGN_BROKERS.includes(row.broker || row.BrokerCode || '') && 
+          finalBrokerData = filteredBrokerData.filter(row =>
+            FOREIGN_BROKERS.includes(row.broker || row.BrokerCode || '') &&
             !GOVERNMENT_BROKERS.includes(row.broker || row.BrokerCode || '')
           );
         } else if (displayedFdFilter === 'Domestic') {
@@ -2344,14 +2341,14 @@ const visibleBrokers = useMemo(
             return !FOREIGN_BROKERS.includes(broker) || GOVERNMENT_BROKERS.includes(broker);
           });
         }
-        
+
         setBrokerSummaryData(finalBrokerData);
-        
+
         // Extract unique brokers from brokerSummaryData and use as fallback/merge for availableBrokersForStock
         // This ensures dropdown shows brokers even if getBrokerInventoryBrokers doesn't return data
         if (filteredBrokerData.length > 0) {
           const uniqueBrokersFromSummary = [...new Set(filteredBrokerData.map((r: any) => r.broker || r.BrokerCode).filter(Boolean))].sort() as string[];
-          
+
           // Always merge brokers from brokerSummaryData with existing availableBrokersForStock
           // This ensures all brokers are available in dropdown
           setAvailableBrokersForStock(prev => {
@@ -2378,9 +2375,9 @@ const visibleBrokers = useMemo(
             return prev;
           });
         }
-        
+
         // Reset shouldFetchData after successful load (will be reset again in loadBrokerInventory)
-        
+
       } catch (error) {
         console.error('Error loading broker summary data:', error);
         setBrokerDataError(error instanceof Error ? error.message : 'Failed to load broker summary data');
@@ -2400,7 +2397,7 @@ const visibleBrokers = useMemo(
         // Don't reset shouldFetchData here - reset it only after ALL data is loaded
       }
     };
-    
+
     loadTopBrokersData();
     // Depend on shouldFetchData - only load when Show button is clicked
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2414,46 +2411,46 @@ const visibleBrokers = useMemo(
         setAvailableBrokersForStock([]);
         return;
       }
-      
+
       try {
         // Check cache first (10 minutes TTL)
         const cacheKey = `brokers-${actualTicker}`;
         const cachedBrokers = cache.get(cacheKey, cache.brokers, 10 * 60 * 1000);
-        
+
         if (cachedBrokers) {
           console.log(`📊 Using cached brokers for ${actualTicker}:`, cachedBrokers.length);
           // Ensure "ALL" is first in cached brokers
-          const brokersWithAll = cachedBrokers.includes('ALL') 
+          const brokersWithAll = cachedBrokers.includes('ALL')
             ? (() => {
-                const sorted = [...cachedBrokers];
-                const allIndex = sorted.indexOf('ALL');
-                sorted.splice(allIndex, 1);
-                sorted.unshift('ALL');
-                return sorted;
-              })()
+              const sorted = [...cachedBrokers];
+              const allIndex = sorted.indexOf('ALL');
+              sorted.splice(allIndex, 1);
+              sorted.unshift('ALL');
+              return sorted;
+            })()
             : ['ALL', ...cachedBrokers];
           setAvailableBrokersForStock(brokersWithAll);
           syncSelectedBrokersWithAvailable(brokersWithAll);
           return;
         }
-        
+
         console.log(`📊 Loading available brokers for stock: ${actualTicker} from broker_inventory`);
         setIsLoadingBrokersForStock(true);
-        
+
         // Get brokers from broker_inventory folder
         const response = await api.getBrokerInventoryBrokers(actualTicker);
-        
+
         if (response.success && response.data?.brokers) {
           const uniqueBrokers = response.data.brokers.sort() as string[];
-          
+
           // Ensure "ALL" is in the list and at the beginning
-          const brokersWithAll = uniqueBrokers.includes('ALL') 
-            ? uniqueBrokers 
+          const brokersWithAll = uniqueBrokers.includes('ALL')
+            ? uniqueBrokers
             : ['ALL', ...uniqueBrokers];
-          
+
           // Cache the brokers
           cache.set(cacheKey, brokersWithAll, cache.brokers);
-          
+
           if (brokersWithAll.length > 0) {
             console.log(`✅ Found ${brokersWithAll.length} brokers for ${actualTicker} from broker_inventory:`, brokersWithAll);
             setAvailableBrokersForStock(brokersWithAll);
@@ -2475,7 +2472,7 @@ const visibleBrokers = useMemo(
         setIsLoadingBrokersForStock(false);
       }
     };
-    
+
     loadBrokersForStock();
     // Remove selectedBrokers from dependencies to prevent infinite loop
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2485,7 +2482,7 @@ const visibleBrokers = useMemo(
   const handleBrokerSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const actualTicker = getActualTicker;
     if (!actualTicker || isLoadingBrokersForStock) return; // Don't allow search if no stock selected or loading
-    
+
     const value = e.target.value.toUpperCase();
     setBrokerSearch(value);
     setShowBrokerSuggestions(true);
@@ -2498,7 +2495,7 @@ const visibleBrokers = useMemo(
       console.warn(`⚠️ Broker ${broker} is not available for stock ${selectedTicker}`);
       return;
     }
-    
+
     if (!selectedBrokers.includes(broker)) {
       const newSelectedBrokers = [...selectedBrokers, broker];
       setSelectedBrokers(newSelectedBrokers);
@@ -2528,11 +2525,11 @@ const visibleBrokers = useMemo(
       // Reset shouldFetchData to prevent auto-reload until Show is clicked
       setShouldFetchData(false);
       console.log(`✅ Broker removed. New selectedBrokers:`, newSelectedBrokers);
-      
+
       // Check if we need to disable modes
       const top5BuySet = new Set(brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker));
       const top5SellSet = new Set(brokerNetStats.topSellers.slice(0, 5).map(item => item.broker));
-      
+
       // If removed broker was from top 5 buy, check if all top 5 buy brokers are gone
       if (top5BuySet.has(broker)) {
         const remainingTop5Buy = newSelectedBrokers.filter(b => top5BuySet.has(b));
@@ -2540,7 +2537,7 @@ const visibleBrokers = useMemo(
           setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
         }
       }
-      
+
       // If removed broker was from top 5 sell, check if all top 5 sell brokers are gone
       if (top5SellSet.has(broker)) {
         const remainingTop5Sell = newSelectedBrokers.filter(b => top5SellSet.has(b));
@@ -2548,7 +2545,7 @@ const visibleBrokers = useMemo(
           setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
         }
       }
-      
+
       // If removed broker was custom, check if all custom brokers are gone
       if (!top5BuySet.has(broker) && !top5SellSet.has(broker)) {
         const remainingCustom = newSelectedBrokers.filter(b => !top5BuySet.has(b) && !top5SellSet.has(b));
@@ -2556,7 +2553,7 @@ const visibleBrokers = useMemo(
           setBrokerSelectionMode(prev => ({ ...prev, custom: false }));
         }
       }
-      
+
       setBrokerVisibility((prev) => {
         const updated = { ...prev };
         delete updated[broker];
@@ -2569,7 +2566,7 @@ const visibleBrokers = useMemo(
   const removeAllTop5Buy = () => {
     const top5BuySet = new Set(brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker));
     const brokersToRemove = selectedBrokers.filter(b => top5BuySet.has(b));
-    
+
     if (brokersToRemove.length > 0) {
       const newSelectedBrokers = selectedBrokers.filter(b => !top5BuySet.has(b));
       setSelectedBrokers(newSelectedBrokers);
@@ -2577,7 +2574,7 @@ const visibleBrokers = useMemo(
       setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
       // Reset shouldFetchData to prevent auto-reload until Show is clicked
       setShouldFetchData(false);
-      
+
       setBrokerVisibility((prev) => {
         const updated = { ...prev };
         brokersToRemove.forEach(broker => delete updated[broker]);
@@ -2590,7 +2587,7 @@ const visibleBrokers = useMemo(
   const removeAllTop5Sell = () => {
     const top5SellSet = new Set(brokerNetStats.topSellers.slice(0, 5).map(item => item.broker));
     const brokersToRemove = selectedBrokers.filter(b => top5SellSet.has(b));
-    
+
     if (brokersToRemove.length > 0) {
       const newSelectedBrokers = selectedBrokers.filter(b => !top5SellSet.has(b));
       setSelectedBrokers(newSelectedBrokers);
@@ -2598,7 +2595,7 @@ const visibleBrokers = useMemo(
       setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
       // Reset shouldFetchData to prevent auto-reload until Show is clicked
       setShouldFetchData(false);
-      
+
       setBrokerVisibility((prev) => {
         const updated = { ...prev };
         brokersToRemove.forEach(broker => delete updated[broker]);
@@ -2612,7 +2609,7 @@ const visibleBrokers = useMemo(
     const top5BuySet = new Set(brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker));
     const top5SellSet = new Set(brokerNetStats.topSellers.slice(0, 5).map(item => item.broker));
     const brokersToRemove = selectedBrokers.filter(b => !top5BuySet.has(b) && !top5SellSet.has(b));
-    
+
     if (brokersToRemove.length > 0) {
       const newSelectedBrokers = selectedBrokers.filter(b => top5BuySet.has(b) || top5SellSet.has(b));
       setSelectedBrokers(newSelectedBrokers);
@@ -2620,7 +2617,7 @@ const visibleBrokers = useMemo(
       setBrokerSelectionMode(prev => ({ ...prev, custom: false }));
       // Reset shouldFetchData to prevent auto-reload until Show is clicked
       setShouldFetchData(false);
-      
+
       setBrokerVisibility((prev) => {
         const updated = { ...prev };
         brokersToRemove.forEach(broker => delete updated[broker]);
@@ -2643,13 +2640,13 @@ const visibleBrokers = useMemo(
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setHighlightedBrokerIndex(prev => 
+        setHighlightedBrokerIndex(prev =>
           prev < totalItems - 1 ? prev + 1 : 0
         );
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setHighlightedBrokerIndex(prev => 
+        setHighlightedBrokerIndex(prev =>
           prev > 0 ? prev - 1 : totalItems - 1
         );
         break;
@@ -2705,15 +2702,15 @@ const visibleBrokers = useMemo(
               return;
             }
           }
-          
+
           // Handle regular brokers (adjust index if quick select is present)
           const brokerIndex = highlightedBrokerIndex - quickSelectCount;
           if (brokerIndex >= 0 && brokerIndex < filteredBrokers.length) {
             const selectedBroker = filteredBrokers[brokerIndex];
-          if (selectedBroker && selectedBrokers.includes(selectedBroker)) {
-            removeBroker(selectedBroker);
-          } else if (selectedBroker) {
-            handleBrokerSelect(selectedBroker);
+            if (selectedBroker && selectedBrokers.includes(selectedBroker)) {
+              removeBroker(selectedBroker);
+            } else if (selectedBroker) {
+              handleBrokerSelect(selectedBroker);
             }
           }
         }
@@ -2750,8 +2747,8 @@ const visibleBrokers = useMemo(
           const brokerIndex = highlightedBrokerIndex - quickSelectCount;
           if (brokerIndex >= 0 && brokerIndex < filteredBrokers.length) {
             const selectedBroker = filteredBrokers[brokerIndex];
-          if (selectedBroker && selectedBrokers.includes(selectedBroker)) {
-            removeBroker(selectedBroker);
+            if (selectedBroker && selectedBrokers.includes(selectedBroker)) {
+              removeBroker(selectedBroker);
             }
           }
         }
@@ -2832,19 +2829,19 @@ const visibleBrokers = useMemo(
   const handleStockSelect = (stock: string) => {
     // Ensure stock is valid, default to BBCA if empty
     const validStock = stock && stock.trim() !== '' ? stock : 'BBCA';
-    
+
     // Don't update if same ticker
     if (validStock === selectedTicker) {
       setTickerInput('');
       setShowStockSuggestions(false);
       return;
     }
-    
+
     // Single select: just set the selected ticker
     setSelectedTicker(validStock);
     setTickerInput('');
     setShowStockSuggestions(false);
-    
+
     // Reset broker selection and UI states - keep chart data until Show is clicked
     setBrokerSearch('');
     setShowBrokerSuggestions(false);
@@ -2884,27 +2881,27 @@ const visibleBrokers = useMemo(
             api.getStockList(),
             api.getSectorMapping()
           ]);
-          
+
           let stocks: string[] = [];
           let sectors: string[] = [];
           let mapping: { [sector: string]: string[] } = {};
-          
+
           if (stockResult.success && stockResult.data?.stocks && Array.isArray(stockResult.data.stocks)) {
             stocks = stockResult.data.stocks;
           }
-          
+
           if (sectorResult.success && sectorResult.data) {
             sectors = sectorResult.data.sectors || [];
             mapping = sectorResult.data.sectorMapping || {};
             setSectorMapping(mapping);
           }
-          
+
           // Remove IDX from ticker list (IDX is now a sector, not a ticker)
           const stocksWithoutIdx = stocks.filter(stock => stock !== 'IDX');
-          
+
           // Add sectors to the list (with prefix to distinguish from stocks)
           const sectorsWithPrefix = sectors.map(sector => `[SECTOR] ${sector}`);
-          
+
           // Combine stocks and sectors, then sort alphabetically
           // Ensure IDX is always first
           const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => {
@@ -2913,7 +2910,7 @@ const visibleBrokers = useMemo(
             if (b === '[SECTOR] IDX') return 1;
             return a.localeCompare(b);
           });
-          
+
           setAvailableStocks(allItems);
         } catch (err) {
           console.error('Error loading stocks:', err);
@@ -2932,8 +2929,8 @@ const visibleBrokers = useMemo(
       return;
     }
     // Check for exact sector match (case-insensitive)
-    const sectorMatch = availableStocks.find(stock => 
-      stock.startsWith('[SECTOR] ') && 
+    const sectorMatch = availableStocks.find(stock =>
+      stock.startsWith('[SECTOR] ') &&
       stock.replace('[SECTOR] ', '').toUpperCase() === upperValue &&
       selectedTicker !== stock
     );
@@ -3055,7 +3052,7 @@ const visibleBrokers = useMemo(
   // Ensure data is sorted and deduplicated before passing to chart
   const candlestickData = useMemo(() => {
     if (!ohlcData || ohlcData.length === 0) return [];
-    
+
     // Remove duplicates and sort by time
     const seen = new Set<string>();
     const uniqueData = ohlcData.filter((item: any) => {
@@ -3067,14 +3064,14 @@ const visibleBrokers = useMemo(
       seen.add(timeKey);
       return true;
     });
-    
+
     // Sort by time (ascending)
     const sorted = uniqueData.sort((a: any, b: any) => {
       if (a.time < b.time) return -1;
       if (a.time > b.time) return 1;
       return 0;
     });
-    
+
     return sorted;
   }, [ohlcData]);
 
@@ -3103,27 +3100,27 @@ const visibleBrokers = useMemo(
 
       try {
         console.log(`📊 Loading broker inventory data for ${selectedBrokers.length} brokers from ${startDate} to ${endDate}`);
-        
+
         // Load inventory data for each selected broker
         for (const broker of selectedBrokers) {
           try {
             // Check cache first (5 minutes TTL)
             const cacheKey = `inventory-${actualTicker}-${broker}`;
             let cachedData = cache.get(cacheKey, cache.inventory, 5 * 60 * 1000);
-            
+
             let formattedData: any[] = [];
-            
+
             if (cachedData) {
               console.log(`📊 Using cached inventory data for ${actualTicker}/${broker}`);
               formattedData = cachedData;
             } else {
               const response = await api.getBrokerInventoryData(actualTicker, broker);
-              
+
               if (response.success && response.data?.inventoryData) {
                 // Convert Date format from YYMMDD to YYYY-MM-DD for chart compatibility
                 formattedData = response.data.inventoryData.map((row: any) => {
                   let dateStr = row.Date || row.date || '';
-                  
+
                   // Convert YYMMDD (6 digits) to YYYY-MM-DD
                   // Format dari backend: YYMMDD (contoh: 241031 untuk 31 Oktober 2024)
                   if (dateStr && typeof dateStr === 'string') {
@@ -3144,13 +3141,13 @@ const visibleBrokers = useMemo(
                       dateStr = `${year}-${month}-${day}`;
                     }
                   }
-                  
+
                   const buyVolRaw = row.BuyVol ?? row.buyvol;
                   const sellVolRaw = row.SellVol ?? row.sellvol;
                   const cumulativeBuyRaw = row.CumulativeBuyVol ?? row.cumulativeBuyVol;
                   const cumulativeSellRaw = row.CumulativeSellVol ?? row.cumulativeSellVol;
                   const cumulativeNetBuyRaw = row.CumulativeNetBuyVol ?? row.cumulativeNetBuyVol ?? row.CumulativeNetBuy ?? row.cumulativeNetBuy;
-                  
+
                   const buyVol = typeof buyVolRaw === 'number' ? buyVolRaw : parseFloat(String(buyVolRaw || 0)) || 0;
                   const sellVol = typeof sellVolRaw === 'number' ? sellVolRaw : parseFloat(String(sellVolRaw || 0)) || 0;
                   const netBuyVol = typeof row.NetBuyVol === 'number' ? row.NetBuyVol : parseFloat(String(row.NetBuyVol || 0)) || (buyVol - sellVol);
@@ -3163,7 +3160,7 @@ const visibleBrokers = useMemo(
                   const cumNetBuyVol = typeof cumulativeNetBuyRaw === 'number'
                     ? cumulativeNetBuyRaw
                     : parseFloat(String(cumulativeNetBuyRaw || 0)) || 0;
-                  
+
                   const formattedRow = {
                     ...row,
                     Date: dateStr,
@@ -3175,29 +3172,29 @@ const visibleBrokers = useMemo(
                     CumulativeSellVol: cumSellVol ?? 0,
                     CumulativeNetBuyVol: cumNetBuyVol // Ensure consistent field name
                   };
-                  
+
                   return formattedRow;
                 });
-                
+
                 // Cache the full data
                 cache.set(cacheKey, formattedData, cache.inventory);
               } else {
                 formattedData = [];
               }
             }
-            
+
             // Filter data by date range
             const filteredData = formattedData.filter((row: any) => {
               const rowDate = row.Date || row.time || row.date;
               return rowDate >= startDate && rowDate <= endDate;
             });
-            
+
             inventoryDataMap[broker] = filteredData;
           } catch (error) {
             inventoryDataMap[broker] = [];
           }
         }
-        
+
         setBrokerInventoryData(inventoryDataMap);
       } catch (error) {
         console.error('Error loading broker inventory:', error);
@@ -3219,7 +3216,7 @@ const visibleBrokers = useMemo(
     // Don't wait for inventory data loading since it's computed from brokerSummaryData
     const minimalDataReady = !isLoadingData && !isLoadingBrokerData &&
       ohlcData.length > 0 && brokerSummaryData.length > 0 && selectedBrokers.length > 0;
-    
+
     if (minimalDataReady && !isDataReady) {
       setIsDataReady(true);
       // Update displayed ticker only when data is ready
@@ -3240,11 +3237,11 @@ const visibleBrokers = useMemo(
     if (selectedBrokers.length === 0 || !brokerSummaryData || brokerSummaryData.length === 0) {
       return [];
     }
-    
+
     // OPTIMIZED: Create a Map for O(1) lookup: key = `${date}-${broker}`, value = row data
     const dataMap = new Map<string, any>();
     const allDates = new Set<string>();
-    
+
     brokerSummaryData.forEach((row: any) => {
       const date = row.date || row.time || row.Date;
       const broker = row.broker || row.BrokerCode;
@@ -3260,19 +3257,19 @@ const visibleBrokers = useMemo(
 
     sortedDates.forEach(date => {
       const dayData: InventoryTimeSeries = { time: date };
-      
+
       // OPTIMIZED: Use Map lookup instead of filter for O(1) instead of O(n)
       selectedBrokers.forEach(broker => {
         const key = `${date}-${broker}`;
         const row = dataMap.get(key);
-        
+
         if (row) {
           // Get NetBuyVol and NetSellVol (same as NET table)
           const netBuyVol = typeof row.NetBuyVol === 'number' ? row.NetBuyVol : parseFloat(String(row.NetBuyVol || 0)) || 0;
           const netSellVol = typeof row.NetSellVol === 'number' ? row.NetSellVol : parseFloat(String(row.NetSellVol || 0)) || 0;
           const netBuyValue = typeof row.NetBuyValue === 'number' ? row.NetBuyValue : parseFloat(String(row.NetBuyValue || 0)) || 0;
           const netSellValue = typeof row.NetSellValue === 'number' ? row.NetSellValue : parseFloat(String(row.NetSellValue || 0)) || 0;
-          
+
           // Determine if broker is NetBuy or NetSell (same logic as NET table per-date)
           let netVolume = 0;
           if (netBuyValue >= netSellValue && (netBuyVol > 0 || netBuyValue > 0)) {
@@ -3280,22 +3277,22 @@ const visibleBrokers = useMemo(
           } else if (netSellValue > netBuyValue && (netSellVol > 0 || netSellValue > 0)) {
             netVolume = -netSellVol;
           }
-          
+
           dayData[broker] = netVolume;
         } else {
           dayData[broker] = 0;
         }
       });
-      
+
       inventorySeries.push(dayData);
     });
-    
+
     return inventorySeries;
   }, [brokerSummaryData, selectedBrokers]);
 
   const volumeDataForCharts = useMemo(() => {
     if (!volumeData || volumeData.length === 0) return [];
-    
+
     // Remove duplicates and sort by time
     const seen = new Set<string>();
     const uniqueData = volumeData.filter((item: any) => {
@@ -3307,14 +3304,14 @@ const visibleBrokers = useMemo(
       seen.add(timeKey);
       return true;
     });
-    
+
     // Sort by time (ascending)
     const sorted = uniqueData.sort((a: any, b: any) => {
       if (a.time < b.time) return -1;
       if (a.time > b.time) return 1;
       return 0;
     });
-    
+
     return sorted;
   }, [volumeData]);
 
@@ -3334,7 +3331,7 @@ const visibleBrokers = useMemo(
     const netByBroker = new Map<string, number>();
     const buyVolByBroker = new Map<string, number>();
     const sellVolByBroker = new Map<string, number>();
-    
+
     // Aggregate NetBuy and NetSell per broker (same logic as BrokerSummaryPage NET table)
     const brokerNetBuyTotals: { [broker: string]: { nblot: number; nbval: number } } = {};
     const brokerNetSellTotals: { [broker: string]: { nslot: number; nsval: number } } = {};
@@ -3350,10 +3347,10 @@ const visibleBrokers = useMemo(
       const sellValue = typeof record.SellVol === 'number'
         ? record.SellVol
         : parseFloat(String(record.SellVol || 0)) || 0;
-      
+
       // Get NetBuyValue and NetSellValue (same as BrokerSummaryPage NET table)
-      const netBuyValue = typeof record.NetBuyValue === 'number' 
-        ? record.NetBuyValue 
+      const netBuyValue = typeof record.NetBuyValue === 'number'
+        ? record.NetBuyValue
         : parseFloat(String(record.NetBuyValue || 0)) || 0;
       const netSellValue = typeof record.NetSellValue === 'number'
         ? record.NetSellValue
@@ -3362,7 +3359,7 @@ const visibleBrokers = useMemo(
       netByBroker.set(broker, (netByBroker.get(broker) || 0) + netValue);
       buyVolByBroker.set(broker, (buyVolByBroker.get(broker) || 0) + buyValue);
       sellVolByBroker.set(broker, (sellVolByBroker.get(broker) || 0) + sellValue);
-      
+
       // Aggregate NetBuy totals per broker (same as BrokerSummaryPage NET table)
       if (netBuyValue > 0 || netValue > 0) {
         if (!brokerNetBuyTotals[broker]) {
@@ -3371,7 +3368,7 @@ const visibleBrokers = useMemo(
         brokerNetBuyTotals[broker].nblot += record.NetBuyVol || 0;
         brokerNetBuyTotals[broker].nbval += netBuyValue;
       }
-      
+
       // Aggregate NetSell totals per broker (same as BrokerSummaryPage NET table)
       if (netSellValue > 0) {
         if (!brokerNetSellTotals[broker]) {
@@ -3385,12 +3382,12 @@ const visibleBrokers = useMemo(
     // Determine final side for each broker based on which total is larger (same as BrokerSummaryPage NET table)
     const totalNetBuyData: { [broker: string]: { nblot: number; nbval: number } } = {};
     const totalNetSellData: { [broker: string]: { nslot: number; nsval: number } } = {};
-    
+
     const allBrokers = new Set([...Object.keys(brokerNetBuyTotals), ...Object.keys(brokerNetSellTotals)]);
     allBrokers.forEach(broker => {
       const netBuyTotal = brokerNetBuyTotals[broker] || { nblot: 0, nbval: 0 };
       const netSellTotal = brokerNetSellTotals[broker] || { nslot: 0, nsval: 0 };
-      
+
       // Compare total NetBuy value vs total NetSell value (same as BrokerSummaryPage NET table)
       if (netBuyTotal.nbval > netSellTotal.nsval) {
         // NetBuy is larger: broker goes to NetBuy side
@@ -3423,17 +3420,17 @@ const visibleBrokers = useMemo(
     // Sort and filter (same as BrokerSummaryPage NET table sortedTotalNetBuy and sortedTotalNetSell)
     const sortedTotalNetBuy = Object.entries(totalNetBuyData)
       .filter(([, data]) => data.nbval > 0) // Only include brokers with positive net value
-      .map(([broker, data]) => ({ 
-        broker, 
+      .map(([broker, data]) => ({
+        broker,
         nblot: data.nblot,
         nbval: data.nbval,
       }))
       .sort((a, b) => b.nbval - a.nbval);
-      
+
     const sortedTotalNetSell = Object.entries(totalNetSellData)
       .filter(([, data]) => data.nsval > 0) // Only include brokers with positive net value
-      .map(([broker, data]) => ({ 
-        broker, 
+      .map(([broker, data]) => ({
+        broker,
         nslot: data.nslot,
         nsval: data.nsval,
       }))
@@ -3544,8 +3541,8 @@ const visibleBrokers = useMemo(
       availableBrokersForStock.length > 0
         ? availableBrokersForStock
         : brokerSummaryData
-            .map((record) => (record.broker || record.BrokerCode || '') as string)
-            .filter(Boolean);
+          .map((record) => (record.broker || record.BrokerCode || '') as string)
+          .filter(Boolean);
 
     if (candidatePool.length === 0) return;
 
@@ -3616,45 +3613,45 @@ const visibleBrokers = useMemo(
     if (!broker || typeof broker !== 'string') {
       return 'hsl(0, 0%, 35%)'; // Return dark gray color for invalid broker
     }
-    
+
     const sortedBrokers = [...new Set(allBrokers)].sort();
     const brokerIndex = sortedBrokers.indexOf(broker);
-    
+
     // Create a hash from broker code for more random distribution
     const brokerHash = broker.split('').reduce((acc, char, idx) => {
       return acc + char.charCodeAt(0) * (idx + 1);
     }, 0);
-    
+
     if (brokerIndex === -1) {
       // Fallback for unknown brokers
       const hue = brokerHash % 360;
       return `hsl(${hue}, 75%, 30%)`; // Darker for better text contrast
     }
-    
+
     // Use both brokerIndex and brokerHash to ensure unique colors
     // This combination ensures different brokers get different colors even if they're close in index
-    
+
     // Calculate hue with larger variation to ensure contrast
     // Distribute hues evenly across 360 degrees with minimum spacing
     const totalBrokers = sortedBrokers.length;
     const baseHueStep = 360 / Math.max(totalBrokers, 1);
     const baseHue = (brokerIndex * baseHueStep) % 360;
-    
+
     // Add significant variation from hash to differentiate brokers with similar indices
     // This ensures brokers get unique colors even if they're adjacent in the sorted list
     const hashHueVariation = (brokerHash % 40) - 20; // -20 to +20 degrees variation
     const finalHue = (baseHue + hashHueVariation + 360) % 360;
-    
+
     // Use hash to create more variation in saturation
     // Wider saturation range (65-90%) for better distinction
     const satHash = brokerHash % 26; // 0-25
     const saturation = 65 + satHash; // 65-90% saturation
-    
+
     // Use hash to create more variation in lightness
     // Wider lightness range (22-35%) for better distinction
     const lightHash = (brokerHash * 7) % 14; // 0-13
     const lightness = 22 + lightHash; // 22-35% lightness (dark enough for white text)
-    
+
     return `hsl(${Math.round(finalHue)}, ${saturation}%, ${lightness}%)`;
   };
 
@@ -3662,7 +3659,7 @@ const visibleBrokers = useMemo(
   // OPTIMIZED: Use Map for grouping and pre-compute broker colors
   const topBrokersData = useMemo(() => {
     if (!brokerSummaryData || brokerSummaryData.length === 0) return [];
-    
+
     // OPTIMIZED: Get all unique brokers once and pre-compute colors
     const allBrokers = [...new Set(brokerSummaryData.map(r => r.broker).filter((b): b is string => Boolean(b) && typeof b === 'string'))];
     const brokerColorCache = new Map<string, string>();
@@ -3672,7 +3669,7 @@ const visibleBrokers = useMemo(
       }
       return brokerColorCache.get(broker)!;
     };
-    
+
     // OPTIMIZED: Use Map for O(1) grouping instead of object with repeated checks
     const dataByDate = new Map<string, any[]>();
     brokerSummaryData.forEach(record => {
@@ -3684,15 +3681,15 @@ const visibleBrokers = useMemo(
         dataByDate.get(date)!.push(record);
       }
     });
-    
+
     // Get unique dates and sort them
     const dates = Array.from(dataByDate.keys()).sort();
-    
+
     // OPTIMIZED: Pre-filter and sort brokers once per date
     return dates.map(date => {
       const brokersForDate = dataByDate.get(date) || [];
       const limit = topBrokersCount === 'all' ? brokersForDate.length : topBrokersCount;
-      
+
       // Sort by NetBuyVol descending and slice
       const sortedBrokers = brokersForDate
         .filter(record => record.broker && typeof record.broker === 'string')
@@ -3704,7 +3701,7 @@ const visibleBrokers = useMemo(
           netFlow: record.NetBuyVol || 0,
           color: getBrokerColor(record.broker || record.BrokerCode || '')
         }));
-      
+
       return {
         date,
         topBrokers: sortedBrokers
@@ -3720,12 +3717,12 @@ const visibleBrokers = useMemo(
     totalOtherBrokersCount,
   } = useMemo(() => {
     const searchTerm = debouncedBrokerSearch.toLowerCase();
-    
+
     // Get top 5 buy and top 5 sell brokers
     const top5BuyBrokers = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
     const top5SellBrokers = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
     const top5BuySellSet = new Set([...top5BuyBrokers, ...top5SellBrokers]);
-    
+
     // Get top brokers order from last date
     const lastDateData = topBrokersData.length > 0 ? topBrokersData[topBrokersData.length - 1] : null;
     const topBrokersOrderMap = new Map<string, number>();
@@ -3734,7 +3731,7 @@ const visibleBrokers = useMemo(
         topBrokersOrderMap.set(brokerData.broker, index);
       });
     }
-    
+
     const recommended = defaultBrokers
       .filter((broker) => availableBrokersForStock.includes(broker))
       .filter((broker) => !selectedBrokers.includes(broker))
@@ -3745,34 +3742,34 @@ const visibleBrokers = useMemo(
       // "ALL" always comes first
       if (a === 'ALL') return -1;
       if (b === 'ALL') return 1;
-      
+
       const aIsTop5 = top5BuySellSet.has(a);
       const bIsTop5 = top5BuySellSet.has(b);
-      
+
       // Top 5 Buy/Sell brokers always come after "ALL"
       if (aIsTop5 && !bIsTop5) return -1;
       if (!aIsTop5 && bIsTop5) return 1;
-      
+
       // If both are Top 5, maintain their original order (top 5 buy first, then top 5 sell)
       if (aIsTop5 && bIsTop5) {
         const aIndex = top5BuyBrokers.indexOf(a) !== -1 ? top5BuyBrokers.indexOf(a) : top5SellBrokers.indexOf(a) + 5;
         const bIndex = top5BuyBrokers.indexOf(b) !== -1 ? top5BuyBrokers.indexOf(b) : top5SellBrokers.indexOf(b) + 5;
         return aIndex - bIndex;
       }
-      
+
       // For non-Top 5 brokers, sort by top brokers order from last date
       const aOrder = topBrokersOrderMap.has(a) ? topBrokersOrderMap.get(a)! : Infinity;
       const bOrder = topBrokersOrderMap.has(b) ? topBrokersOrderMap.get(b)! : Infinity;
-      
+
       // If both are in top brokers, sort by their order
       if (aOrder !== Infinity && bOrder !== Infinity) {
         return aOrder - bOrder;
       }
-      
+
       // If only one is in top brokers, it comes first
       if (aOrder !== Infinity) return -1;
       if (bOrder !== Infinity) return 1;
-      
+
       // If neither is in top brokers, maintain original order
       return 0;
     });
@@ -3787,19 +3784,19 @@ const visibleBrokers = useMemo(
       // "ALL" always comes first
       if (a === 'ALL') return -1;
       if (b === 'ALL') return 1;
-      
+
       const aOrder = topBrokersOrderMap.has(a) ? topBrokersOrderMap.get(a)! : Infinity;
       const bOrder = topBrokersOrderMap.has(b) ? topBrokersOrderMap.get(b)! : Infinity;
-      
+
       // If both are in top brokers, sort by their order
       if (aOrder !== Infinity && bOrder !== Infinity) {
         return aOrder - bOrder;
       }
-      
+
       // If only one is in top brokers, it comes first
       if (aOrder !== Infinity) return -1;
       if (bOrder !== Infinity) return 1;
-      
+
       // If neither is in top brokers, maintain original order
       return 0;
     });
@@ -3853,173 +3850,173 @@ const visibleBrokers = useMemo(
               {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
               <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
                 <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
-                {/* Ticker Selection */}
-                {!disableTickerSelection && (
-                <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-                  <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-                  <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
-                    <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                    <input
-                      type="text"
-                      value={tickerInput || (selectedTicker ? formatStockDisplayName(selectedTicker) : '')}
-                      onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
-                      onFocus={() => { 
-                        setTickerInput('');
-                        setShowStockSuggestions(true); 
-                        setHighlightedStockIndex(0); 
-                      }}
-                      onKeyDown={(e) => {
-                        const suggestions = (tickerInput === '' ? availableStocks.filter(s => selectedTicker !== s) : filteredStocks).slice(0, 10);
-                        if (!suggestions.length) return;
-                        if (e.key === 'ArrowDown') {
-                          e.preventDefault();
-                            setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
-                        } else if (e.key === 'ArrowUp') {
-                          e.preventDefault();
-                            setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-                          } else if (e.key === 'Enter' && showStockSuggestions) {
-                          e.preventDefault();
-                            const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
-                          const choice = suggestions[idx];
-                            if (choice) handleStockSelect(choice);
-                        } else if (e.key === 'Escape') {
-                            setShowStockSuggestions(false);
-                            setHighlightedStockIndex(-1);
-                          }
-                        }}
-                        placeholder={selectedTicker ? formatStockDisplayName(selectedTicker) : "Select ticker"}
-                        className={`w-full sm:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedTicker ? 'placeholder:text-white' : ''}`}
-                      />
-                      {showStockSuggestions && (
-                        <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]">
-                          {availableStocks.length === 0 ? (
-                            <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
-                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                              Loading stocks...
-                            </div>
-                          ) : (
-                            <div className="flex flex-row h-full max-h-96 overflow-hidden">
-                              {/* Left column: Stocks */}
-                              <div 
-                                className="flex-1 border-r border-[#3a4252] overflow-y-auto"
-                                onScroll={(e) => {
-                                  const target = e.target as HTMLElement;
-                                  const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-                                  if (scrollBottom < 100 && stockScrollOffset + ITEMS_PER_PAGE < (tickerInput === '' ? allStocksList.length : filteredStocksList.length)) {
-                                    setStockScrollOffset(prev => prev + ITEMS_PER_PAGE);
-                                  }
-                                }}
-                              >
-                                {tickerInput === '' ? (
-                                  <>
-                                    <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                      Stocks ({allStocksList.length})
-                                    </div>
-                                    {visibleAllStocksList.map(stock => (
-                                      <div
-                                        key={stock}
-                                        onClick={() => handleStockSelect(stock)}
-                                        className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                                      >
-                                        {stock}
-                                      </div>
-                                    ))}
-                                    {stockScrollOffset + ITEMS_PER_PAGE < allStocksList.length && (
-                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                        Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, allStocksList.length)} / {allStocksList.length})
-                                      </div>
-                                    )}
-                                  </>
-                                ) : filteredStocksList.length > 0 ? (
-                                  <>
-                                    <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                      Stocks ({filteredStocksList.length})
-                                    </div>
-                                    {visibleStocksList.map(stock => (
-                                      <div
-                                        key={stock}
-                                        onClick={() => handleStockSelect(stock)}
-                                        className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                                      >
-                                        {stock}
-                                      </div>
-                                    ))}
-                                    {stockScrollOffset + ITEMS_PER_PAGE < filteredStocksList.length && (
-                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                        Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, filteredStocksList.length)} / {filteredStocksList.length})
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                    Stocks (0)
-                                  </div>
-                                )}
+                  {/* Ticker Selection */}
+                  {!disableTickerSelection && (
+                    <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                      <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
+                      <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
+                        <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                        <input
+                          type="text"
+                          value={tickerInput || (selectedTicker ? formatStockDisplayName(selectedTicker) : '')}
+                          onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                          onFocus={() => {
+                            setTickerInput('');
+                            setShowStockSuggestions(true);
+                            setHighlightedStockIndex(0);
+                          }}
+                          onKeyDown={(e) => {
+                            const suggestions = (tickerInput === '' ? availableStocks.filter(s => selectedTicker !== s) : filteredStocks).slice(0, 10);
+                            if (!suggestions.length) return;
+                            if (e.key === 'ArrowDown') {
+                              e.preventDefault();
+                              setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
+                            } else if (e.key === 'ArrowUp') {
+                              e.preventDefault();
+                              setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                            } else if (e.key === 'Enter' && showStockSuggestions) {
+                              e.preventDefault();
+                              const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                              const choice = suggestions[idx];
+                              if (choice) handleStockSelect(choice);
+                            } else if (e.key === 'Escape') {
+                              setShowStockSuggestions(false);
+                              setHighlightedStockIndex(-1);
+                            }
+                          }}
+                          placeholder={selectedTicker ? formatStockDisplayName(selectedTicker) : "Select ticker"}
+                          className={`w-full sm:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedTicker ? 'placeholder:text-white' : ''}`}
+                        />
+                        {showStockSuggestions && (
+                          <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]">
+                            {availableStocks.length === 0 ? (
+                              <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
+                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                Loading stocks...
                               </div>
-                              {/* Right column: Sectors */}
-                              <div 
-                                className="flex-1 overflow-y-auto"
-                                onScroll={(e) => {
-                                  const target = e.target as HTMLElement;
-                                  const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-                                  if (scrollBottom < 100 && sectorScrollOffset + ITEMS_PER_PAGE < (tickerInput === '' ? allSectorsList.length : filteredSectorsList.length)) {
-                                    setSectorScrollOffset(prev => prev + ITEMS_PER_PAGE);
-                                  }
-                                }}
-                              >
-                                {tickerInput === '' ? (
-                                  <>
+                            ) : (
+                              <div className="flex flex-row h-full max-h-96 overflow-hidden">
+                                {/* Left column: Stocks */}
+                                <div
+                                  className="flex-1 border-r border-[#3a4252] overflow-y-auto"
+                                  onScroll={(e) => {
+                                    const target = e.target as HTMLElement;
+                                    const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                                    if (scrollBottom < 100 && stockScrollOffset + ITEMS_PER_PAGE < (tickerInput === '' ? allStocksList.length : filteredStocksList.length)) {
+                                      setStockScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                                    }
+                                  }}
+                                >
+                                  {tickerInput === '' ? (
+                                    <>
+                                      <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                        Stocks ({allStocksList.length})
+                                      </div>
+                                      {visibleAllStocksList.map(stock => (
+                                        <div
+                                          key={stock}
+                                          onClick={() => handleStockSelect(stock)}
+                                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                                        >
+                                          {stock}
+                                        </div>
+                                      ))}
+                                      {stockScrollOffset + ITEMS_PER_PAGE < allStocksList.length && (
+                                        <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                          Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, allStocksList.length)} / {allStocksList.length})
+                                        </div>
+                                      )}
+                                    </>
+                                  ) : filteredStocksList.length > 0 ? (
+                                    <>
+                                      <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                        Stocks ({filteredStocksList.length})
+                                      </div>
+                                      {visibleStocksList.map(stock => (
+                                        <div
+                                          key={stock}
+                                          onClick={() => handleStockSelect(stock)}
+                                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                                        >
+                                          {stock}
+                                        </div>
+                                      ))}
+                                      {stockScrollOffset + ITEMS_PER_PAGE < filteredStocksList.length && (
+                                        <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                          Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, filteredStocksList.length)} / {filteredStocksList.length})
+                                        </div>
+                                      )}
+                                    </>
+                                  ) : (
                                     <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                      Sectors ({allSectorsList.length})
+                                      Stocks (0)
                                     </div>
-                                    {visibleAllSectorsList.map(stock => (
-                                      <div
-                                        key={stock}
-                                        onClick={() => handleStockSelect(stock)}
-                                        className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                                      >
-                                        {formatStockDisplayName(stock)}
+                                  )}
+                                </div>
+                                {/* Right column: Sectors */}
+                                <div
+                                  className="flex-1 overflow-y-auto"
+                                  onScroll={(e) => {
+                                    const target = e.target as HTMLElement;
+                                    const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                                    if (scrollBottom < 100 && sectorScrollOffset + ITEMS_PER_PAGE < (tickerInput === '' ? allSectorsList.length : filteredSectorsList.length)) {
+                                      setSectorScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                                    }
+                                  }}
+                                >
+                                  {tickerInput === '' ? (
+                                    <>
+                                      <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                        Sectors ({allSectorsList.length})
                                       </div>
-                                    ))}
-                                    {sectorScrollOffset + ITEMS_PER_PAGE < allSectorsList.length && (
-                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                        Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, allSectorsList.length)} / {allSectorsList.length})
+                                      {visibleAllSectorsList.map(stock => (
+                                        <div
+                                          key={stock}
+                                          onClick={() => handleStockSelect(stock)}
+                                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                                        >
+                                          {formatStockDisplayName(stock)}
+                                        </div>
+                                      ))}
+                                      {sectorScrollOffset + ITEMS_PER_PAGE < allSectorsList.length && (
+                                        <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                          Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, allSectorsList.length)} / {allSectorsList.length})
+                                        </div>
+                                      )}
+                                    </>
+                                  ) : filteredSectorsList.length > 0 ? (
+                                    <>
+                                      <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                        Sectors ({filteredSectorsList.length})
                                       </div>
-                                    )}
-                                  </>
-                                ) : filteredSectorsList.length > 0 ? (
-                                  <>
+                                      {visibleSectorsList.map(stock => (
+                                        <div
+                                          key={stock}
+                                          onClick={() => handleStockSelect(stock)}
+                                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                                        >
+                                          {formatStockDisplayName(stock)}
+                                        </div>
+                                      ))}
+                                      {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
+                                        <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                          Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
+                                        </div>
+                                      )}
+                                    </>
+                                  ) : (
                                     <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                      Sectors ({filteredSectorsList.length})
+                                      Sectors (0)
                                     </div>
-                                    {visibleSectorsList.map(stock => (
-                                      <div
-                                        key={stock}
-                                        onClick={() => handleStockSelect(stock)}
-                                        className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                                      >
-                                        {formatStockDisplayName(stock)}
-                                      </div>
-                                    ))}
-                                    {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
-                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                        Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                    Sectors (0)
-                                  </div>
-                                )}
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
                   {/* Broker Selection - Multi-select with chips */}
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
                     <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
@@ -4030,7 +4027,7 @@ const visibleBrokers = useMemo(
                         placeholder={(() => {
                           if (isLoadingBrokersForStock) return "Loading...";
                           if (!getActualTicker) return "Select ticker first...";
-                          
+
                           // Get quick select labels that are active
                           const quickSelectLabels: string[] = [];
                           if (brokerSelectionMode.top5buy) {
@@ -4039,17 +4036,17 @@ const visibleBrokers = useMemo(
                           if (brokerSelectionMode.top5sell) {
                             quickSelectLabels.push('Top 5 Sell');
                           }
-                          
+
                           // If quick select is active, show quick select labels
                           if (quickSelectLabels.length > 0) {
                             return quickSelectLabels.join(' | ');
                           }
-                          
+
                           // Otherwise show selected brokers
                           if (selectedBrokers.length > 0) {
                             return selectedBrokers.length === 1 ? selectedBrokers[0] : selectedBrokers.join(' | ');
                           }
-                          
+
                           return `Broker for ${getActualTicker}...`;
                         })()}
                         value={brokerSearch}
@@ -4062,9 +4059,9 @@ const visibleBrokers = useMemo(
                         aria-expanded={showBrokerSuggestions}
                         aria-controls="broker-suggestions"
                         aria-autocomplete="list"
-                        />
-                        {showBrokerSuggestions && getActualTicker && !isLoadingBrokersForStock && (
-                          <div id="broker-suggestions" role="listbox" className="broker-dropdown-container absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-[100] max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]" onMouseDown={(e) => e.stopPropagation()}>
+                      />
+                      {showBrokerSuggestions && getActualTicker && !isLoadingBrokersForStock && (
+                        <div id="broker-suggestions" role="listbox" className="broker-dropdown-container absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-[100] max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]" onMouseDown={(e) => e.stopPropagation()}>
                           {availableBrokersForStock.length === 0 ? (
                             <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                               {isLoadingBrokersForStock ? (
@@ -4079,7 +4076,7 @@ const visibleBrokers = useMemo(
                           ) : (
                             <div className="flex flex-row h-full max-h-96 overflow-hidden">
                               {/* Left column: Brokers */}
-                              <div 
+                              <div
                                 className="flex-1 border-r border-[#3a4252] overflow-y-auto"
                                 onScroll={(e) => {
                                   const target = e.target as HTMLElement;
@@ -4101,62 +4098,62 @@ const visibleBrokers = useMemo(
                                           Recommended ({recommendedBrokers.length})
                                         </div>
                                         {visibleRecommendedBrokers.map((broker, index) => {
-                                    const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
-                                    const quickSelectCount = hasQuickSelect ? 2 : 0;
-                                    const globalIndex = quickSelectCount + index;
-                                    return (
-                                      <div
-                                        key={`recommended-${broker}`}
-                                        onClick={(e) => {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          // Only handle click if not clicking directly on checkbox
-                                          const target = e.target as HTMLElement;
-                                          if (target.tagName !== 'INPUT' && !target.closest('input')) {
-                                            // Allow selecting individual brokers even after quick select
-                                            if (selectedBrokers.includes(broker)) {
-                                              // If already selected, remove it
-                                              removeBroker(broker);
-                                            } else {
-                                              // If not selected, add it
-                                            handleBrokerSelect(broker);
-                                            }
-                                            // Keep suggestions open to allow multiple selections
-                                          }
-                                        }}
-                                        onMouseDown={(e) => {
-                                          // Prevent mousedown from closing dropdown
-                                          e.stopPropagation();
-                                        }}
-                                        className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${globalIndex === highlightedBrokerIndex ? 'bg-accent' : ''} ${selectedBrokers.includes(broker) ? 'bg-accent/50' : ''}`}
-                                        onMouseEnter={() => handleBrokerMouseEnter(globalIndex)}
-                                      >
-                                        <div className="flex items-center gap-2">
-                                          <input
-                                            type="checkbox"
-                                            checked={selectedBrokers.includes(broker)}
-                                            onChange={(e) => {
-                                              e.stopPropagation();
-                                              if (e.target.checked) {
-                                                if (!selectedBrokers.includes(broker)) {
-                                                  handleBrokerSelect(broker);
+                                          const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
+                                          const quickSelectCount = hasQuickSelect ? 2 : 0;
+                                          const globalIndex = quickSelectCount + index;
+                                          return (
+                                            <div
+                                              key={`recommended-${broker}`}
+                                              onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                // Only handle click if not clicking directly on checkbox
+                                                const target = e.target as HTMLElement;
+                                                if (target.tagName !== 'INPUT' && !target.closest('input')) {
+                                                  // Allow selecting individual brokers even after quick select
+                                                  if (selectedBrokers.includes(broker)) {
+                                                    // If already selected, remove it
+                                                    removeBroker(broker);
+                                                  } else {
+                                                    // If not selected, add it
+                                                    handleBrokerSelect(broker);
+                                                  }
+                                                  // Keep suggestions open to allow multiple selections
                                                 }
-                                              } else {
-                                                removeBroker(broker);
-                                              }
-                                            }}
-                                            onClick={(e) => e.stopPropagation()}
-                                            onMouseDown={(e) => e.stopPropagation()}
-                                            className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
-                                          />
-                                          <span className={getBrokerColorClass(broker).className} style={{ color: getBrokerColorClass(broker).color }}>{broker}</span>
-                                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 py-0.5">
-                                            Default
-                                          </span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
+                                              }}
+                                              onMouseDown={(e) => {
+                                                // Prevent mousedown from closing dropdown
+                                                e.stopPropagation();
+                                              }}
+                                              className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${globalIndex === highlightedBrokerIndex ? 'bg-accent' : ''} ${selectedBrokers.includes(broker) ? 'bg-accent/50' : ''}`}
+                                              onMouseEnter={() => handleBrokerMouseEnter(globalIndex)}
+                                            >
+                                              <div className="flex items-center gap-2">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={selectedBrokers.includes(broker)}
+                                                  onChange={(e) => {
+                                                    e.stopPropagation();
+                                                    if (e.target.checked) {
+                                                      if (!selectedBrokers.includes(broker)) {
+                                                        handleBrokerSelect(broker);
+                                                      }
+                                                    } else {
+                                                      removeBroker(broker);
+                                                    }
+                                                  }}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  onMouseDown={(e) => e.stopPropagation()}
+                                                  className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
+                                                />
+                                                <span className={getBrokerColorClass(broker).className} style={{ color: getBrokerColorClass(broker).color }}>{broker}</span>
+                                                <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 py-0.5">
+                                                  Default
+                                                </span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
                                       </>
                                     )}
                                     {otherBrokers.length > 0 && (
@@ -4258,7 +4255,7 @@ const visibleBrokers = useMemo(
                                         // Toggle top5buy mode and add/remove top 5 buyers
                                         const top5Buy = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
                                         const isCurrentlyActive = brokerSelectionMode.top5buy;
-                                        
+
                                         if (isCurrentlyActive) {
                                           // Remove top 5 buyers from selection
                                           setSelectedBrokers(prev => prev.filter(b => !top5Buy.includes(b)));
@@ -4290,7 +4287,7 @@ const visibleBrokers = useMemo(
                                           }
                                           const top5Buy = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
                                           const isCurrentlyActive = brokerSelectionMode.top5buy;
-                                          
+
                                           if (isCurrentlyActive) {
                                             setSelectedBrokers(prev => prev.filter(b => !top5Buy.includes(b)));
                                             setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
@@ -4324,7 +4321,7 @@ const visibleBrokers = useMemo(
                                         // Toggle top5sell mode and add/remove top 5 sellers
                                         const top5Sell = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
                                         const isCurrentlyActive = brokerSelectionMode.top5sell;
-                                        
+
                                         if (isCurrentlyActive) {
                                           // Remove top 5 sellers from selection
                                           setSelectedBrokers(prev => prev.filter(b => !top5Sell.includes(b)));
@@ -4356,7 +4353,7 @@ const visibleBrokers = useMemo(
                                           }
                                           const top5Sell = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
                                           const isCurrentlyActive = brokerSelectionMode.top5sell;
-                                          
+
                                           if (isCurrentlyActive) {
                                             setSelectedBrokers(prev => prev.filter(b => !top5Sell.includes(b)));
                                             setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
@@ -4400,181 +4397,181 @@ const visibleBrokers = useMemo(
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
                     <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
                     <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <div 
-                      className="relative h-9 flex-1 sm:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
-                      onClick={() => triggerDatePicker(startDateRef)}
-                    >
-                      <input
-                        ref={startDateRef}
-                        type="date"
-                        value={formatDateForInput(startDate)}
-                        onChange={(e) => {
-                          const selectedDate = e.target.value;
-                          
-                          // Validate minimum date (19/09/2025)
-                          if (selectedDate < MIN_DATE) {
-                            showToast({
-                              type: 'error',
-                              title: 'Tanggal Tidak Valid',
-                              message: `Tanggal minimum yang bisa dipilih adalah ${new Date(MIN_DATE).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
-                            });
-                            if (startDateRef.current) {
-                              startDateRef.current.value = formatDateForInput(startDate);
+                      <div
+                        className="relative h-9 flex-1 sm:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                        onClick={() => triggerDatePicker(startDateRef)}
+                      >
+                        <input
+                          ref={startDateRef}
+                          type="date"
+                          value={formatDateForInput(startDate)}
+                          onChange={(e) => {
+                            const selectedDate = e.target.value;
+
+                            // Validate minimum date (19/09/2025)
+                            if (selectedDate < MIN_DATE) {
+                              showToast({
+                                type: 'error',
+                                title: 'Tanggal Tidak Valid',
+                                message: `Tanggal minimum yang bisa dipilih adalah ${new Date(MIN_DATE).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+                              });
+                              if (startDateRef.current) {
+                                startDateRef.current.value = formatDateForInput(startDate);
+                              }
+                              return;
                             }
-                            return;
-                          }
-                          
-                          // Validate maximum date (latest data date)
-                          if (latestDataDate && selectedDate > latestDataDate) {
-                            showToast({
-                              type: 'error',
-                              title: 'Tanggal Tidak Valid',
-                              message: `Tanggal maksimum yang tersedia adalah ${new Date(latestDataDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
-                            });
-                            if (startDateRef.current) {
-                              startDateRef.current.value = formatDateForInput(startDate);
+
+                            // Validate maximum date (latest data date)
+                            if (latestDataDate && selectedDate > latestDataDate) {
+                              showToast({
+                                type: 'error',
+                                title: 'Tanggal Tidak Valid',
+                                message: `Tanggal maksimum yang tersedia adalah ${new Date(latestDataDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+                              });
+                              if (startDateRef.current) {
+                                startDateRef.current.value = formatDateForInput(startDate);
+                              }
+                              return;
                             }
-                            return;
-                          }
-                          setStartDate(selectedDate);
-                          if (!endDate || new Date(selectedDate) > new Date(endDate)) {
-                            setEndDate(selectedDate);
-                          }
-                        }}
-                        max={latestDataDate ? formatDateForInput(latestDataDate) : (endDate ? formatDateForInput(endDate) : new Date().toISOString().split('T')[0] || '')}
-                        min={MIN_DATE}
-                        onKeyDown={(e) => e.preventDefault()}
-                        onPaste={(e) => e.preventDefault()}
-                        onInput={(e) => e.preventDefault()}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        style={{ caretColor: 'transparent' }}
-                      />
-                      <div className="flex items-center gap-2 h-full px-3">
-                        <Calendar className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm text-foreground">
-                          {startDate ? new Date(startDate).toLocaleDateString('en-GB', { 
-                            day: '2-digit', 
-                            month: '2-digit', 
-                            year: 'numeric' 
-                          }) : 'DD/MM/YYYY'}
-                        </span>
+                            setStartDate(selectedDate);
+                            if (!endDate || new Date(selectedDate) > new Date(endDate)) {
+                              setEndDate(selectedDate);
+                            }
+                          }}
+                          max={latestDataDate ? formatDateForInput(latestDataDate) : (endDate ? formatDateForInput(endDate) : new Date().toISOString().split('T')[0] || '')}
+                          min={MIN_DATE}
+                          onKeyDown={(e) => e.preventDefault()}
+                          onPaste={(e) => e.preventDefault()}
+                          onInput={(e) => e.preventDefault()}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          style={{ caretColor: 'transparent' }}
+                        />
+                        <div className="flex items-center gap-2 h-full px-3">
+                          <Calendar className="w-4 h-4 text-muted-foreground" />
+                          <span className="text-sm text-foreground">
+                            {startDate ? new Date(startDate).toLocaleDateString('en-GB', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric'
+                            }) : 'DD/MM/YYYY'}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    <span className="text-sm text-muted-foreground whitespace-nowrap hidden sm:inline">to</span>
-                    <div 
-                      className="relative h-9 flex-1 sm:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
-                      onClick={() => triggerDatePicker(endDateRef)}
-                    >
-                      <input
-                        ref={endDateRef}
-                        type="date"
-                        value={formatDateForInput(endDate)}
-                        onChange={(e) => {
-                          const selectedDate = e.target.value;
-                          
-                          if (selectedDate < MIN_DATE) {
-                            showToast({
-                              type: 'error',
-                              title: 'Tanggal Tidak Valid',
-                              message: `Tanggal minimum yang bisa dipilih adalah ${new Date(MIN_DATE).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
-                            });
-                            if (endDateRef.current) {
-                              endDateRef.current.value = formatDateForInput(endDate);
+                      <span className="text-sm text-muted-foreground whitespace-nowrap hidden sm:inline">to</span>
+                      <div
+                        className="relative h-9 flex-1 sm:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                        onClick={() => triggerDatePicker(endDateRef)}
+                      >
+                        <input
+                          ref={endDateRef}
+                          type="date"
+                          value={formatDateForInput(endDate)}
+                          onChange={(e) => {
+                            const selectedDate = e.target.value;
+
+                            if (selectedDate < MIN_DATE) {
+                              showToast({
+                                type: 'error',
+                                title: 'Tanggal Tidak Valid',
+                                message: `Tanggal minimum yang bisa dipilih adalah ${new Date(MIN_DATE).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+                              });
+                              if (endDateRef.current) {
+                                endDateRef.current.value = formatDateForInput(endDate);
+                              }
+                              return;
                             }
-                            return;
-                          }
-                          
-                          if (latestDataDate && selectedDate > latestDataDate) {
-                            showToast({
-                              type: 'error',
-                              title: 'Tanggal Tidak Valid',
-                              message: `Tanggal maksimum yang tersedia adalah ${new Date(latestDataDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
-                            });
-                            if (endDateRef.current) {
-                              endDateRef.current.value = formatDateForInput(endDate);
+
+                            if (latestDataDate && selectedDate > latestDataDate) {
+                              showToast({
+                                type: 'error',
+                                title: 'Tanggal Tidak Valid',
+                                message: `Tanggal maksimum yang tersedia adalah ${new Date(latestDataDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+                              });
+                              if (endDateRef.current) {
+                                endDateRef.current.value = formatDateForInput(endDate);
+                              }
+                              return;
                             }
-                            return;
-                          }
-                          setEndDate(selectedDate);
-                        }}
-                        min={formatDateForInput(startDate || MIN_DATE)}
-                        max={latestDataDate ? formatDateForInput(latestDataDate) : new Date().toISOString().split('T')[0]}
-                        onKeyDown={(e) => e.preventDefault()}
-                        onPaste={(e) => e.preventDefault()}
-                        onInput={(e) => e.preventDefault()}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        style={{ caretColor: 'transparent' }}
-                      />
-                      <div className="flex items-center gap-2 h-full px-3">
-                        <Calendar className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm text-foreground">
-                          {endDate ? new Date(endDate).toLocaleDateString('en-GB', { 
-                            day: '2-digit', 
-                            month: '2-digit', 
-                            year: 'numeric' 
-                          }) : 'DD/MM/YYYY'}
-                        </span>
+                            setEndDate(selectedDate);
+                          }}
+                          min={formatDateForInput(startDate || MIN_DATE)}
+                          max={latestDataDate ? formatDateForInput(latestDataDate) : new Date().toISOString().split('T')[0]}
+                          onKeyDown={(e) => e.preventDefault()}
+                          onPaste={(e) => e.preventDefault()}
+                          onInput={(e) => e.preventDefault()}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          style={{ caretColor: 'transparent' }}
+                        />
+                        <div className="flex items-center gap-2 h-full px-3">
+                          <Calendar className="w-4 h-4 text-muted-foreground" />
+                          <span className="text-sm text-foreground">
+                            {endDate ? new Date(endDate).toLocaleDateString('en-GB', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric'
+                            }) : 'DD/MM/YYYY'}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                {/* F/D Filter */}
-                <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-                  <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
-                  <select 
-                    value={fdFilter}
-                    onChange={(e) => {
-                      setFdFilter(e.target.value as 'All' | 'Foreign' | 'Domestic');
-                      // CRITICAL: Keep existing data visible - no auto-fetch, no hide charts
-                      // User must click Show button to fetch new data
+                  {/* F/D Filter */}
+                  <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                    <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
+                    <select
+                      value={fdFilter}
+                      onChange={(e) => {
+                        setFdFilter(e.target.value as 'All' | 'Foreign' | 'Domestic');
+                        // CRITICAL: Keep existing data visible - no auto-fetch, no hide charts
+                        // User must click Show button to fetch new data
+                      }}
+                      className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+                    >
+                      <option value="All">All</option>
+                      <option value="Foreign">Foreign</option>
+                      <option value="Domestic">Domestic</option>
+                    </select>
+                  </div>
+
+                  {/* Board Filter */}
+                  <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                    <label className="text-sm font-medium whitespace-nowrap">Board:</label>
+                    <select
+                      value={marketFilter}
+                      onChange={(e) => {
+                        setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '');
+                        // CRITICAL: Keep existing data visible - no auto-fetch, no hide charts
+                        // User must click Show button to fetch new data
+                      }}
+                      className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+                    >
+                      <option value="">All</option>
+                      <option value="RG">RG</option>
+                      <option value="TN">TN</option>
+                      <option value="NG">NG</option>
+                    </select>
+                  </div>
+
+                  {/* Show Button */}
+                  <button
+                    onClick={() => {
+                      // Update displayed filters when Show button is clicked
+                      setDisplayedFdFilter(fdFilter);
+                      setDisplayedMarket(marketFilter);
+                      // Set shouldFetchData to true to trigger data fetch
+                      setShouldFetchData(true);
+                      setIsDataReady(false);
+                      // Set loading states immediately to show loading spinner right away
+                      setIsLoadingData(true);
+                      setIsLoadingBrokerData(true);
+                      setIsLoadingInventoryData(true);
                     }}
-                    className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+                    disabled={isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !selectedTicker}
+                    className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
                   >
-                    <option value="All">All</option>
-                    <option value="Foreign">Foreign</option>
-                    <option value="Domestic">Domestic</option>
-                  </select>
-                </div>
-
-                {/* Board Filter */}
-                <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-                  <label className="text-sm font-medium whitespace-nowrap">Board:</label>
-                  <select
-                    value={marketFilter}
-                    onChange={(e) => {
-                      setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '');
-                      // CRITICAL: Keep existing data visible - no auto-fetch, no hide charts
-                      // User must click Show button to fetch new data
-                    }}
-                    className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
-                  >
-                    <option value="">All</option>
-                    <option value="RG">RG</option>
-                    <option value="TN">TN</option>
-                    <option value="NG">NG</option>
-                  </select>
-                </div>
-
-                {/* Show Button */}
-                <button
-                  onClick={() => {
-                    // Update displayed filters when Show button is clicked
-                    setDisplayedFdFilter(fdFilter);
-                    setDisplayedMarket(marketFilter);
-                    // Set shouldFetchData to true to trigger data fetch
-                    setShouldFetchData(true);
-                    setIsDataReady(false);
-                    // Set loading states immediately to show loading spinner right away
-                    setIsLoadingData(true);
-                    setIsLoadingBrokerData(true);
-                    setIsLoadingInventoryData(true);
-                  }}
-                  disabled={isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !selectedTicker}
-                  className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
-                >
-                  Show
-                </button>
+                    Show
+                  </button>
                 </div>
               </div>
               {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
@@ -4598,144 +4595,16 @@ const visibleBrokers = useMemo(
           {/* Chart Rendering - Only show when data is ready */}
           {isDataReady ? (
             onlyShowInventoryChart ? (
-            // Only show Broker Inventory Chart
-            <Card>
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                  <div>
-                    <CardTitle>Broker Cumulative Net Flow</CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      Broker inventory accumulation starting from 0
-                    </p>
-                  </div>
-                </div>
-              </CardHeader>
-                <CardContent className="relative">
-                  {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
-                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
-                      <div className="flex flex-col items-center gap-2">
-                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                        <div className="text-xs text-muted-foreground">
-                          Loading ticker and broker data...
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                <div className="flex flex-col lg:flex-row gap-4">
-                  <div className="flex-1 relative">
-                  {selectedBrokers.length === 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && (
-                    <div className="flex items-center justify-center h-80 text-muted-foreground">
-                      <div className="text-center">
-                        <p>No brokers selected</p>
-                        <p className="text-xs mt-2">Select brokers above to view cumulative net flow</p>
-                      </div>
-                    </div>
-                  )}
-                  {isDataReady && selectedBrokers.length > 0 && inventoryData.length > 0 && visibleBrokers.length > 0 && (
-                    <InventoryChart
-                      key={`inventory-${visibleBrokers.join('-')}`}
-                      inventoryData={inventoryData}
-                      selectedBrokers={selectedBrokers}
-                      displayBrokers={visibleBrokers}
-                    />
-                  )}
-                  {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
-                    <div className="flex items-center justify-center h-80 text-muted-foreground">
-                      <div className="text-center">
-                        <p>No visible brokers</p>
-                        <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
-                      </div>
-                    </div>
-                  )}
-                  {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && inventoryData.length === 0 && isDataReady && (
-                    <div className="flex items-center justify-center h-80 text-muted-foreground">
-                      <div className="text-center">
-                        <p>No inventory data available for selected brokers</p>
-                        <p className="text-xs mt-2">Data may not be available for the selected date range</p>
-                      </div>
-                    </div>
-                  )}
-                  {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && !isDataReady && (
-                    <div className="flex items-center justify-center h-80 text-muted-foreground">
-                      <div className="text-center">
-                        <p>No data loaded</p>
-                        <p className="text-xs mt-2">Click Show button to load data</p>
-                      </div>
-                    </div>
-                  )}
-                  </div>
-                  <div className="w-full lg:w-64 flex flex-col gap-4">
-                    {brokerSelectionMode.top5buy && top5BuyBrokers.length > 0 && (
-                    <BrokerLegend
-                        title="Top 5 Buyers"
-                        brokers={top5BuyBrokers}
-                      colorReferenceBrokers={selectedBrokers}
-                      brokerVisibility={brokerVisibility}
-                      onToggleVisibility={handleToggleBrokerVisibility}
-                      onRemoveBroker={removeBroker}
-                      onRemoveAll={removeAllTop5Buy}
-                    />
-                    )}
-                    {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
-                    <BrokerLegend
-                        title="Top 5 Sellers"
-                        brokers={top5SellBrokers}
-                      colorReferenceBrokers={selectedBrokers}
-                      brokerVisibility={brokerVisibility}
-                      onToggleVisibility={handleToggleBrokerVisibility}
-                      onRemoveBroker={removeBroker}
-                      onRemoveAll={removeAllTop5Sell}
-                    />
-                    )}
-                    {brokerSelectionMode.custom && customBrokers.length > 0 && (
-                      <BrokerLegend
-                        title="Selected Brokers"
-                        brokers={customBrokers}
-                        colorReferenceBrokers={selectedBrokers}
-                        brokerVisibility={brokerVisibility}
-                        onToggleVisibility={handleToggleBrokerVisibility}
-                        onRemoveBroker={removeBroker}
-                        onRemoveAll={removeAllCustom}
-                      />
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            ) : splitVisualization ? (
-            // Split View - Separate Charts
-            <>
-              {/* Price Chart */}
+              // Only show Broker Inventory Chart
               <Card>
                 <CardHeader>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex-1 min-w-[200px]">
-                      <CardTitle>{displayedTicker} Price Action</CardTitle>
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div>
+                      <CardTitle>Broker Cumulative Net Flow</CardTitle>
                       <p className="text-sm text-muted-foreground">
-                        Candlestick chart showing price movements
+                        Broker inventory accumulation starting from 0
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">View:</span>
-                      <div className="flex items-center gap-1 border border-border rounded-lg p-1">
-                        <Button
-                          variant={!splitVisualization ? "default" : "ghost"}
-                          onClick={() => setSplitVisualization(false)}
-                          size="sm"
-                          className="px-2 py-1 h-7 text-xs"
-                        >
-                          Combined
-                        </Button>
-                        <Button
-                          variant={splitVisualization ? "default" : "ghost"}
-                          onClick={() => setSplitVisualization(true)}
-                          size="sm"
-                          className="px-2 py-1 h-7 text-xs"
-                        >
-                          Split
-                        </Button>
-                      </div>
-                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="relative">
@@ -4744,195 +4613,6 @@ const visibleBrokers = useMemo(
                       <div className="flex flex-col items-center gap-2">
                         <Loader2 className="w-6 h-6 animate-spin text-primary" />
                         <div className="text-xs text-muted-foreground">
-                          Loading ticker and broker data...
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {isDataReady && candlestickData.length > 0 && (
-                    <PriceChart candlestickData={candlestickData} />
-                  )}
-                  {!isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && candlestickData.length === 0 && (
-                    <div className="flex items-center justify-center h-80 text-muted-foreground">
-                      <div className="text-center">
-                        <p>No price data available</p>
-                        <p className="text-xs mt-2">Click Show button to load data</p>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Broker Inventory Chart */}
-              <Card>
-                <CardHeader>
-                  <div>
-                    <CardTitle>Broker Cumulative Net Flow</CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      Broker inventory accumulation starting from 0
-                    </p>
-                  </div>
-                </CardHeader>
-              <CardContent className="relative">
-                {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
-                  <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
-                    <div className="flex flex-col items-center gap-2">
-                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                      <div className="text-xs text-muted-foreground">
-                        Loading ticker and broker data...
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <div className="flex flex-col lg:flex-row gap-4">
-                  <div className="flex-1 relative">
-                    {isDataReady && selectedBrokers.length > 0 && inventoryData.length > 0 && visibleBrokers.length > 0 && (
-                      <InventoryChart
-                        key={`inventory-split-${visibleBrokers.join('-')}`}
-                        inventoryData={inventoryData}
-                        selectedBrokers={selectedBrokers}
-                        displayBrokers={visibleBrokers}
-                      />
-                    )}
-                    {selectedBrokers.length > 0 && !isLoadingData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
-                      <div className="flex items-center justify-center h-80 text-muted-foreground">
-                        <div className="text-center">
-                          <p>No visible brokers</p>
-                          <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
-                        </div>
-                      </div>
-                    )}
-                    {selectedBrokers.length > 0 && !isLoadingData && !isLoadingInventoryData && inventoryData.length === 0 && isDataReady && (
-                      <div className="flex items-center justify-center h-80 text-muted-foreground">
-                        <div className="text-center">
-                          <p>No inventory data available for selected brokers</p>
-                          <p className="text-xs mt-2">Data may not be available for the selected date range</p>
-                        </div>
-                      </div>
-                    )}
-                    {selectedBrokers.length === 0 && (
-                      <div className="flex items-center justify-center h-80 text-muted-foreground">
-                        <div className="text-center">
-                          <p>No brokers selected</p>
-                          <p className="text-xs mt-2">Select brokers above to view cumulative net flow</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="w-full lg:w-64 flex flex-col gap-4">
-                    {brokerSelectionMode.top5buy && top5BuyBrokers.length > 0 && (
-                    <BrokerLegend
-                        title="Top 5 Buyers"
-                        brokers={top5BuyBrokers}
-                      colorReferenceBrokers={selectedBrokers}
-                      brokerVisibility={brokerVisibility}
-                      onToggleVisibility={handleToggleBrokerVisibility}
-                      onRemoveBroker={removeBroker}
-                      onRemoveAll={removeAllTop5Buy}
-                    />
-                    )}
-                    {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
-                    <BrokerLegend
-                        title="Top 5 Sellers"
-                        brokers={top5SellBrokers}
-                      colorReferenceBrokers={selectedBrokers}
-                      brokerVisibility={brokerVisibility}
-                      onToggleVisibility={handleToggleBrokerVisibility}
-                      onRemoveBroker={removeBroker}
-                      onRemoveAll={removeAllTop5Sell}
-                    />
-                    )}
-                    {brokerSelectionMode.custom && customBrokers.length > 0 && (
-                      <BrokerLegend
-                        title="Selected Brokers"
-                        brokers={customBrokers}
-                        colorReferenceBrokers={selectedBrokers}
-                        brokerVisibility={brokerVisibility}
-                        onToggleVisibility={handleToggleBrokerVisibility}
-                        onRemoveBroker={removeBroker}
-                        onRemoveAll={removeAllCustom}
-                      />
-                    )}
-                  </div>
-                </div>
-                </CardContent>
-              </Card>
-
-              {/* Volume Chart */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Volume</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Trading volume for {displayedTicker}
-                  </p>
-                </CardHeader>
-                <CardContent className="relative">
-                  {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
-                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
-                      <div className="flex flex-col items-center gap-2">
-                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                        <div className="text-xs text-muted-foreground">
-                          Loading ticker and broker data...
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {isDataReady && volumeDataForCharts.length > 0 && (
-                    <VolumeChart volumeData={volumeDataForCharts} candlestickData={candlestickData} showLabel={true} />
-                  )}
-                  {!isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && volumeDataForCharts.length === 0 && (
-                    <div className="flex items-center justify-center h-80 text-muted-foreground">
-                      <div className="text-center">
-                        <p>No volume data available</p>
-                        <p className="text-xs mt-2">Click Show button to load data</p>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </>
-          ) : (
-            // Combined View - Original Layout (only render when isDataReady is true)
-            <>
-              {/* Main TradingView Chart */}
-              <Card>
-                <CardHeader>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex-1 min-w-[200px]">
-                  <CardTitle>Inventory Analysis</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Price action (right Y-axis) with broker cumulative net flow (left Y-axis, starting from 0)
-                  </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">View:</span>
-                      <div className="flex items-center gap-1 border border-border rounded-lg p-1">
-                        <Button
-                          variant={!splitVisualization ? "default" : "ghost"}
-                          onClick={() => setSplitVisualization(false)}
-                          size="sm"
-                          className="px-2 py-1 h-7 text-xs"
-                        >
-                          Combined
-                        </Button>
-                        <Button
-                          variant={splitVisualization ? "default" : "ghost"}
-                          onClick={() => setSplitVisualization(true)}
-                          size="sm"
-                          className="px-2 py-1 h-7 text-xs"
-                        >
-                          Split
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="relative">
-                  {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
-                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
-                      <div className="flex flex-col items-center gap-3">
-                        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                        <div className="text-sm text-muted-foreground">
                           Loading ticker and broker data...
                         </div>
                       </div>
@@ -4940,81 +4620,69 @@ const visibleBrokers = useMemo(
                   )}
                   <div className="flex flex-col lg:flex-row gap-4">
                     <div className="flex-1 relative">
-                    
-                    {(dataError || brokerDataError) && !isLoadingData && !isLoadingBrokerData && (
-                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
-                        <div className="flex flex-col items-center gap-3 text-center p-6 max-w-md">
-                          <div className="text-4xl">⚠️</div>
-                          <div className="text-sm text-muted-foreground">
-                            {dataError || brokerDataError}
+                      {selectedBrokers.length === 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && (
+                        <div className="flex items-center justify-center h-80 text-muted-foreground">
+                          <div className="text-center">
+                            <p>No brokers selected</p>
+                            <p className="text-xs mt-2">Select brokers above to view cumulative net flow</p>
                           </div>
-                          <p className="text-xs text-muted-foreground mt-2">
-                            Tip: Try adjusting the date range. Data may not be available for all selected dates.
-                          </p>
-                          <Button 
-                            onClick={() => window.location.reload()} 
-                            variant="outline" 
-                            size="sm"
-                          >
-                            Retry
-                          </Button>
                         </div>
-                      </div>
-                    )}
-                    
-                    {isDataReady && selectedBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
-                      <div className="flex items-center justify-center h-[600px] text-muted-foreground">
-                        <div className="text-center">
-                          <p>No brokers selected</p>
-                          <p className="text-xs mt-2">Select brokers above to view chart</p>
+                      )}
+                      {isDataReady && selectedBrokers.length > 0 && inventoryData.length > 0 && visibleBrokers.length > 0 && (
+                        <InventoryChart
+                          key={`inventory-${visibleBrokers.join('-')}`}
+                          inventoryData={inventoryData}
+                          selectedBrokers={selectedBrokers}
+                          displayBrokers={visibleBrokers}
+                        />
+                      )}
+                      {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
+                        <div className="flex items-center justify-center h-80 text-muted-foreground">
+                          <div className="text-center">
+                            <p>No visible brokers</p>
+                            <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    
-                    {isDataReady && selectedBrokers.length > 0 && visibleBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
-                      <div className="flex items-center justify-center h-[600px] text-muted-foreground">
-                        <div className="text-center">
-                          <p>No visible brokers</p>
-                          <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
+                      )}
+                      {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && inventoryData.length === 0 && isDataReady && (
+                        <div className="flex items-center justify-center h-80 text-muted-foreground">
+                          <div className="text-center">
+                            <p>No inventory data available for selected brokers</p>
+                            <p className="text-xs mt-2">Data may not be available for the selected date range</p>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    
-                    {isDataReady && selectedBrokers.length > 0 && visibleBrokers.length > 0 && (
-                    <TradingViewChart
-                        key={`brokers-${visibleBrokers.join('-')}`}
-                      candlestickData={candlestickData}
-                      inventoryData={inventoryData}
-                      selectedBrokers={selectedBrokers}
-                      displayBrokers={visibleBrokers}
-                      title="Inventory Analysis"
-                      volumeData={volumeDataForCharts}
-                      ticker={displayedTicker}
-                    />
-                    )}
+                      )}
+                      {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && !isDataReady && (
+                        <div className="flex items-center justify-center h-80 text-muted-foreground">
+                          <div className="text-center">
+                            <p>No data loaded</p>
+                            <p className="text-xs mt-2">Click Show button to load data</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div className="w-full lg:w-64 flex flex-col gap-4">
                       {brokerSelectionMode.top5buy && top5BuyBrokers.length > 0 && (
-                      <BrokerLegend
+                        <BrokerLegend
                           title="Top 5 Buyers"
                           brokers={top5BuyBrokers}
-                        colorReferenceBrokers={selectedBrokers}
-                        brokerVisibility={brokerVisibility}
-                        onToggleVisibility={handleToggleBrokerVisibility}
-                        onRemoveBroker={removeBroker}
-                        onRemoveAll={removeAllTop5Buy}
-                      />
+                          colorReferenceBrokers={selectedBrokers}
+                          brokerVisibility={brokerVisibility}
+                          onToggleVisibility={handleToggleBrokerVisibility}
+                          onRemoveBroker={removeBroker}
+                          onRemoveAll={removeAllTop5Buy}
+                        />
                       )}
                       {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
-                      <BrokerLegend
+                        <BrokerLegend
                           title="Top 5 Sellers"
                           brokers={top5SellBrokers}
-                        colorReferenceBrokers={selectedBrokers}
-                        brokerVisibility={brokerVisibility}
-                        onToggleVisibility={handleToggleBrokerVisibility}
-                        onRemoveBroker={removeBroker}
-                        onRemoveAll={removeAllTop5Sell}
-                      />
+                          colorReferenceBrokers={selectedBrokers}
+                          brokerVisibility={brokerVisibility}
+                          onToggleVisibility={handleToggleBrokerVisibility}
+                          onRemoveBroker={removeBroker}
+                          onRemoveAll={removeAllTop5Sell}
+                        />
                       )}
                       {brokerSelectionMode.custom && customBrokers.length > 0 && (
                         <BrokerLegend
@@ -5031,106 +4699,435 @@ const visibleBrokers = useMemo(
                   </div>
                 </CardContent>
               </Card>
+            ) : splitVisualization ? (
+              // Split View - Separate Charts
+              <>
+                {/* Price Chart */}
+                <Card>
+                  <CardHeader>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex-1 min-w-[200px]">
+                        <CardTitle>{displayedTicker} Price Action</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                          Candlestick chart showing price movements
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">View:</span>
+                        <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+                          <Button
+                            variant={!splitVisualization ? "default" : "ghost"}
+                            onClick={() => setSplitVisualization(false)}
+                            size="sm"
+                            className="px-2 py-1 h-7 text-xs"
+                          >
+                            Combined
+                          </Button>
+                          <Button
+                            variant={splitVisualization ? "default" : "ghost"}
+                            onClick={() => setSplitVisualization(true)}
+                            size="sm"
+                            className="px-2 py-1 h-7 text-xs"
+                          >
+                            Split
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="relative">
+                    {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                          <div className="text-xs text-muted-foreground">
+                            Loading ticker and broker data...
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {isDataReady && candlestickData.length > 0 && (
+                      <PriceChart candlestickData={candlestickData} />
+                    )}
+                    {!isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && candlestickData.length === 0 && (
+                      <div className="flex items-center justify-center h-80 text-muted-foreground">
+                        <div className="text-center">
+                          <p>No price data available</p>
+                          <p className="text-xs mt-2">Click Show button to load data</p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
 
-              {/* Top Brokers Table - Only show when data is ready */}
-              <Card>
-            <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Top Brokers by Date</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Top brokers by net transaction (nblot) across selected dates for {selectedTicker}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Show:</label>
-              <select 
-                value={topBrokersCount} 
-                onChange={(e) => setTopBrokersCount(e.target.value as 5 | 10 | 15 | 20 | 'all')}
-                className="px-3 py-1 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
-              >
-                <option value={5}>Top 5</option>
-                <option value={10}>Top 10</option>
-                <option value={15}>Top 15</option>
-                <option value={20}>Top 20</option>
-                <option value="all">All</option>
-              </select>
-            </div>
-          </div>
-            </CardHeader>
-            <CardContent>
-              {isLoadingBrokerData ? (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-2"></div>
-                  <p className="text-sm text-muted-foreground">Loading ticker and broker data...</p>
-                </div>
-              ) : brokerDataError ? (
-                <div className="text-center py-8">
-                  <p className="text-sm text-muted-foreground">{brokerDataError}</p>
-                </div>
-              ) : topBrokersData.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-sm text-muted-foreground">No broker data available</p>
-                </div>
-              ) : (
-              <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-                  <thead>
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="text-left py-2 px-3 font-medium">Rank</th>
-                  {topBrokersData.map((dateData) => (
-                    <th key={dateData.date} className="text-center py-2 px-2 font-medium">
-                      {formatDisplayDate(dateData.date)}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                {topBrokersData.length > 0 && Array.from({ 
-                  length: topBrokersCount === 'all' ? (topBrokersData[0]?.topBrokers?.length || 0) : Math.min(topBrokersCount, topBrokersData[0]?.topBrokers?.length || 0) 
-                }, (_, rank) => (
-                  <tr key={rank} className="border-b border-border/50 hover:bg-accent/50">
-                    <td className="py-2 px-3 font-medium text-center">
-                      {rank + 1}
-                          </td>
-                     {topBrokersData.map((dateData) => {
-                       const brokerData = dateData.topBrokers[rank];
-                       
-                      return (
-                         <td 
-                           key={`${dateData.date}-${rank}`} 
-                           className="text-center py-2 px-3 relative"
-                           style={brokerData ? { backgroundColor: brokerData.color } : {}}
-                         >
-                           <div className="relative w-full h-8 flex items-center justify-center">
-                             {/* Broker code and volume overlay */}
-                             <div className="relative z-10 flex items-center gap-2">
-                               {brokerData ? (
-                                 <>
-                                   <span className="font-medium text-xs text-white">
-                                     {brokerData.broker}
-                                   </span>
-                                   <span className="text-xs font-semibold text-white">
-                                     {formatLotNumber(brokerData.netFlow)}
-                                   </span>
-                                 </>
-                               ) : (
-                                 <span className="text-muted-foreground">-</span>
-                               )}
-                             </div>
+                {/* Broker Inventory Chart */}
+                <Card>
+                  <CardHeader>
+                    <div>
+                      <CardTitle>Broker Cumulative Net Flow</CardTitle>
+                      <p className="text-sm text-muted-foreground">
+                        Broker inventory accumulation starting from 0
+                      </p>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="relative">
+                    {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                      <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                          <div className="text-xs text-muted-foreground">
+                            Loading ticker and broker data...
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex flex-col lg:flex-row gap-4">
+                      <div className="flex-1 relative">
+                        {isDataReady && selectedBrokers.length > 0 && inventoryData.length > 0 && visibleBrokers.length > 0 && (
+                          <InventoryChart
+                            key={`inventory-split-${visibleBrokers.join('-')}`}
+                            inventoryData={inventoryData}
+                            selectedBrokers={selectedBrokers}
+                            displayBrokers={visibleBrokers}
+                          />
+                        )}
+                        {selectedBrokers.length > 0 && !isLoadingData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
+                          <div className="flex items-center justify-center h-80 text-muted-foreground">
+                            <div className="text-center">
+                              <p>No visible brokers</p>
+                              <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
                             </div>
-                          </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-                  </tbody>
-                </table>
-              </div>
-              )}
-            </CardContent>
-          </Card>
-            </>
+                          </div>
+                        )}
+                        {selectedBrokers.length > 0 && !isLoadingData && !isLoadingInventoryData && inventoryData.length === 0 && isDataReady && (
+                          <div className="flex items-center justify-center h-80 text-muted-foreground">
+                            <div className="text-center">
+                              <p>No inventory data available for selected brokers</p>
+                              <p className="text-xs mt-2">Data may not be available for the selected date range</p>
+                            </div>
+                          </div>
+                        )}
+                        {selectedBrokers.length === 0 && (
+                          <div className="flex items-center justify-center h-80 text-muted-foreground">
+                            <div className="text-center">
+                              <p>No brokers selected</p>
+                              <p className="text-xs mt-2">Select brokers above to view cumulative net flow</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="w-full lg:w-64 flex flex-col gap-4">
+                        {brokerSelectionMode.top5buy && top5BuyBrokers.length > 0 && (
+                          <BrokerLegend
+                            title="Top 5 Buyers"
+                            brokers={top5BuyBrokers}
+                            colorReferenceBrokers={selectedBrokers}
+                            brokerVisibility={brokerVisibility}
+                            onToggleVisibility={handleToggleBrokerVisibility}
+                            onRemoveBroker={removeBroker}
+                            onRemoveAll={removeAllTop5Buy}
+                          />
+                        )}
+                        {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
+                          <BrokerLegend
+                            title="Top 5 Sellers"
+                            brokers={top5SellBrokers}
+                            colorReferenceBrokers={selectedBrokers}
+                            brokerVisibility={brokerVisibility}
+                            onToggleVisibility={handleToggleBrokerVisibility}
+                            onRemoveBroker={removeBroker}
+                            onRemoveAll={removeAllTop5Sell}
+                          />
+                        )}
+                        {brokerSelectionMode.custom && customBrokers.length > 0 && (
+                          <BrokerLegend
+                            title="Selected Brokers"
+                            brokers={customBrokers}
+                            colorReferenceBrokers={selectedBrokers}
+                            brokerVisibility={brokerVisibility}
+                            onToggleVisibility={handleToggleBrokerVisibility}
+                            onRemoveBroker={removeBroker}
+                            onRemoveAll={removeAllCustom}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Volume Chart */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Volume</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Trading volume for {displayedTicker}
+                    </p>
+                  </CardHeader>
+                  <CardContent className="relative">
+                    {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                          <div className="text-xs text-muted-foreground">
+                            Loading ticker and broker data...
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {isDataReady && volumeDataForCharts.length > 0 && (
+                      <VolumeChart volumeData={volumeDataForCharts} candlestickData={candlestickData} showLabel={true} />
+                    )}
+                    {!isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && volumeDataForCharts.length === 0 && (
+                      <div className="flex items-center justify-center h-80 text-muted-foreground">
+                        <div className="text-center">
+                          <p>No volume data available</p>
+                          <p className="text-xs mt-2">Click Show button to load data</p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            ) : (
+              // Combined View - Original Layout (only render when isDataReady is true)
+              <>
+                {/* Main TradingView Chart */}
+                <Card>
+                  <CardHeader>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex-1 min-w-[200px]">
+                        <CardTitle>Inventory Analysis</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                          Price action (right Y-axis) with broker cumulative net flow (left Y-axis, starting from 0)
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">View:</span>
+                        <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+                          <Button
+                            variant={!splitVisualization ? "default" : "ghost"}
+                            onClick={() => setSplitVisualization(false)}
+                            size="sm"
+                            className="px-2 py-1 h-7 text-xs"
+                          >
+                            Combined
+                          </Button>
+                          <Button
+                            variant={splitVisualization ? "default" : "ghost"}
+                            onClick={() => setSplitVisualization(true)}
+                            size="sm"
+                            className="px-2 py-1 h-7 text-xs"
+                          >
+                            Split
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="relative">
+                    {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                        <div className="flex flex-col items-center gap-3">
+                          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                          <div className="text-sm text-muted-foreground">
+                            Loading ticker and broker data...
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex flex-col lg:flex-row gap-4">
+                      <div className="flex-1 relative">
+
+                        {(dataError || brokerDataError) && !isLoadingData && !isLoadingBrokerData && (
+                          <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                            <div className="flex flex-col items-center gap-3 text-center p-6 max-w-md">
+                              <div className="text-4xl">⚠️</div>
+                              <div className="text-sm text-muted-foreground">
+                                {dataError || brokerDataError}
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-2">
+                                Tip: Try adjusting the date range. Data may not be available for all selected dates.
+                              </p>
+                              <Button
+                                onClick={() => window.location.reload()}
+                                variant="outline"
+                                size="sm"
+                              >
+                                Retry
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+
+                        {isDataReady && selectedBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
+                          <div className="flex items-center justify-center h-[600px] text-muted-foreground">
+                            <div className="text-center">
+                              <p>No brokers selected</p>
+                              <p className="text-xs mt-2">Select brokers above to view chart</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {isDataReady && selectedBrokers.length > 0 && visibleBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
+                          <div className="flex items-center justify-center h-[600px] text-muted-foreground">
+                            <div className="text-center">
+                              <p>No visible brokers</p>
+                              <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {isDataReady && selectedBrokers.length > 0 && visibleBrokers.length > 0 && (
+                          <TradingViewChart
+                            key={`brokers-${visibleBrokers.join('-')}`}
+                            candlestickData={candlestickData}
+                            inventoryData={inventoryData}
+                            selectedBrokers={selectedBrokers}
+                            displayBrokers={visibleBrokers}
+                            title="Inventory Analysis"
+                            volumeData={volumeDataForCharts}
+                            ticker={displayedTicker}
+                          />
+                        )}
+                      </div>
+                      <div className="w-full lg:w-64 flex flex-col gap-4">
+                        {brokerSelectionMode.top5buy && top5BuyBrokers.length > 0 && (
+                          <BrokerLegend
+                            title="Top 5 Buyers"
+                            brokers={top5BuyBrokers}
+                            colorReferenceBrokers={selectedBrokers}
+                            brokerVisibility={brokerVisibility}
+                            onToggleVisibility={handleToggleBrokerVisibility}
+                            onRemoveBroker={removeBroker}
+                            onRemoveAll={removeAllTop5Buy}
+                          />
+                        )}
+                        {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
+                          <BrokerLegend
+                            title="Top 5 Sellers"
+                            brokers={top5SellBrokers}
+                            colorReferenceBrokers={selectedBrokers}
+                            brokerVisibility={brokerVisibility}
+                            onToggleVisibility={handleToggleBrokerVisibility}
+                            onRemoveBroker={removeBroker}
+                            onRemoveAll={removeAllTop5Sell}
+                          />
+                        )}
+                        {brokerSelectionMode.custom && customBrokers.length > 0 && (
+                          <BrokerLegend
+                            title="Selected Brokers"
+                            brokers={customBrokers}
+                            colorReferenceBrokers={selectedBrokers}
+                            brokerVisibility={brokerVisibility}
+                            onToggleVisibility={handleToggleBrokerVisibility}
+                            onRemoveBroker={removeBroker}
+                            onRemoveAll={removeAllCustom}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Top Brokers Table - Only show when data is ready */}
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle>Top Brokers by Date</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                          Top brokers by net transaction (nblot) across selected dates for {selectedTicker}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium">Show:</label>
+                        <select
+                          value={topBrokersCount}
+                          onChange={(e) => setTopBrokersCount(e.target.value as 5 | 10 | 15 | 20 | 'all')}
+                          className="px-3 py-1 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                        >
+                          <option value={5}>Top 5</option>
+                          <option value={10}>Top 10</option>
+                          <option value={15}>Top 15</option>
+                          <option value={20}>Top 20</option>
+                          <option value="all">All</option>
+                        </select>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {isLoadingBrokerData ? (
+                      <div className="text-center py-8">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-2"></div>
+                        <p className="text-sm text-muted-foreground">Loading ticker and broker data...</p>
+                      </div>
+                    ) : brokerDataError ? (
+                      <div className="text-center py-8">
+                        <p className="text-sm text-muted-foreground">{brokerDataError}</p>
+                      </div>
+                    ) : topBrokersData.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-sm text-muted-foreground">No broker data available</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm border-collapse">
+                          <thead>
+                            <tr className="border-b border-border bg-muted/50">
+                              <th className="text-left py-2 px-3 font-medium">Rank</th>
+                              {topBrokersData.map((dateData) => (
+                                <th key={dateData.date} className="text-center py-2 px-2 font-medium">
+                                  {formatDisplayDate(dateData.date)}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {topBrokersData.length > 0 && Array.from({
+                              length: topBrokersCount === 'all' ? (topBrokersData[0]?.topBrokers?.length || 0) : Math.min(topBrokersCount, topBrokersData[0]?.topBrokers?.length || 0)
+                            }, (_, rank) => (
+                              <tr key={rank} className="border-b border-border/50 hover:bg-accent/50">
+                                <td className="py-2 px-3 font-medium text-center">
+                                  {rank + 1}
+                                </td>
+                                {topBrokersData.map((dateData) => {
+                                  const brokerData = dateData.topBrokers[rank];
+
+                                  return (
+                                    <td
+                                      key={`${dateData.date}-${rank}`}
+                                      className="text-center py-2 px-3 relative"
+                                      style={brokerData ? { backgroundColor: brokerData.color } : {}}
+                                    >
+                                      <div className="relative w-full h-8 flex items-center justify-center">
+                                        {/* Broker code and volume overlay */}
+                                        <div className="relative z-10 flex items-center gap-2">
+                                          {brokerData ? (
+                                            <>
+                                              <span className="font-medium text-xs text-white">
+                                                {brokerData.broker}
+                                              </span>
+                                              <span className="text-xs font-semibold text-white">
+                                                {formatLotNumber(brokerData.netFlow)}
+                                              </span>
+                                            </>
+                                          ) : (
+                                            <span className="text-muted-foreground">-</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
             )
           ) : null}
 
