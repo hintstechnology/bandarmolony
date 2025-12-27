@@ -49,11 +49,11 @@ const checkResponse = async (response: Response, endpoint: string) => {
   if (response.status === 401) {
     console.log(`🚨 API: 401 from ${endpoint}`);
     emit401Event();
-    
+
     // Try to parse error response to get specific error code
     let errorCode = 'UNAUTHORIZED';
     let errorMessage = 'Session expired. Please sign in again.';
-    
+
     try {
       const errorData = await response.clone().json();
       errorCode = errorData.code || 'UNAUTHORIZED';
@@ -62,7 +62,7 @@ const checkResponse = async (response: Response, endpoint: string) => {
       // If can't parse JSON, use defaults (already set above)
       console.warn('API: Could not parse 401 error response, using generic error');
     }
-    
+
     // Create error object with code property (always, even if parse failed)
     const error: any = new Error(errorMessage);
     error.code = errorCode;
@@ -79,7 +79,7 @@ const authenticatedFetch = async (
 ): Promise<Response> => {
   // Get session and add Authorization header
   const { data: { session } } = await supabase.auth.getSession();
-  
+
   if (!session?.access_token) {
     console.log(`❌ API: No active session for authenticatedFetch to ${endpoint || url}`);
     // Emit 401 event to trigger global logout flow
@@ -100,7 +100,7 @@ const authenticatedFetch = async (
     ...options,
     headers,
   });
-  
+
   // Always check for 401 on authenticated requests
   const endpointName = endpoint || url.replace(API_URL, '');
   await checkResponse(response, endpointName);
@@ -126,7 +126,7 @@ export const api = {
       const params = new URLSearchParams();
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
-      
+
       const res = await authenticatedFetch(`${API_URL}/api/seasonality/data/${type}?${params}`, {}, `/api/seasonality/data/${type}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to get seasonality data');
@@ -259,9 +259,9 @@ export const api = {
   },
   async getProfile(): Promise<ProfileData> {
     console.log('🔍 API: Getting profile...');
-    
+
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session?.user) {
       console.log('❌ API: No active session');
       throw new Error('No active session');
@@ -271,29 +271,29 @@ export const api = {
       console.log('❌ API: No access token');
       throw new Error('No access token');
     }
-    
+
     console.log('✅ API: Session and token found, making request');
-    
+
     // Add timeout to fetch
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
     }, 30000); // 30 seconds timeout
-    
+
     try {
       const response = await authenticatedFetch(`${API_URL}/api/me`, {
         signal: controller.signal
       }, '/api/me');
-      
+
       clearTimeout(timeoutId);
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Failed to fetch profile: ${response.status} ${errorText}`);
       }
 
       const result = await response.json();
-      
+
       if (result.ok && result.data) {
         const profile = result.data;
         const avatarUrl = getAvatarUrl(profile.avatar_url);
@@ -307,8 +307,8 @@ export const api = {
             month: 'long',
             day: 'numeric'
           }),
-          subscriptionPlan: (profile.role === 'admin' || profile.role === 'developer') 
-            ? 'Pro' 
+          subscriptionPlan: (profile.role === 'admin' || profile.role === 'developer')
+            ? 'Pro'
             : (profile.subscription_plan || 'Free'),
           subscriptionStatus: (profile.role === 'admin' || profile.role === 'developer')
             ? ('active' as const)
@@ -321,19 +321,19 @@ export const api = {
       }
 
       throw new Error('Invalid profile data');
-      
+
     } catch (error: any) {
       clearTimeout(timeoutId);
-      
+
       if (error.name === 'AbortError') {
         console.warn('⚠️ Profile fetch timeout, this might be a temporary issue');
         throw new Error('Request timeout');
       }
-      
+
       if (error.message?.includes('Failed to fetch')) {
         throw new Error('Cannot connect to server. Please check your connection.');
       }
-      
+
       throw error;
     }
   },
@@ -341,7 +341,7 @@ export const api = {
   async uploadAvatar(file: File): Promise<{ avatarUrl: string; filePath: string }> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session) {
         throw new Error('No active session');
       }
@@ -349,7 +349,7 @@ export const api = {
       // Pre-validate file size
       const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
       console.log(`🔍 API: File size validation: ${file.size} bytes (${fileSizeMB}MB)`);
-      
+
       const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
       if (file.size > MAX_FILE_SIZE) {
         console.log(`❌ API: File size validation failed: ${fileSizeMB}MB > ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
@@ -374,7 +374,7 @@ export const api = {
 
       if (!response.ok) {
         let errorMessage = 'Failed to upload avatar';
-        
+
         try {
           const errorData = await response.json();
           errorMessage = errorData.error || errorData.message || errorMessage;
@@ -390,7 +390,7 @@ export const api = {
             errorMessage = 'Server error. Please try again later';
           }
         }
-        
+
         throw new Error(errorMessage);
       }
 
@@ -405,7 +405,7 @@ export const api = {
       } else if (error.message?.includes('Failed to fetch')) {
         throw new Error('Network error. Please check your connection');
       }
-      
+
       throw error;
     }
   },
@@ -413,7 +413,7 @@ export const api = {
   async deleteAvatar(): Promise<void> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session) {
         throw new Error('No active session');
       }
@@ -432,7 +432,7 @@ export const api = {
 
       if (!response.ok) {
         let errorMessage = 'Failed to delete avatar';
-        
+
         try {
           const errorData = await response.json();
           errorMessage = errorData.error || errorData.message || errorMessage;
@@ -446,7 +446,7 @@ export const api = {
             errorMessage = 'Server error. Please try again later';
           }
         }
-        
+
         throw new Error(errorMessage);
       }
     } catch (error: any) {
@@ -454,7 +454,7 @@ export const api = {
       if (error.message?.includes('Failed to fetch')) {
         throw new Error('Network error. Please check your connection');
       }
-      
+
       throw error;
     }
   },
@@ -463,7 +463,7 @@ export const api = {
   async getSessions(): Promise<{ sessions: any[]; count: number }> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session) {
         throw new Error('No active session');
       }
@@ -494,7 +494,7 @@ export const api = {
   async deactivateSession(sessionId: string): Promise<void> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session) {
         throw new Error('No active session');
       }
@@ -523,7 +523,7 @@ export const api = {
   async deactivateAllSessions(): Promise<void> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session) {
         throw new Error('No active session');
       }
@@ -552,7 +552,7 @@ export const api = {
   async updateProfile(data: Partial<ProfileData>): Promise<ProfileData> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session) {
         throw new Error('No active session');
       }
@@ -578,7 +578,7 @@ export const api = {
 
       const result = await response.json();
       console.log('📥 API: Received response:', result);
-      
+
       if (result.ok && result.data) {
         const profile = result.data;
         const avatarUrl = getAvatarUrl(profile.avatar_url);
@@ -593,8 +593,8 @@ export const api = {
             month: 'long',
             day: 'numeric'
           }),
-          subscriptionPlan: (profile.role === 'admin' || profile.role === 'developer') 
-            ? 'Pro' 
+          subscriptionPlan: (profile.role === 'admin' || profile.role === 'developer')
+            ? 'Pro'
             : (profile.subscription_plan || 'Free'),
           subscriptionStatus: (profile.role === 'admin' || profile.role === 'developer')
             ? ('active' as const)
@@ -618,7 +618,7 @@ export const api = {
   async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session) {
         throw new Error('No active session');
       }
@@ -638,18 +638,18 @@ export const api = {
       );
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         console.error('❌ API: Change password failed:', result);
         throw new Error(result.error || result.message || 'Failed to change password');
       }
 
       console.log('✅ API: Password changed successfully');
-      
+
       // After successful password change, we need to refresh the session
       // This is important because Supabase might issue a new token
       const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession();
-      
+
       if (refreshError) {
         console.warn('⚠️ API: Session refresh after password change failed:', refreshError);
         // Don't throw - password was changed successfully, just session refresh failed
@@ -679,8 +679,8 @@ export const api = {
 
       if (!response.ok) {
         // Handle structured error responses from backend
-        return { 
-          success: false, 
+        return {
+          success: false,
           error: result.error || 'Login failed',
           code: result.code,
           field: result.field
@@ -697,9 +697,9 @@ export const api = {
           // Then store in localStorage for persistence
           setAuthState(result.data.user, result.data.session);
         }
-        
-        return { 
-          success: true, 
+
+        return {
+          success: true,
           token: result.data.session?.access_token,
           user: result.data.user,
           session: result.data.session,
@@ -718,10 +718,10 @@ export const api = {
           field: 'general'
         } as AuthResponse;
       }
-      
+
       const authError = getAuthError(error);
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: authError.message,
         code: authError.code,
         field: authError.field
@@ -743,8 +743,8 @@ export const api = {
 
       if (!response.ok) {
         // Handle structured error responses from backend
-        return { 
-          success: false, 
+        return {
+          success: false,
           error: result.error || 'Registration failed',
           code: result.code,
           field: result.field
@@ -756,9 +756,9 @@ export const api = {
         if (result.data.session) {
           setAuthState(result.data.user, result.data.session);
         }
-        
-        return { 
-          success: true, 
+
+        return {
+          success: true,
           token: result.data.session?.access_token,
           user: result.data.user,
           session: result.data.session,
@@ -769,8 +769,8 @@ export const api = {
       return { success: true, error: 'Please check your email to verify your account' };
     } catch (error: any) {
       const authError = getAuthError(error);
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: authError.message,
         code: authError.code,
         field: authError.field
@@ -796,11 +796,11 @@ export const api = {
         console.warn('Backend logout failed:', backendError);
         // Continue with frontend logout even if backend fails
       }
-      
+
       // Clear ALL auth-related storage (including all sb-* keys)
       // DO: Clear storage BEFORE reload, DON'T call signOut() (can re-create session)
       clearAuthState();
-      
+
       // Use window.location.replace for clean reload (don't call signOut())
       // This prevents Supabase from re-creating session from memory cache
       // The reload will ensure completely clean state
@@ -827,11 +827,11 @@ export const api = {
       } catch (backendError) {
         // Continue with frontend logout even if backend fails
       }
-      
+
       // Clear ALL auth-related storage (including all sb-* keys)
       // DO: Clear storage BEFORE reload, DON'T call signOut() (can re-create session)
       clearAuthState();
-      
+
       // Use window.location.replace for clean reload (don't call signOut())
       // This prevents Supabase from re-creating session from memory cache
       // The reload will ensure completely clean state
@@ -893,8 +893,8 @@ export const api = {
       const result = await response.json();
 
       if (!response.ok) {
-        return { 
-          success: false, 
+        return {
+          success: false,
           error: result.error || 'Email verification failed',
           code: result.code,
           field: result.field
@@ -906,9 +906,9 @@ export const api = {
         if (result.data.session) {
           setAuthState(result.data.user, result.data.session);
         }
-        
-        return { 
-          success: true, 
+
+        return {
+          success: true,
           token: result.data.session?.access_token,
           user: result.data.user,
           session: result.data.session,
@@ -935,16 +935,16 @@ export const api = {
       const result = await response.json();
 
       if (!response.ok) {
-        return { 
-          success: false, 
+        return {
+          success: false,
           error: result.error || 'Failed to resend verification email',
           message: result.message
         };
       }
 
-      return { 
-        success: true, 
-        message: result.message || 'Verification email sent successfully' 
+      return {
+        success: true,
+        message: result.message || 'Verification email sent successfully'
       };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to resend verification email' };
@@ -964,16 +964,16 @@ export const api = {
       const result = await response.json();
 
       if (!response.ok) {
-        return { 
-          success: false, 
+        return {
+          success: false,
           error: result.error || 'Failed to resend password reset email',
           message: result.message
         };
       }
 
-      return { 
-        success: true, 
-        message: result.message || 'Password reset email sent successfully' 
+      return {
+        success: true,
+        message: result.message || 'Password reset email sent successfully'
       };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to resend password reset email' };
@@ -1011,7 +1011,7 @@ export const api = {
       }
 
       const result = await response.json();
-      
+
       if (result.ok) {
         return { success: true, exists: result.data.exists };
       }
@@ -1044,7 +1044,7 @@ export const api = {
       });
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || 'Failed to check attempts');
       }
@@ -1058,7 +1058,7 @@ export const api = {
   async verifyOTP(email: string, otp: string): Promise<{ success: boolean; error?: string; token?: string }> {
     try {
       console.log('API: Verifying OTP for email:', email);
-      
+
       // Use Supabase OTP verification for reauthentication
       const { data, error } = await supabase.auth.verifyOtp({
         email,
@@ -1081,11 +1081,11 @@ export const api = {
     try {
       // Get current session to get the token
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session?.access_token) {
         throw new Error('No active session found');
       }
-      
+
       const response = await authenticatedFetch(
         `${API_URL}/api/auth/reset-password`,
         {
@@ -1100,7 +1100,7 @@ export const api = {
       );
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || 'Failed to reset password');
       }
@@ -1116,7 +1116,7 @@ export const api = {
     try {
       const response = await authenticatedFetch(`${API_URL}/api/subscription/plans`, {}, '/api/subscription/plans');
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || 'Failed to get subscription plans');
       }
@@ -1131,7 +1131,7 @@ export const api = {
     try {
       const response = await authenticatedFetch(`${API_URL}/api/subscription/payment-methods`, {}, '/api/subscription/payment-methods');
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || 'Failed to get payment methods');
       }
@@ -1148,7 +1148,7 @@ export const api = {
   }): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session?.access_token) {
         throw new Error('No active session found');
       }
@@ -1167,7 +1167,7 @@ export const api = {
       );
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || 'Failed to create subscription order');
       }
@@ -1181,7 +1181,7 @@ export const api = {
   async getSubscriptionStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session?.access_token) {
         throw new Error('No active session found');
       }
@@ -1197,7 +1197,7 @@ export const api = {
       );
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || 'Failed to get subscription status');
       }
@@ -1210,7 +1210,7 @@ export const api = {
 
   async startTrial(): Promise<void> {
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session?.access_token) {
       throw new Error('No active session');
     }
@@ -1240,7 +1240,7 @@ export const api = {
 
   async getTrialStatus(): Promise<{ eligible: boolean; hasActiveTrial: boolean; trial?: any }> {
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session?.access_token) {
       throw new Error('No active session');
     }
@@ -1275,7 +1275,7 @@ export const api = {
   }): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session?.access_token) {
         throw new Error('No active session found');
       }
@@ -1294,7 +1294,7 @@ export const api = {
       );
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || 'Failed to cancel subscription');
       }
@@ -1311,7 +1311,7 @@ export const api = {
   }): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session?.access_token) {
         throw new Error('No active session found');
       }
@@ -1331,7 +1331,7 @@ export const api = {
       );
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || 'Failed to get payment activity');
       }
@@ -1345,7 +1345,7 @@ export const api = {
   async checkPaymentStatus(orderId: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session?.access_token) {
         throw new Error('No active session found');
       }
@@ -1364,7 +1364,7 @@ export const api = {
       );
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || 'Failed to check payment status');
       }
@@ -1380,7 +1380,7 @@ export const api = {
   }): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session?.access_token) {
         throw new Error('No active session found');
       }
@@ -1399,7 +1399,7 @@ export const api = {
       );
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || 'Failed to regenerate snap token');
       }
@@ -1416,7 +1416,7 @@ export const api = {
   }): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session?.access_token) {
         throw new Error('No active session found');
       }
@@ -1435,7 +1435,7 @@ export const api = {
       );
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || 'Failed to cancel pending transaction');
       }
@@ -1452,7 +1452,7 @@ export const api = {
   }): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session?.access_token) {
         throw new Error('No active session found');
       }
@@ -1594,7 +1594,7 @@ export const api = {
       params.append('index', index);
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
-      
+
       const res = await fetch(`${API_URL}/api/rrg/data?${params}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -1711,7 +1711,7 @@ export const api = {
       params.append('type', type);
       items.forEach(item => params.append('items', item));
       params.append('index', index);
-      
+
       const res = await fetch(`${API_URL}/api/rrc/data?${params}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -1766,7 +1766,7 @@ export const api = {
 
   async getTrendFilterData(period?: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const url = period 
+      const url = period
         ? `${API_URL}/api/trend-filter/data/${period}`
         : `${API_URL}/api/trend-filter/data`;
       const res = await fetch(url);
@@ -1794,7 +1794,7 @@ export const api = {
     try {
       const params = new URLSearchParams();
       if (limit) params.append('limit', limit.toString());
-      
+
       const res = await fetch(`${API_URL}/api/moneyflow/stock/${stockCode}?${params}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -1812,7 +1812,7 @@ export const api = {
     try {
       const params = new URLSearchParams();
       if (limit) params.append('limit', limit.toString());
-      
+
       const res = await fetch(`${API_URL}/api/foreign/stock/${stockCode}?${params}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -1830,7 +1830,7 @@ export const api = {
     try {
       const params = new URLSearchParams();
       if (limit) params.append('limit', limit.toString());
-      
+
       const res = await fetch(`${API_URL}/api/holding/stock/${stockCode}?${params}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -1848,7 +1848,7 @@ export const api = {
     try {
       const params = new URLSearchParams();
       if (limit) params.append('limit', limit.toString());
-      
+
       const res = await fetch(`${API_URL}/api/shareholders/stock/${stockCode}?${params}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -1927,7 +1927,7 @@ export const api = {
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
       if (limit) params.append('limit', limit.toString());
-      
+
       const res = await fetch(`${API_URL}/api/stock/data/${stockCode}?${params}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -1947,7 +1947,7 @@ export const api = {
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
       if (limit) params.append('limit', limit.toString());
-      
+
       const res = await fetch(`${API_URL}/api/sector-ohlc-price/${encodeURIComponent(sectorName)}?${params}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -2081,7 +2081,7 @@ export const api = {
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
       if (limit) params.append('limit', limit.toString());
-      
+
       const res = await fetch(`${API_URL}/api/stock/data?${params}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -2114,7 +2114,7 @@ export const api = {
     try {
       const params = new URLSearchParams();
       if (limit) params.append('limit', limit.toString());
-      
+
       const res = await fetch(`${API_URL}/api/done-summary/stock/${stockCode}/${date}?${params}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -2179,8 +2179,10 @@ export const api = {
       const params = new URLSearchParams();
       if (broker) params.append('broker', broker);
       if (fd) params.append('fd', fd);
-      if (board) params.append('board', board);
-      
+      // Always append board parameter, even if empty string
+      // Empty string means "All Boards" (files without board suffix in blob storage)
+      params.append('board', board || '');
+
       const res = await fetch(`${API_URL}/api/broker-breakdown/done-summary/${stockCode}/${date}?${params.toString()}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -2197,10 +2199,10 @@ export const api = {
     try {
       const promises = dates.map(date => this.getBrokerBreakdownData(stockCode, date));
       const results = await Promise.allSettled(promises);
-      
+
       const dataByDate: { [date: string]: any } = {};
       let successCount = 0;
-      
+
       results.forEach((result, index) => {
         const date = dates[index];
         if (date) {
@@ -2212,14 +2214,14 @@ export const api = {
           }
         }
       });
-      
-      return { 
-        success: successCount > 0, 
-        data: { 
-          dataByDate, 
-          successCount, 
-          totalDates: dates.length 
-        } 
+
+      return {
+        success: successCount > 0,
+        data: {
+          dataByDate,
+          successCount,
+          totalDates: dates.length
+        }
       };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to get batch broker breakdown data' };
@@ -2258,7 +2260,7 @@ export const api = {
   },
 
   // ===== BREAK DONE TRADE API =====
-  
+
   // Get list of available dates from done_detail directory
   async getBreakDoneTradeDates(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
@@ -2309,10 +2311,10 @@ export const api = {
     try {
       const promises = dates.map(date => this.getBreakDoneTradeData(stockCode, date));
       const results = await Promise.allSettled(promises);
-      
+
       const dataByDate: { [date: string]: any } = {};
       let successCount = 0;
-      
+
       results.forEach((result, index) => {
         const date = dates[index];
         if (date) {
@@ -2324,14 +2326,14 @@ export const api = {
           }
         }
       });
-      
-      return { 
-        success: successCount > 0, 
-        data: { 
-          dataByDate, 
-          successCount, 
-          totalDates: dates.length 
-        } 
+
+      return {
+        success: successCount > 0,
+        data: {
+          dataByDate,
+          successCount,
+          totalDates: dates.length
+        }
       };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to get batch break done trade data' };
@@ -2365,7 +2367,7 @@ export const api = {
   },
 
   // ===== ACCUMULATION DISTRIBUTION API =====
-  
+
   // Get list of available dates from accumulation_distribution directory
   async getAccumulationDistributionDates(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
@@ -2440,10 +2442,10 @@ export const api = {
     try {
       const promises = dates.map(date => this.getBidAskData(stockCode, date));
       const results = await Promise.allSettled(promises);
-      
+
       const dataByDate: { [date: string]: any } = {};
       let successCount = 0;
-      
+
       results.forEach((result, index) => {
         const date = dates[index];
         if (date) {
@@ -2455,14 +2457,14 @@ export const api = {
           }
         }
       });
-      
-      return { 
-        success: successCount > 0, 
-        data: { 
-          dataByDate, 
-          successCount, 
-          totalDates: dates.length 
-        } 
+
+      return {
+        success: successCount > 0,
+        data: {
+          dataByDate,
+          successCount,
+          totalDates: dates.length
+        }
       };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to get batch bid/ask data' };
@@ -2478,15 +2480,15 @@ export const api = {
       const marketParam = market || '';
       const url = marketParam ? `${API_URL}/api/broker-summary/summary/${stockCode}?date=${dateStr}&market=${marketParam}` : `${API_URL}/api/broker-summary/summary/${stockCode}?date=${dateStr}`;
       console.log(`[API] Fetching broker summary: ${url}`);
-      
+
       const response = await authenticatedFetch(url, {}, 'getBrokerSummaryData');
       const data = await response.json();
-      
+
       if (!response.ok) {
         console.error(`[API] Broker summary request failed: ${response.status}`, data);
         return { success: false, error: data.error || `HTTP ${response.status}: Failed to get broker summary data` };
       }
-      
+
       console.log(`[API] Broker summary response:`, { success: data.success, hasData: !!data.data, hasBrokerData: !!data.data?.brokerData, brokerDataLength: data.data?.brokerData?.length || 0 });
       return data;
     } catch (err: any) {
@@ -2501,25 +2503,25 @@ export const api = {
       // Increase timeout to 60 seconds for Azure Blob Storage operations
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
-      
+
       const response = await authenticatedFetch(`${API_URL}/api/broker/dates`, {
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
         },
       }, 'getBrokerSummaryDates');
-      
+
       clearTimeout(timeoutId);
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('[API] getBrokerSummaryDates error response:', response.status, errorText);
-        return { 
-          success: false, 
-          error: `HTTP ${response.status}: ${errorText || 'Failed to get broker summary dates'}` 
+        return {
+          success: false,
+          error: `HTTP ${response.status}: ${errorText || 'Failed to get broker summary dates'}`
         };
       }
-      
+
       const data = await response.json();
       console.log('[API] getBrokerSummaryDates success:', data);
       return data;
@@ -2554,19 +2556,19 @@ export const api = {
     try {
       const url = `${API_URL}/api/broker-inventory/${stockCode}/${brokerCode}`;
       console.log(`[API] Fetching broker inventory: ${url}`);
-      
+
       const response = await fetch(url);
       const data = await response.json();
-      
+
       if (!response.ok) {
         console.error(`[API] Broker inventory request failed: ${response.status}`, data);
         return { success: false, error: data.error || `HTTP ${response.status}: Failed to get broker inventory data` };
       }
-      
-      console.log(`[API] Broker inventory response:`, { 
-        success: data.success, 
-        hasData: !!data.data, 
-        inventoryDataLength: data.data?.inventoryData?.length || 0 
+
+      console.log(`[API] Broker inventory response:`, {
+        success: data.success,
+        hasData: !!data.data,
+        inventoryDataLength: data.data?.inventoryData?.length || 0
       });
       return data;
     } catch (err: any) {
@@ -2580,18 +2582,18 @@ export const api = {
     try {
       const url = `${API_URL}/api/broker-inventory/brokers/${stockCode}`;
       console.log(`[API] Fetching broker inventory brokers: ${url}`);
-      
+
       const response = await fetch(url);
       const data = await response.json();
-      
+
       if (!response.ok) {
         console.error(`[API] Broker inventory brokers request failed: ${response.status}`, data);
         return { success: false, error: data.error || `HTTP ${response.status}: Failed to get broker inventory brokers` };
       }
-      
-      console.log(`[API] Broker inventory brokers response:`, { 
-        success: data.success, 
-        brokersCount: data.data?.brokers?.length || 0 
+
+      console.log(`[API] Broker inventory brokers response:`, {
+        success: data.success,
+        brokersCount: data.data?.brokers?.length || 0
       });
       return data;
     } catch (err: any) {
@@ -2607,18 +2609,18 @@ export const api = {
       const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
       const url = `${API_URL}/api/top-broker?date=${dateStr}`;
       console.log(`[API] Fetching top brokers: ${url}`);
-      
+
       const response = await fetch(url);
       const data = await response.json();
-      
+
       if (!response.ok) {
         console.error(`[API] Top brokers request failed: ${response.status}`, data);
         return { success: false, error: data.error || `HTTP ${response.status}: Failed to get top brokers` };
       }
-      
-      console.log(`[API] Top brokers response:`, { 
-        success: data.success, 
-        brokersCount: data.data?.brokers?.length || 0 
+
+      console.log(`[API] Top brokers response:`, {
+        success: data.success,
+        brokersCount: data.data?.brokers?.length || 0
       });
       return data;
     } catch (err: any) {
@@ -2633,25 +2635,25 @@ export const api = {
       // Increase timeout to 60 seconds for Azure Blob Storage operations
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
-      
+
       const response = await fetch(`${API_URL}/api/broker/transaction/dates`, {
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
         },
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('[API] getBrokerTransactionDates error response:', response.status, errorText);
-        return { 
-          success: false, 
-          error: `HTTP ${response.status}: ${errorText || 'Failed to get broker transaction dates'}` 
+        return {
+          success: false,
+          error: `HTTP ${response.status}: ${errorText || 'Failed to get broker transaction dates'}`
         };
       }
-      
+
       const data = await response.json();
       console.log('[API] getBrokerTransactionDates success:', data);
       return { success: true, data: data.data };
@@ -2853,9 +2855,9 @@ export const api = {
   },
 
   async updatePhaseTriggerConfig(
-    phaseId: string, 
-    triggerType: 'scheduled' | 'auto', 
-    schedule?: string, 
+    phaseId: string,
+    triggerType: 'scheduled' | 'auto',
+    schedule?: string,
     triggerAfterPhase?: string
   ): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
