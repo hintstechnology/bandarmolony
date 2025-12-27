@@ -15,6 +15,7 @@ import {
 import { useUserChartColors } from '../../hooks/useUserChartColors';
 import { api } from '../../services/api';
 import { toast } from 'sonner';
+import { STOCK_LIST, loadStockList, searchStocks } from '../../data/stockList';
 
 // Mock data removed - now using real data from API
 
@@ -24,12 +25,12 @@ const getTradingDays = (count: number): string[] => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   let daysBack = 1; // Start from yesterday, skip today
-  
+
   while (dates.length < count) {
     const date = new Date(today);
     date.setDate(date.getDate() - daysBack);
     const dayOfWeek = date.getDay();
-    
+
     // Skip weekends (Saturday = 6, Sunday = 0)
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
       const year = date.getFullYear();
@@ -40,7 +41,7 @@ const getTradingDays = (count: number): string[] => {
     }
     daysBack++;
   }
-  
+
   // Sort from oldest to newest
   return dates.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
 };
@@ -85,14 +86,14 @@ const moneyFlowData = [
 // Mock data removed - now using real holding data from API
 
 // Individual chart component for split view
-const IndividualChart = ({ 
-  data, 
-  chartType, 
-  color, 
-  height = 200 
-}: { 
-  data: any[], 
-  chartType: 'candlestick' | 'histogram' | 'line', 
+const IndividualChart = ({
+  data,
+  chartType,
+  color,
+  height = 200
+}: {
+  data: any[],
+  chartType: 'candlestick' | 'histogram' | 'line',
   color?: string,
   height?: number
 }) => {
@@ -118,25 +119,25 @@ const IndividualChart = ({
       chartRef.current.remove();
       chartRef.current = null;
     }
-    
+
     const width = el.clientWidth || 800;
     const colors = getThemeColors();
-    
+
     chartRef.current = createChart(el, {
       width,
       height,
-      layout: { 
-        background: { type: ColorType.Solid, color: 'transparent' }, 
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
         textColor: colors.axisTextColor,
       },
-      grid: { 
-        horzLines: { visible: false }, 
-        vertLines: { visible: false } 
+      grid: {
+        horzLines: { visible: false },
+        vertLines: { visible: false }
       },
-      rightPriceScale: { 
+      rightPriceScale: {
         borderColor: colors.borderColor
       },
-      timeScale: { 
+      timeScale: {
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
@@ -248,14 +249,14 @@ const IndividualChart = ({
 };
 
 // TradingView-style chart with multiple panes
-const TradingViewMultiPaneChart = ({ 
-  candlestickData, 
-  moneyFlowData, 
-  volumeData 
-}: { 
-  candlestickData: any[], 
-  moneyFlowData: any[], 
-  volumeData: any[] 
+const TradingViewMultiPaneChart = ({
+  candlestickData,
+  moneyFlowData,
+  volumeData
+}: {
+  candlestickData: any[],
+  moneyFlowData: any[],
+  volumeData: any[]
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -291,15 +292,15 @@ const TradingViewMultiPaneChart = ({
       firstCandle: candlestickData[0]?.time,
       lastCandle: candlestickData[candlestickData.length - 1]?.time
     });
-    
+
     // Skip if data hasn't actually changed
     if (prevDataRef.current === dataSignature && chartRef.current && paneHeightsSetRef.current) {
       console.log('[StoryMarketParticipant] Data unchanged, skipping recreation');
       return;
     }
-    
+
     prevDataRef.current = dataSignature;
-    
+
     console.log('[StoryMarketParticipant] useEffect triggered - Chart recreation', dataSignature);
 
     // Clean up existing chart
@@ -308,31 +309,31 @@ const TradingViewMultiPaneChart = ({
       chartRef.current.remove();
       chartRef.current = null;
     }
-    
+
     // Reset pane heights flag when recreating chart
     console.log('[StoryMarketParticipant] Resetting flags');
     paneHeightsSetRef.current = false;
     isSettingHeightsRef.current = false;
     isResizingRef.current = false;
-    
+
     // Clear any pending resize operations and timeouts
     if (resizeTimeoutRef.current) {
       clearTimeout(resizeTimeoutRef.current);
       resizeTimeoutRef.current = null;
     }
-    
+
     const width = el.clientWidth || 800;
     const height = el.clientHeight || 650;
     const colors = getThemeColors();
-    
+
     console.log('[StoryMarketParticipant] Creating chart with dimensions:', { width, height });
-    
+
     // Create chart with panes configuration
     chartRef.current = createChart(el, {
       width,
       height,
-      layout: { 
-        background: { type: ColorType.Solid, color: 'transparent' }, 
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
         textColor: colors.axisTextColor,
         panes: {
           separatorColor: colors.separatorColor,
@@ -340,14 +341,14 @@ const TradingViewMultiPaneChart = ({
           enableResize: false, // Disable resize to prevent loop
         }
       },
-      grid: { 
-        horzLines: { visible: false }, 
-        vertLines: { visible: false } 
+      grid: {
+        horzLines: { visible: false },
+        vertLines: { visible: false }
       },
-      rightPriceScale: { 
+      rightPriceScale: {
         borderColor: colors.borderColor
       },
-      timeScale: { 
+      timeScale: {
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
@@ -364,8 +365,8 @@ const TradingViewMultiPaneChart = ({
           return `${day} ${month} ${year}`;
         }
       },
-        crosshair: { mode: CrosshairMode.Normal },
-      });
+      crosshair: { mode: CrosshairMode.Normal },
+    });
 
     if (!candlestickData.length) return;
 
@@ -417,14 +418,14 @@ const TradingViewMultiPaneChart = ({
         console.log('[StoryMarketParticipant] Setting pane heights - START');
         isSettingHeightsRef.current = true;
         isResizingRef.current = true;
-        
+
         // Use requestAnimationFrame + single setTimeout to prevent multiple calls
         requestAnimationFrame(() => {
           // Clear any existing timeout first
           if (resizeTimeoutRef.current) {
             clearTimeout(resizeTimeoutRef.current);
           }
-          
+
           resizeTimeoutRef.current = setTimeout(() => {
             // Double check conditions inside timeout
             if (!chartRef.current || paneHeightsSetRef.current) {
@@ -433,10 +434,10 @@ const TradingViewMultiPaneChart = ({
               isSettingHeightsRef.current = false;
               return;
             }
-            
+
             const panes = chartRef.current?.panes();
             console.log('[StoryMarketParticipant] Pane heights timeout - panes:', panes?.length, 'paneHeightsSet:', paneHeightsSetRef.current);
-            
+
             if (panes && panes.length >= 3 && !paneHeightsSetRef.current) {
               try {
                 // Calculate fixed heights based on container
@@ -444,23 +445,23 @@ const TradingViewMultiPaneChart = ({
                 const pane0Height = Math.floor(totalHeight * 0.643); // 64.3% - Price
                 const pane1Height = Math.floor(totalHeight * 0.179); // 17.9% - Money Flow
                 const pane2Height = Math.floor(totalHeight * 0.179); // 17.9% - Volume
-                
+
                 console.log('[StoryMarketParticipant] Setting pane heights:', {
                   totalHeight,
                   pane0Height,
                   pane1Height,
                   pane2Height
                 });
-                
+
                 // Set heights ONCE and lock them IMMEDIATELY
                 paneHeightsSetRef.current = true; // Set BEFORE calling setHeight to prevent re-entry
-                
+
                 panes[0]?.setHeight(pane0Height);
                 panes[1]?.setHeight(pane1Height);
                 panes[2]?.setHeight(pane2Height);
-                
+
                 console.log('[StoryMarketParticipant] Pane heights SET - locked');
-                
+
                 // Keep flags locked for extended period
                 setTimeout(() => {
                   console.log('[StoryMarketParticipant] Unlocking flags after 3s');
@@ -478,7 +479,7 @@ const TradingViewMultiPaneChart = ({
               isResizingRef.current = false;
               isSettingHeightsRef.current = false;
             }
-            
+
             resizeTimeoutRef.current = null;
           }, 500);
         });
@@ -497,11 +498,11 @@ const TradingViewMultiPaneChart = ({
   // as it causes infinite loops with pane height recalculation
   useEffect(() => {
     console.log('[StoryMarketParticipant] Resize effect - DISABLED');
-    
+
     // NO RESIZE HANDLING - Fixed dimensions only
     // This prevents the infinite loop caused by ResizeObserver triggering
     // setHeight which triggers resize which triggers ResizeObserver again
-    
+
     // Debug: Check if anything is trying to resize
     const checkResize = () => {
       if (chartRef.current) {
@@ -518,10 +519,10 @@ const TradingViewMultiPaneChart = ({
         });
       }
     };
-    
+
     // Check every 2 seconds for debugging
     const debugInterval = setInterval(checkResize, 2000);
-    
+
     return () => {
       clearInterval(debugInterval);
       if (resizeTimeoutRef.current) {
@@ -553,7 +554,7 @@ const TradingViewMultiPaneChart = ({
           display: none !important;
         }
       `}</style>
-      
+
       {/* Y-axis titles - positioned for 6:1:1 ratio yang fixed */}
       <div className="absolute -left-4 top-45 text-sm font-bold text-muted-foreground transform -rotate-90 origin-left whitespace-nowrap z-10">
         Price
@@ -564,12 +565,12 @@ const TradingViewMultiPaneChart = ({
       <div className="absolute -left-4 top-155 text-sm font-bold text-muted-foreground transform -rotate-90 origin-left whitespace-nowrap z-10">
         Volume
       </div>
-      
+
       {/* X-axis title */}
       <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 text-sm font-bold text-muted-foreground z-10">
         Date
       </div>
-      
+
       <div ref={containerRef} className="h-full w-full" />
     </div>
   );
@@ -582,8 +583,8 @@ interface StoryMarketParticipantProps {
   disableFixedControlPanel?: boolean;
 }
 
-export function StoryMarketParticipant({ 
-  selectedStock: propSelectedStock, 
+export function StoryMarketParticipant({
+  selectedStock: propSelectedStock,
   hideMarketAnalysis = false,
   hideForeignFlowAnalysis = false,
   disableFixedControlPanel = false
@@ -601,25 +602,28 @@ export function StoryMarketParticipant({
   const [foreignFlowDataReal, setForeignFlowDataReal] = useState<any[]>([]);
   const [holdingDataReal, setHoldingDataReal] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  
-  // UI enhancements
-  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
-  
+
+  // Control menu ref and spacer height for fixed positioning
+  const controlMenuRef = useRef<HTMLDivElement>(null);
+  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
+
   // Initialize date range with default values (last 30 trading days)
   // Use lazy initialization to ensure it's only calculated once
   const [dateRange, setDateRange] = useState(() => getDefaultDateRange());
   const [tempDateRange, setTempDateRange] = useState(() => getDefaultDateRange());
   const [dataLimit, setDataLimit] = useState(100);
-  
+
   // Cache
   const cacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-  
-  // Control menu ref and spacer height for fixed positioning
-  const controlMenuRef = useRef<HTMLDivElement>(null);
-  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
 
-  const stocks = ['BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
+  // Load stock list from backend on component mount
+  useEffect(() => {
+    loadStockList();
+  }, []);
+
+  // Filter stocks using searchStocks from stockList.ts
+  const filteredStocks = searchStocks(stockInput);
 
   const handleStockSelect = (stock: string) => {
     setStockInput(stock);
@@ -631,7 +635,7 @@ export function StoryMarketParticipant({
     setStockInput(value.toUpperCase());
     setShowStockSuggestions(true);
     // Auto-select if exact match
-    if (stocks.includes(value.toUpperCase())) {
+    if (STOCK_LIST.includes(value.toUpperCase())) {
       setSelectedStock(value.toUpperCase());
     }
   };
@@ -654,11 +658,11 @@ export function StoryMarketParticipant({
   const fetchStockData = async (stockCode: string) => {
     try {
       setLoading(true);
-      
+
       // Check cache first
       const cacheKey = `${stockCode}_${dateRange.start}_${dateRange.end}_${dataLimit}`;
       const cachedData = getCachedData(cacheKey);
-      
+
       if (cachedData) {
         console.log('📦 Using cached data for', stockCode);
         setCandlestickDataReal(cachedData.ohlcData);
@@ -669,12 +673,12 @@ export function StoryMarketParticipant({
         setLoading(false);
         return;
       }
-      
+
       // Fetch OHLC data
       const ohlcResponse = await api.getStockData(stockCode, dateRange.start, dateRange.end, dataLimit);
       let ohlcData: any[] = [];
       let volumeData: any[] = [];
-      
+
       if (ohlcResponse.success && ohlcResponse.data?.data) {
         // Sort data by date descending (newest first, oldest last) - from today backwards
         const sortedData = [...ohlcResponse.data.data].sort((a: any, b: any) => {
@@ -682,13 +686,13 @@ export function StoryMarketParticipant({
           const dateB = new Date(b.Date).getTime();
           return dateB - dateA; // Descending order (newest to oldest)
         });
-        
+
         // Take only the last N records (most recent) if dataLimit is specified
         const limitedData = dataLimit > 0 ? sortedData.slice(0, dataLimit) : sortedData;
-        
+
         // Reverse to chronological order (oldest to newest) for chart display
         const chronologicalData = [...limitedData].reverse();
-        
+
         ohlcData = chronologicalData.map((row: any) => ({
           time: row.Date as any, // Format: YYYY-MM-DD
           open: row.Open,
@@ -698,7 +702,7 @@ export function StoryMarketParticipant({
           volume: row.Volume
         }));
         setCandlestickDataReal(ohlcData);
-        
+
         // Extract volume data
         volumeData = ohlcData.map((item: any) => ({
           time: item.time,
@@ -712,11 +716,11 @@ export function StoryMarketParticipant({
         setCandlestickDataReal([]);
         setVolumeDataReal([]);
       }
-      
+
       // Fetch Money Flow data
       const moneyFlowResponse = await api.getMoneyFlowData(stockCode, dataLimit);
       let mfiData: any[] = [];
-      
+
       if (moneyFlowResponse.success && moneyFlowResponse.data?.data) {
         // Sort data by date descending (newest first, oldest last) - from today backwards
         const sortedData = [...moneyFlowResponse.data.data].sort((a: any, b: any) => {
@@ -724,13 +728,13 @@ export function StoryMarketParticipant({
           const dateB = new Date(b.Date).getTime();
           return dateB - dateA; // Descending order (newest to oldest)
         });
-        
+
         // Take only the last N records (most recent) if dataLimit is specified
         const limitedData = dataLimit > 0 ? sortedData.slice(0, dataLimit) : sortedData;
-        
+
         // Reverse to chronological order (oldest to newest) for chart display
         const chronologicalData = [...limitedData].reverse();
-        
+
         mfiData = chronologicalData.map((row: any) => ({
           time: row.Date as any,
           moneyFlow: row.MFI, // MFI value (0-100)
@@ -742,11 +746,11 @@ export function StoryMarketParticipant({
         console.warn(`No money flow data for ${stockCode}`);
         setMoneyFlowDataReal([]);
       }
-      
+
       // Fetch Foreign Flow data
       const foreignFlowResponse = await api.getForeignFlowData(stockCode, dataLimit);
       let foreignData: any[] = [];
-      
+
       if (foreignFlowResponse.success && foreignFlowResponse.data?.data) {
         // Sort data by date descending (newest first, oldest last) - from today backwards
         const sortedData = [...foreignFlowResponse.data.data].sort((a: any, b: any) => {
@@ -754,13 +758,13 @@ export function StoryMarketParticipant({
           const dateB = new Date(b.Date).getTime();
           return dateB - dateA; // Descending order (newest to oldest)
         });
-        
+
         // Take only the last N records (most recent) if dataLimit is specified
         const limitedData = dataLimit > 0 ? sortedData.slice(0, dataLimit) : sortedData;
-        
+
         // Reverse to chronological order (oldest to newest) for chart display
         const chronologicalData = [...limitedData].reverse();
-        
+
         foreignData = chronologicalData.map((row: any) => ({
           time: row.Date as any,
           buyVol: row.BuyVol,
@@ -773,11 +777,11 @@ export function StoryMarketParticipant({
         console.warn(`No foreign flow data for ${stockCode}`);
         setForeignFlowDataReal([]);
       }
-      
+
       // Fetch Holding/Shareholding data
       const holdingResponse = await api.getHoldingData(stockCode, dataLimit);
       let holdingData: any[] = [];
-      
+
       if (holdingResponse.success && holdingResponse.data?.data) {
         // Sort data by date descending (newest first, oldest last) - from today backwards
         const sortedData = [...holdingResponse.data.data].sort((a: any, b: any) => {
@@ -785,13 +789,13 @@ export function StoryMarketParticipant({
           const dateB = new Date(b.date || b.Date).getTime();
           return dateB - dateA; // Descending order (newest to oldest)
         });
-        
+
         // Take only the last N records (most recent) if dataLimit is specified
         const limitedData = dataLimit > 0 ? sortedData.slice(0, dataLimit) : sortedData;
-        
+
         // Reverse to chronological order (oldest to newest) for chart display
         const chronologicalData = [...limitedData].reverse();
-        
+
         holdingData = chronologicalData;
         setHoldingDataReal(holdingData);
         console.log(`✅ Holding data loaded: ${holdingData.length} records`);
@@ -799,7 +803,7 @@ export function StoryMarketParticipant({
         console.warn(`No holding data for ${stockCode}`);
         setHoldingDataReal([]);
       }
-      
+
       // Cache the data
       setCachedData(cacheKey, {
         ohlcData,
@@ -808,7 +812,7 @@ export function StoryMarketParticipant({
         foreignData,
         holdingData
       });
-      
+
     } catch (error) {
       console.error('Error fetching stock data:', error);
       toast.error('Failed to fetch stock data');
@@ -824,21 +828,6 @@ export function StoryMarketParticipant({
       setStockInput(propSelectedStock);
     }
   }, [propSelectedStock, selectedStock]);
-
-  // Load available stocks on mount
-  useEffect(() => {
-    const loadStocks = async () => {
-      try {
-        const response = await api.getStockList();
-        if (response.success && response.data?.stocks) {
-          setAvailableStocks(response.data.stocks);
-        }
-      } catch (error) {
-        console.error('Failed to load stock list:', error);
-      }
-    };
-    loadStocks();
-  }, []);
 
   // Fetch data when selected stock or limit changes
   useEffect(() => {
@@ -886,15 +875,11 @@ export function StoryMarketParticipant({
     };
   }, [stockInput, layoutMode, tempDateRange, dataLimit]);
 
-  // Use available stocks from API or fallback to default
-  const stockList = availableStocks.length > 0 ? availableStocks : stocks;
-  const filteredStocksFromAPI = stockList.filter(stock => 
-    stock.toLowerCase().includes(stockInput.toLowerCase())
-  );
+  // Constants for stock display
   const MAX_DISPLAYED = 10;
-  const hasMore = filteredStocksFromAPI.length > MAX_DISPLAYED;
-  const displayedStocks = filteredStocksFromAPI.slice(0, MAX_DISPLAYED);
-  const moreCount = filteredStocksFromAPI.length - MAX_DISPLAYED;
+  const displayedStocks = filteredStocks.slice(0, MAX_DISPLAYED);
+  const hasMore = filteredStocks.length > MAX_DISPLAYED;
+  const moreCount = filteredStocks.length - MAX_DISPLAYED;
 
   return (
     <div className="space-y-4">
@@ -947,21 +932,21 @@ export function StoryMarketParticipant({
                 <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-64 overflow-y-auto">
                   {stockInput === '' && (
                     <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                      All Stocks ({availableStocks.length > 0 ? availableStocks.length : stocks.length})
+                      All Stocks ({STOCK_LIST.length})
                     </div>
                   )}
                   {displayedStocks.length > 0 ? (
                     <>
                       {displayedStocks.map((stock, idx) => (
-                      <div
-                        key={stock}
-                        onClick={() => handleStockSelect(stock)}
-                        onMouseEnter={() => setHighlightedIndex(idx)}
-                        onMouseLeave={() => setHighlightedIndex(-1)}
-                        className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
-                      >
-                        {stock}
-                      </div>
+                        <div
+                          key={stock}
+                          onClick={() => handleStockSelect(stock)}
+                          onMouseEnter={() => setHighlightedIndex(idx)}
+                          onMouseLeave={() => setHighlightedIndex(-1)}
+                          className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
+                        >
+                          {stock}
+                        </div>
                       ))}
                       {hasMore && (
                         <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
@@ -978,7 +963,7 @@ export function StoryMarketParticipant({
               )}
             </div>
           </div>
-          
+
           {/* Date Range & Data Points */}
           <div className="flex-1 min-w-0 flex items-center gap-2">
             <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
@@ -1077,7 +1062,7 @@ export function StoryMarketParticipant({
               <p className="text-sm text-muted-foreground">Price action, money flow, and volume analysis</p>
             </CardHeader>
             <CardContent>
-              <TradingViewMultiPaneChart 
+              <TradingViewMultiPaneChart
                 candlestickData={candlestickDataReal}
                 moneyFlowData={moneyFlowDataReal.length > 0 ? moneyFlowDataReal : moneyFlowData}
                 volumeData={volumeDataReal}
@@ -1094,7 +1079,7 @@ export function StoryMarketParticipant({
                 <p className="text-sm text-muted-foreground">Candlestick chart showing price movement</p>
               </CardHeader>
               <CardContent>
-                <IndividualChart 
+                <IndividualChart
                   data={candlestickDataReal}
                   chartType="candlestick"
                   height={300}
@@ -1103,13 +1088,13 @@ export function StoryMarketParticipant({
             </Card>
 
             {/* Money Flow Chart */}
-        <Card>
-          <CardHeader>
+            <Card>
+              <CardHeader>
                 <CardTitle>{selectedStock} - Money Flow Index (MFI)</CardTitle>
                 <p className="text-sm text-muted-foreground">MFI indicator (0-100): &lt;20 Oversold, &gt;80 Overbought</p>
-          </CardHeader>
-          <CardContent>
-                <IndividualChart 
+              </CardHeader>
+              <CardContent>
+                <IndividualChart
                   data={(moneyFlowDataReal.length > 0 ? moneyFlowDataReal : moneyFlowData).map(d => ({
                     time: d.time,
                     value: d.moneyFlow
@@ -1118,8 +1103,8 @@ export function StoryMarketParticipant({
                   color="#3b82f6"
                   height={200}
                 />
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
 
             {/* Volume Chart */}
             <Card>
@@ -1128,7 +1113,7 @@ export function StoryMarketParticipant({
                 <p className="text-sm text-muted-foreground">Trading volume analysis</p>
               </CardHeader>
               <CardContent>
-                <IndividualChart 
+                <IndividualChart
                   data={volumeDataReal.map(d => ({
                     time: d.time,
                     value: d.volume
@@ -1157,20 +1142,20 @@ export function StoryMarketParticipant({
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={foreignFlowDataReal} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
-                      <XAxis 
-                        dataKey="time" 
+                      <XAxis
+                        dataKey="time"
                         axisLine={false}
                         tickLine={false}
                         tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                       />
-                      <YAxis 
+                      <YAxis
                         yAxisId="left"
                         axisLine={false}
                         tickLine={false}
                         tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                         label={{ value: 'Volume', angle: -90, position: 'insideLeft', style: { fontSize: 12 } }}
                       />
-                      <YAxis 
+                      <YAxis
                         yAxisId="right"
                         orientation="right"
                         axisLine={false}
@@ -1178,7 +1163,7 @@ export function StoryMarketParticipant({
                         tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                         label={{ value: 'Net Buy Volume', angle: 90, position: 'insideRight', style: { fontSize: 12 } }}
                       />
-                      <Tooltip 
+                      <Tooltip
                         contentStyle={{
                           backgroundColor: 'hsl(var(--popover))',
                           border: '1px solid hsl(var(--border))',
@@ -1189,11 +1174,11 @@ export function StoryMarketParticipant({
                       <Legend />
                       <Bar yAxisId="left" dataKey="buyVol" fill="#10b981" name="Foreign Buy" />
                       <Bar yAxisId="left" dataKey="sellVol" fill="#ef4444" name="Foreign Sell" />
-                      <Line 
-                        yAxisId="right" 
-                        type="monotone" 
-                        dataKey="netBuyVol" 
-                        stroke="#3b82f6" 
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="netBuyVol"
+                        stroke="#3b82f6"
                         strokeWidth={2}
                         name="Net Buy Volume"
                         dot={false}
@@ -1206,169 +1191,169 @@ export function StoryMarketParticipant({
           )}
 
           {/* Local Market Participants Stacked Chart */}
-        {holdingDataReal.length > 0 && (
-        <Card>
-          <CardHeader>
-              <CardTitle>{selectedStock} - Local Market Participants Breakdown</CardTitle>
-              <p className="text-sm text-muted-foreground">Local investor types distribution over time (percentage ownership)</p>
-          </CardHeader>
-          <CardContent>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart 
-                    data={holdingDataReal.map(row => ({
-                      date: row.date,
-                      Corporate: row['local_Corporate_inPercent'] || 0,
-                      'Financial Institution': row['local_Financial Institution_inPercent'] || 0,
-                      Individual: row['local_Individual_inPercent'] || 0,
-                      Insurance: row['local_Insurance_inPercent'] || 0,
-                      'Mutual Fund': row['local_Mutual Fund_inPercent'] || 0,
-                      Others: row['local_Others_inPercent'] || 0,
-                      'Pension Fund': row['local_Pension Fund_inPercent'] || 0,
-                      'Securities Company': row['local_Securities Company_inPercent'] || 0
-                    }))} 
-                    margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
-                  >
-                    <XAxis 
-                      dataKey="date" 
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                    />
-                    <YAxis 
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                    />
-                    <Tooltip 
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--popover))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '6px',
-                        fontSize: '12px'
-                      }}
-                      formatter={(value: any) => [`${parseFloat(value).toFixed(2)}%`, '']}
-                    />
-                    <Bar dataKey="Corporate" stackId="local" fill="#3b82f6" name="Corporate" />
-                    <Bar dataKey="Financial Institution" stackId="local" fill="#8b5cf6" name="Financial Institution" />
-                    <Bar dataKey="Individual" stackId="local" fill="#10b981" name="Individual" />
-                    <Bar dataKey="Insurance" stackId="local" fill="#f59e0b" name="Insurance" />
-                    <Bar dataKey="Mutual Fund" stackId="local" fill="#ef4444" name="Mutual Fund" />
-                    <Bar dataKey="Others" stackId="local" fill="#6b7280" name="Others" />
-                    <Bar dataKey="Pension Fund" stackId="local" fill="#84cc16" name="Pension Fund" />
-                    <Bar dataKey="Securities Company" stackId="local" fill="#f97316" name="Securities Company" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-          </CardContent>
-        </Card>
-        )}
+          {holdingDataReal.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{selectedStock} - Local Market Participants Breakdown</CardTitle>
+                <p className="text-sm text-muted-foreground">Local investor types distribution over time (percentage ownership)</p>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={holdingDataReal.map(row => ({
+                        date: row.date,
+                        Corporate: row['local_Corporate_inPercent'] || 0,
+                        'Financial Institution': row['local_Financial Institution_inPercent'] || 0,
+                        Individual: row['local_Individual_inPercent'] || 0,
+                        Insurance: row['local_Insurance_inPercent'] || 0,
+                        'Mutual Fund': row['local_Mutual Fund_inPercent'] || 0,
+                        Others: row['local_Others_inPercent'] || 0,
+                        'Pension Fund': row['local_Pension Fund_inPercent'] || 0,
+                        'Securities Company': row['local_Securities Company_inPercent'] || 0
+                      }))}
+                      margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+                    >
+                      <XAxis
+                        dataKey="date"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--popover))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '6px',
+                          fontSize: '12px'
+                        }}
+                        formatter={(value: any) => [`${parseFloat(value).toFixed(2)}%`, '']}
+                      />
+                      <Bar dataKey="Corporate" stackId="local" fill="#3b82f6" name="Corporate" />
+                      <Bar dataKey="Financial Institution" stackId="local" fill="#8b5cf6" name="Financial Institution" />
+                      <Bar dataKey="Individual" stackId="local" fill="#10b981" name="Individual" />
+                      <Bar dataKey="Insurance" stackId="local" fill="#f59e0b" name="Insurance" />
+                      <Bar dataKey="Mutual Fund" stackId="local" fill="#ef4444" name="Mutual Fund" />
+                      <Bar dataKey="Others" stackId="local" fill="#6b7280" name="Others" />
+                      <Bar dataKey="Pension Fund" stackId="local" fill="#84cc16" name="Pension Fund" />
+                      <Bar dataKey="Securities Company" stackId="local" fill="#f97316" name="Securities Company" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Foreign Market Participants Stacked Chart */}
-        {holdingDataReal.length > 0 && (
-        <Card>
-          <CardHeader>
-              <CardTitle>{selectedStock} - Foreign Market Participants Breakdown</CardTitle>
-              <p className="text-sm text-muted-foreground">Foreign investor types distribution over time (percentage ownership)</p>
-          </CardHeader>
-          <CardContent>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart 
-                    data={holdingDataReal.map(row => ({
-                      date: row.date,
-                      Corporate: row['foreign_Corporate_inPercent'] || 0,
-                      'Financial Institution': row['foreign_Financial Institution_inPercent'] || 0,
-                      Individual: row['foreign_Individual_inPercent'] || 0,
-                      Insurance: row['foreign_Insurance_inPercent'] || 0,
-                      'Mutual Fund': row['foreign_Mutual Fund_inPercent'] || 0,
-                      Others: row['foreign_Others_inPercent'] || 0,
-                      'Pension Fund': row['foreign_Pension Fund_inPercent'] || 0,
-                      'Securities Company': row['foreign_Securities Company_inPercent'] || 0
-                    }))} 
-                    margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
-                  >
-                    <XAxis 
-                      dataKey="date" 
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                    />
-                    <YAxis 
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                    />
-                    <Tooltip 
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--popover))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '6px',
-                        fontSize: '12px'
-                      }}
-                      formatter={(value: any) => [`${parseFloat(value).toFixed(2)}%`, '']}
-                    />
-                    <Bar dataKey="Corporate" stackId="foreign" fill="#3b82f6" name="Corporate" />
-                    <Bar dataKey="Financial Institution" stackId="foreign" fill="#8b5cf6" name="Financial Institution" />
-                    <Bar dataKey="Individual" stackId="foreign" fill="#10b981" name="Individual" />
-                    <Bar dataKey="Insurance" stackId="foreign" fill="#f59e0b" name="Insurance" />
-                    <Bar dataKey="Mutual Fund" stackId="foreign" fill="#ef4444" name="Mutual Fund" />
-                    <Bar dataKey="Others" stackId="foreign" fill="#6b7280" name="Others" />
-                    <Bar dataKey="Pension Fund" stackId="foreign" fill="#84cc16" name="Pension Fund" />
-                    <Bar dataKey="Securities Company" stackId="foreign" fill="#f97316" name="Securities Company" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-          </CardContent>
-        </Card>
-        )}
+          {holdingDataReal.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{selectedStock} - Foreign Market Participants Breakdown</CardTitle>
+                <p className="text-sm text-muted-foreground">Foreign investor types distribution over time (percentage ownership)</p>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={holdingDataReal.map(row => ({
+                        date: row.date,
+                        Corporate: row['foreign_Corporate_inPercent'] || 0,
+                        'Financial Institution': row['foreign_Financial Institution_inPercent'] || 0,
+                        Individual: row['foreign_Individual_inPercent'] || 0,
+                        Insurance: row['foreign_Insurance_inPercent'] || 0,
+                        'Mutual Fund': row['foreign_Mutual Fund_inPercent'] || 0,
+                        Others: row['foreign_Others_inPercent'] || 0,
+                        'Pension Fund': row['foreign_Pension Fund_inPercent'] || 0,
+                        'Securities Company': row['foreign_Securities Company_inPercent'] || 0
+                      }))}
+                      margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+                    >
+                      <XAxis
+                        dataKey="date"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--popover))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '6px',
+                          fontSize: '12px'
+                        }}
+                        formatter={(value: any) => [`${parseFloat(value).toFixed(2)}%`, '']}
+                      />
+                      <Bar dataKey="Corporate" stackId="foreign" fill="#3b82f6" name="Corporate" />
+                      <Bar dataKey="Financial Institution" stackId="foreign" fill="#8b5cf6" name="Financial Institution" />
+                      <Bar dataKey="Individual" stackId="foreign" fill="#10b981" name="Individual" />
+                      <Bar dataKey="Insurance" stackId="foreign" fill="#f59e0b" name="Insurance" />
+                      <Bar dataKey="Mutual Fund" stackId="foreign" fill="#ef4444" name="Mutual Fund" />
+                      <Bar dataKey="Others" stackId="foreign" fill="#6b7280" name="Others" />
+                      <Bar dataKey="Pension Fund" stackId="foreign" fill="#84cc16" name="Pension Fund" />
+                      <Bar dataKey="Securities Company" stackId="foreign" fill="#f97316" name="Securities Company" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Combined Local vs Foreign Chart */}
           {holdingDataReal.length > 0 && (
-          <Card>
-            <CardHeader>
+            <Card>
+              <CardHeader>
                 <CardTitle>{selectedStock} - Local vs Foreign Market Comparison</CardTitle>
                 <p className="text-sm text-muted-foreground">Total local vs foreign ownership over time (percentage)</p>
-            </CardHeader>
-            <CardContent>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                    <BarChart 
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
                       data={holdingDataReal.map(row => ({
                         date: row.date,
                         Local: row['local_total_inPercent'] || 0,
                         Foreign: row['foreign_total_inPercent'] || 0
-                      }))} 
+                      }))}
                       margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
                     >
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                    <XAxis 
-                      dataKey="date" 
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                    />
-                    <YAxis 
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                    />
-                    <Tooltip 
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--popover))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '6px',
-                        fontSize: '12px'
-                      }}
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                      <XAxis
+                        dataKey="date"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--popover))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '6px',
+                          fontSize: '12px'
+                        }}
                         formatter={(value: any) => [`${parseFloat(value).toFixed(2)}%`, '']}
-                    />
-                    <Bar dataKey="Local" stackId="combined" fill="#3b82f6" name="Local" />
-                    <Bar dataKey="Foreign" stackId="combined" fill="#f59e0b" name="Foreign" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
+                      />
+                      <Bar dataKey="Local" stackId="combined" fill="#3b82f6" name="Local" />
+                      <Bar dataKey="Foreign" stackId="combined" fill="#f59e0b" name="Foreign" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
       </div>

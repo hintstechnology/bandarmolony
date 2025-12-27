@@ -20,30 +20,30 @@ const SECTOR_MAPPING: { [key: string]: string[] } = {
 async function buildSectorMappingFromCsv(): Promise<void> {
   try {
     console.log('🔍 Building sector mapping from csv_input/sector_mapping.csv...');
-    
+
     // Load sector mapping from CSV file
     const csvData = await downloadText('csv_input/sector_mapping.csv');
     const lines = csvData.split('\n')
       .map(line => line.trim())
       .filter(line => line && line.length > 0);
-    
+
     // Clear existing mapping
     Object.keys(SECTOR_MAPPING).forEach(sector => {
       SECTOR_MAPPING[sector] = [];
     });
-    
+
     // Parse CSV data (skip header row: "sector,emiten")
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
       if (!line) continue;
-      
+
       // Simple CSV parsing: split by comma
       const values = line.split(',').map(v => v.trim());
-      
+
       if (values.length >= 2) {
         const sector = values[0] || '';
         const emiten = values[1] || '';
-        
+
         if (sector && emiten) {
           if (!SECTOR_MAPPING[sector]) {
             SECTOR_MAPPING[sector] = [];
@@ -55,14 +55,14 @@ async function buildSectorMappingFromCsv(): Promise<void> {
         }
       }
     }
-    
+
     console.log('📊 Sector mapping built successfully from CSV');
     console.log(`📊 Found ${Object.keys(SECTOR_MAPPING).length} sectors with total ${Object.values(SECTOR_MAPPING).flat().length} emitens`);
-    
+
   } catch (error) {
     console.warn('⚠️ Could not build sector mapping from CSV:', error);
     console.log('⚠️ Using default sector mapping');
-    
+
     // Initialize with default sectors if CSV fails
     Object.keys(SECTOR_MAPPING).forEach(sector => {
       SECTOR_MAPPING[sector] = [];
@@ -78,18 +78,18 @@ function getSectorForEmiten(emiten: string): string {
       return sector;
     }
   }
-  
+
   // If not found, distribute based on hash
   const sectors = Object.keys(SECTOR_MAPPING);
   if (sectors.length === 0) {
     return 'Technology'; // Default fallback
   }
-  
+
   const hash = emiten.split('').reduce((a, b) => {
     a = ((a << 5) - a) + b.charCodeAt(0);
     return a & a;
   }, 0);
-  
+
   return sectors[Math.abs(hash) % sectors.length] || 'Technology';
 }
 
@@ -102,17 +102,17 @@ router.get('/list', async (_req, res) => {
   try {
     // Build sector mapping first
     await buildSectorMappingFromCsv();
-    
+
     // Get all stocks from sector mapping
     const allStocks: string[] = [];
     Object.values(SECTOR_MAPPING).forEach(stocks => {
       allStocks.push(...stocks);
     });
-    
+
     const stocks = allStocks
       .filter(stock => stock.length === 4) // Only 4-character stock codes
       .sort();
-    
+
     return res.json({
       success: true,
       data: {
@@ -120,12 +120,79 @@ router.get('/list', async (_req, res) => {
         total: stocks.length
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Error getting stock list:', error);
     return res.status(500).json({
       success: false,
       error: 'Failed to get stock list'
+    });
+  }
+});
+
+/**
+ * GET /api/stock/emiten-list
+ * Get list of emiten codes from csv_input/emiten_list.csv
+ */
+router.get('/emiten-list', async (_req, res) => {
+  try {
+    console.log('📊 Fetching emiten list from csv_input/emiten_list.csv...');
+
+    // Download CSV data from Azure
+    const csvData = await downloadText('csv_input/emiten_list.csv');
+
+    if (!csvData) {
+      console.log('❌ Emiten list file not found');
+      return res.status(404).json({
+        success: false,
+        error: 'Emiten list file not found'
+      });
+    }
+
+    // Parse CSV data
+    const lines = csvData.split('\n').filter(line => line.trim());
+    const stocks: string[] = [];
+
+    // Skip header row if exists, process data rows
+    // Assuming CSV format: either just stock codes or has a header like "code" or "emiten"
+    const firstLine = lines[0]?.trim().toUpperCase();
+    const hasHeader = firstLine === 'CODE' || firstLine === 'EMITEN' || firstLine === 'STOCK';
+    const startIndex = hasHeader ? 1 : 0;
+
+    for (let i = startIndex; i < lines.length; i++) {
+      const line = lines[i]?.trim();
+      if (line && line.length > 0) {
+        // Handle CSV with potential comma-separated values (take first column)
+        const stockCode = line.split(',')[0]?.trim().toUpperCase();
+        if (stockCode && stockCode.length === 4) {
+          stocks.push(stockCode);
+        }
+      }
+    }
+
+    // Remove duplicates and sort
+    const uniqueStocks = Array.from(new Set(stocks)).sort();
+
+    console.log(`✅ Loaded ${uniqueStocks.length} emiten codes from CSV`);
+
+    return res.json({
+      success: true,
+      data: {
+        stocks: uniqueStocks,
+        total: uniqueStocks.length
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error fetching emiten list:', error);
+    console.error('Error details:', {
+      error: error.message,
+      stack: error.stack
+    });
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch emiten list'
     });
   }
 });
@@ -137,27 +204,27 @@ router.get('/data/:stockCode', async (req, res) => {
   try {
     const { stockCode } = req.params;
     const { startDate, endDate, limit } = req.query;
-    
+
     if (!stockCode || stockCode.length !== 4) {
       return res.status(400).json({
         success: false,
         error: 'Invalid stock code. Must be 4 characters.'
       });
     }
-    
-    
+
+
     // Build sector mapping first
     await buildSectorMappingFromCsv();
-    
+
     // Get sector for this stock
     const sector = getSectorForEmiten(stockCode.toUpperCase());
     const filePath = `stock/${sector}/${stockCode.toUpperCase()}.csv`;
-    
+
     console.log(`📊 Using sector: ${sector} for stock: ${stockCode}`);
-    
+
     // Download CSV data from Azure
     const csvData = await downloadText(filePath);
-    
+
     // Parse CSV data
     const lines = csvData.split('\n').filter(line => line.trim());
     if (lines.length === 0) {
@@ -166,7 +233,7 @@ router.get('/data/:stockCode', async (req, res) => {
         error: 'No data found for this stock'
       });
     }
-    
+
     const headers = lines[0]?.split(',') || [];
     const data = lines.slice(1).map(line => {
       const values = line.split(',');
@@ -182,7 +249,7 @@ router.get('/data/:stockCode', async (req, res) => {
       });
       return row;
     });
-    
+
     // Apply date filtering if provided
     let filteredData = data;
     if (startDate || endDate) {
@@ -193,7 +260,7 @@ router.get('/data/:stockCode', async (req, res) => {
         return true;
       });
     }
-    
+
     // Apply limit if provided
     if (limit) {
       const limitNum = parseInt(String(limit));
@@ -201,15 +268,15 @@ router.get('/data/:stockCode', async (req, res) => {
         filteredData = filteredData.slice(-limitNum); // Get last N records
       }
     }
-    
+
     // Sort by date (oldest first)
     filteredData.sort((a, b) => {
       const dateA = a.Date || '';
       const dateB = b.Date || '';
       return dateA.localeCompare(dateB);
     });
-    
-    
+
+
     return res.json({
       success: true,
       data: {
@@ -220,7 +287,7 @@ router.get('/data/:stockCode', async (req, res) => {
         generated_at: new Date().toISOString()
       }
     });
-    
+
   } catch (error) {
     console.error(`❌ Error getting stock data for ${req.params.stockCode}:`, error);
     return res.status(500).json({
@@ -236,35 +303,35 @@ router.get('/data/:stockCode', async (req, res) => {
 router.get('/data', async (req, res) => {
   try {
     const { stocks, startDate, endDate, limit } = req.query;
-    
+
     if (!stocks) {
       return res.status(400).json({
         success: false,
         error: 'Missing required parameter: stocks'
       });
     }
-    
+
     const stockCodes = Array.isArray(stocks) ? stocks as string[] : [stocks as string];
-    
+
     // Build sector mapping first
     await buildSectorMappingFromCsv();
-    
+
     const results: any[] = [];
-    
+
     for (const stockCode of stockCodes) {
       if (stockCode.length !== 4) continue;
-      
+
       try {
         // Get sector for this stock
         const sector = getSectorForEmiten(stockCode.toUpperCase());
         const filePath = `stock/${sector}/${stockCode.toUpperCase()}.csv`;
-        
-        
+
+
         const csvData = await downloadText(filePath);
-        
+
         const lines = csvData.split('\n').filter(line => line.trim());
         if (lines.length === 0) continue;
-        
+
         const headers = lines[0]?.split(',') || [];
         const data = lines.slice(1).map(line => {
           const values = line.split(',');
@@ -279,7 +346,7 @@ router.get('/data', async (req, res) => {
           });
           return row;
         });
-        
+
         // Apply date filtering
         let filteredData = data;
         if (startDate || endDate) {
@@ -290,7 +357,7 @@ router.get('/data', async (req, res) => {
             return true;
           });
         }
-        
+
         // Apply limit
         if (limit) {
           const limitNum = parseInt(String(limit));
@@ -298,26 +365,26 @@ router.get('/data', async (req, res) => {
             filteredData = filteredData.slice(-limitNum);
           }
         }
-        
+
         // Sort by date
         filteredData.sort((a, b) => {
           const dateA = a.Date || '';
           const dateB = b.Date || '';
           return dateA.localeCompare(dateB);
         });
-        
+
         results.push({
           stockCode: stockCode.toUpperCase(),
           data: filteredData,
           total: filteredData.length
         });
-        
+
       } catch (error) {
         console.error(`Error processing ${stockCode}:`, error);
       }
     }
-    
-    
+
+
     return res.json({
       success: true,
       data: {
@@ -326,7 +393,7 @@ router.get('/data', async (req, res) => {
         generated_at: new Date().toISOString()
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Error getting multiple stocks data:', error);
     return res.status(500).json({
@@ -343,29 +410,29 @@ router.get('/footprint/:stockCode', async (req, res) => {
   try {
     const { stockCode } = req.params;
     const { date } = req.query;
-    
+
     if (!stockCode || stockCode.length !== 4) {
       return res.status(400).json({
         success: false,
         error: 'Invalid stock code. Must be 4 characters.'
       });
     }
-    
+
     if (!date) {
       return res.status(400).json({
         success: false,
         error: 'Missing required parameter: date (YYYYMMDD format)'
       });
     }
-    
-    
+
+
     // Look for bid/ask data in done-summary folder
     const dateStr = String(date);
     const dtFileName = `done-summary/${dateStr}/DT${dateStr.slice(2)}.csv`;
-    
+
     try {
       const csvData = await downloadText(dtFileName);
-      
+
       // Parse CSV data with semicolon separator
       const lines = csvData.split('\n').filter(line => line.trim());
       if (lines.length === 0) {
@@ -374,7 +441,7 @@ router.get('/footprint/:stockCode', async (req, res) => {
           error: 'No transaction data found for this date'
         });
       }
-      
+
       const headers = lines[0]?.split(';') || [];
       const data = lines.slice(1).map(line => {
         const values = line.split(';');
@@ -389,46 +456,46 @@ router.get('/footprint/:stockCode', async (req, res) => {
         });
         return row;
       });
-      
+
       // Filter data for the specific stock
-      const stockData = data.filter(row => 
+      const stockData = data.filter(row =>
         row.STK_CODE === stockCode.toUpperCase()
       );
-      
+
       if (stockData.length === 0) {
         return res.status(404).json({
           success: false,
           error: `No transaction data found for stock ${stockCode} on date ${date}`
         });
       }
-      
+
       // Group by price level and calculate buy/sell frequency
       const priceLevels: { [key: string]: { buy: number; sell: number; price: number } } = {};
-      
+
       stockData.forEach(row => {
         const price = row.STK_PRIC;
         const volume = row.STK_VOLM;
         const trxCode = row.TRX_CODE;
-        
+
         if (!priceLevels[price]) {
           priceLevels[price] = { buy: 0, sell: 0, price: price };
         }
-        
+
         if (trxCode === 'B') {
           priceLevels[price].buy += volume;
         } else if (trxCode === 'S') {
           priceLevels[price].sell += volume;
         }
       });
-      
+
       // Convert to array format for frontend
       const footprintData = Object.values(priceLevels).map(level => ({
         price: level.price,
         bFreq: level.buy,
         sFreq: level.sell
       })).sort((a, b) => b.price - a.price); // Sort by price descending
-      
-      
+
+
       return res.json({
         success: true,
         data: {
@@ -439,7 +506,7 @@ router.get('/footprint/:stockCode', async (req, res) => {
           generated_at: new Date().toISOString()
         }
       });
-      
+
     } catch (error) {
       console.error(`Error loading footprint data for ${stockCode}:`, error);
       return res.status(404).json({
@@ -447,7 +514,7 @@ router.get('/footprint/:stockCode', async (req, res) => {
         error: `No footprint data found for stock ${stockCode} on date ${date}`
       });
     }
-    
+
   } catch (error) {
     console.error(`❌ Error getting footprint data for ${req.params.stockCode}:`, error);
     return res.status(500).json({
@@ -463,53 +530,53 @@ router.get('/footprint/:stockCode', async (req, res) => {
 router.get('/latest-date/:stockCode', async (req, res) => {
   try {
     const { stockCode } = req.params;
-    
+
     if (!stockCode || stockCode.length !== 4) {
       return res.status(400).json({
         success: false,
         error: 'Invalid stock code. Must be 4 characters.'
       });
     }
-    
-    
+
+
     // Build sector mapping first
     await buildSectorMappingFromCsv();
-    
+
     // Get sector for this stock
     const sector = getSectorForEmiten(stockCode.toUpperCase());
     const filePath = `stock/${sector}/${stockCode.toUpperCase()}.csv`;
-    
+
     console.log(`📊 Using sector: ${sector} for stock: ${stockCode}`);
-    
+
     try {
       // Download CSV data from Azure
       const csvData = await downloadText(filePath);
-      
+
       // Parse CSV to find latest date (get MAXIMUM date, not last row)
       const lines = csvData.split('\n').filter(line => line.trim());
-      
+
       if (lines.length < 2) {
         return res.status(404).json({
           success: false,
           error: `No data found for stock ${stockCode}`
         });
       }
-      
+
       // Get headers
       const headers = lines[0]?.split(',') || [];
       const dateIndex = headers.indexOf('Date');
-      
+
       if (dateIndex === -1) {
         return res.status(404).json({
           success: false,
           error: 'Date column not found in stock data'
         });
       }
-      
+
       // Collect all dates and find the LATEST (maximum date)
       // Don't rely on row position - CSV might not be sorted
       let latestDate: string | null = null;
-      
+
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i]?.split(',') || [];
         if (line.length > dateIndex) {
@@ -522,15 +589,15 @@ router.get('/latest-date/:stockCode', async (req, res) => {
           }
         }
       }
-      
+
       if (!latestDate) {
         return res.status(404).json({
           success: false,
           error: 'Could not determine latest date'
         });
       }
-      
-      
+
+
       return res.json({
         success: true,
         data: {
@@ -539,7 +606,7 @@ router.get('/latest-date/:stockCode', async (req, res) => {
           generated_at: new Date().toISOString()
         }
       });
-      
+
     } catch (error) {
       console.error(`❌ Error reading stock file for ${stockCode}:`, error);
       return res.status(404).json({
@@ -547,7 +614,7 @@ router.get('/latest-date/:stockCode', async (req, res) => {
         error: `Stock data not found for ${stockCode}`
       });
     }
-    
+
   } catch (error) {
     console.error('❌ Error getting latest date:', error);
     return res.status(500).json({
@@ -563,10 +630,10 @@ router.get('/latest-date/:stockCode', async (req, res) => {
  */
 router.get('/sector-mapping', async (_req, res) => {
   try {
-    
+
     // Build sector mapping first
     await buildSectorMappingFromCsv();
-    
+
     // Build reverse mapping: stock -> sector
     const stockToSector: { [stock: string]: string } = {};
     for (const [sector, stocks] of Object.entries(SECTOR_MAPPING)) {
@@ -574,10 +641,10 @@ router.get('/sector-mapping', async (_req, res) => {
         stockToSector[stock.toUpperCase()] = sector;
       });
     }
-    
+
     // Also get list of all sectors
     const sectors = Object.keys(SECTOR_MAPPING).filter(sector => SECTOR_MAPPING[sector] && SECTOR_MAPPING[sector].length > 0);
-    
+
     // Add IDX as a special sector (for aggregate index data)
     // IDX is not a regular stock but an aggregated index, so it should appear as a sector
     if (!SECTOR_MAPPING['IDX']) {
@@ -586,7 +653,7 @@ router.get('/sector-mapping', async (_req, res) => {
     if (!sectors.includes('IDX')) {
       sectors.push('IDX');
     }
-    
+
     return res.json({
       success: true,
       data: {
@@ -595,7 +662,7 @@ router.get('/sector-mapping', async (_req, res) => {
         sectorMapping: SECTOR_MAPPING
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Error getting sector mapping:', error);
     return res.status(500).json({
@@ -622,10 +689,10 @@ function parseCsvLineWithQuotes(line: string): string[] {
   const values: string[] = [];
   let currentValue = '';
   let inQuotes = false;
-  
+
   for (let j = 0; j < line.length; j++) {
     const char = line[j];
-    
+
     if (char === '"') {
       inQuotes = !inQuotes;
     } else if (char === ',' && !inQuotes) {
@@ -642,11 +709,11 @@ function parseCsvLineWithQuotes(line: string): string[] {
 // Handler function for stock list with company names (shared logic)
 async function handleStockListWithCompany(_req: express.Request, res: express.Response) {
   try {
-    
+
     // Download CSV data from Azure
     const blobName = 'csv_input/emiten_detail_list.csv';
     const csvData = await downloadText(blobName);
-    
+
     // Parse CSV data
     const lines = csvData.split('\n').filter(line => line.trim());
     if (lines.length === 0) {
@@ -655,27 +722,27 @@ async function handleStockListWithCompany(_req: express.Request, res: express.Re
         error: 'No data found in emiten_detail_list.csv'
       });
     }
-    
+
     const headers = lines[0]?.split(',').map(h => h.trim()) || [];
     const stocks: StockDetail[] = [];
-    
+
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i]?.trim();
-      
+
       // Skip empty lines or lines with only commas
       if (!line || line === '' || /^,+\s*$/.test(line)) {
         continue;
       }
-      
+
       // Parse CSV line - handle quoted fields
       const values = parseCsvLineWithQuotes(line);
-      
+
       if (values.length >= headers.length) {
         const row: any = {};
         headers.forEach((header, index) => {
           row[header] = values[index] || '';
         });
-        
+
         const stockDetail: StockDetail = {
           code: row.Code || row.code || '',
           companyName: row['Company Name'] || row.CompanyName || row.companyName || '',
@@ -683,18 +750,18 @@ async function handleStockListWithCompany(_req: express.Request, res: express.Re
           shares: row.Shares || row.shares || '',
           listingBoard: row['Listing Board'] || row.ListingBoard || row.listingBoard || ''
         };
-        
+
         // Only add if we have at least code
         if (stockDetail.code && stockDetail.code.length === 4) {
           stocks.push(stockDetail);
         }
       }
     }
-    
+
     // Sort by code
     stocks.sort((a, b) => a.code.localeCompare(b.code));
-    
-    
+
+
     return res.json({
       success: true,
       data: {
@@ -703,7 +770,7 @@ async function handleStockListWithCompany(_req: express.Request, res: express.Re
         generated_at: new Date().toISOString()
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Error getting stock list with company names:', error);
     return res.status(500).json({
@@ -717,19 +784,19 @@ async function handleStockListWithCompany(_req: express.Request, res: express.Re
 async function handleStockDetail(req: express.Request, res: express.Response) {
   try {
     const { stockCode } = req.params;
-    
+
     if (!stockCode || stockCode.length !== 4) {
       return res.status(400).json({
         success: false,
         error: 'Invalid stock code. Must be 4 characters.'
       });
     }
-    
-    
+
+
     // Download CSV data from Azure
     const blobName = 'csv_input/emiten_detail_list.csv';
     const csvData = await downloadText(blobName);
-    
+
     // Parse CSV data
     const lines = csvData.split('\n').filter(line => line.trim());
     if (lines.length === 0) {
@@ -738,29 +805,29 @@ async function handleStockDetail(req: express.Request, res: express.Response) {
         error: 'No data found in emiten_detail_list.csv'
       });
     }
-    
+
     const headers = lines[0]?.split(',').map(h => h.trim()) || [];
     let stockDetail: StockDetail | null = null;
-    
+
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i]?.trim();
-      
+
       // Skip empty lines
       if (!line || line === '' || /^,+\s*$/.test(line)) {
         continue;
       }
-      
+
       // Parse CSV line - handle quoted fields
       const values = parseCsvLineWithQuotes(line);
-      
+
       if (values.length >= headers.length) {
         const row: any = {};
         headers.forEach((header, index) => {
           row[header] = values[index] || '';
         });
-        
+
         const code = row.Code || row.code || '';
-        
+
         if (code.toUpperCase() === stockCode.toUpperCase()) {
           stockDetail = {
             code: code,
@@ -773,20 +840,20 @@ async function handleStockDetail(req: express.Request, res: express.Response) {
         }
       }
     }
-    
+
     if (!stockDetail) {
       return res.status(404).json({
         success: false,
         error: `Stock ${stockCode} not found in emiten_detail_list.csv`
       });
     }
-    
-    
+
+
     return res.json({
       success: true,
       data: stockDetail
     });
-    
+
   } catch (error) {
     console.error('❌ Error getting stock details:', error);
     return res.status(500).json({

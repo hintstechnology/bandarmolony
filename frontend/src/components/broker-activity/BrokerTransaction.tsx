@@ -3,6 +3,7 @@ import { Loader2, Calendar, Search } from 'lucide-react';
 import { api } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
 import { menuPreferencesService } from '../../services/menuPreferences';
+import { STOCK_LIST, loadStockList } from '../../data/stockList';
 
 interface BrokerTransactionData {
   Emiten: string;
@@ -719,11 +720,11 @@ export function BrokerTransaction() {
         // OPTIMIZED: Load broker list, dates, stock list, and sector mapping in parallel for faster initial load
         // Stock list is needed for fast dropdown, sector mapping is needed for stock coloring
         setIsLoadingStocks(true);
-        const [brokerResponse, initialDates, stockResponse, sectorResponse] = await Promise.all([
+        const [brokerResponse, initialDates, sectorResponse] = await Promise.all([
           api.getBrokerList(),
           getAvailableTradingDays(3),
-          api.getStockList(), // Load stock list for fast dropdown
-          cachedSectorMapping ? Promise.resolve({ success: true, data: cachedSectorMapping }) : api.getSectorMapping()
+          cachedSectorMapping ? Promise.resolve({ success: true, data: cachedSectorMapping }) : api.getSectorMapping(),
+          loadStockList() // Load stock list from stockList.ts
         ]);
 
         if (brokerResponse.success && brokerResponse.data?.brokers) {
@@ -732,13 +733,9 @@ export function BrokerTransaction() {
           throw new Error('Failed to load broker list');
         }
 
-        // Load stock list from API for fast dropdown (like BrokerSummaryPage)
-        if (stockResponse.success && stockResponse.data?.stocks && Array.isArray(stockResponse.data.stocks)) {
-          setAvailableStocksFromAPI(stockResponse.data.stocks);
-          console.log(`[BrokerTransaction] Loaded ${stockResponse.data.stocks.length} stocks from API for dropdown`);
-        } else {
-          console.warn('[BrokerTransaction] Failed to load stock list from API, will use extraction from transaction data');
-        }
+        // Load stock list from stockList.ts for fast dropdown
+        setAvailableStocksFromAPI(STOCK_LIST);
+        console.log(`[BrokerTransaction] Loaded ${STOCK_LIST.length} stocks from stockList.ts for dropdown`);
         setIsLoadingStocks(false);
 
         // Update sector mapping if we got fresh data (not from cache)

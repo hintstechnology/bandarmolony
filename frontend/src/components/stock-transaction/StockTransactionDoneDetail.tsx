@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Calendar, Grid3X3, Search, Loader2, GripVertical, X, Settings, Info } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../services/api';
-import { STOCK_LIST, searchStocks } from '../../data/stockList';
+import { STOCK_LIST, loadStockList, searchStocks } from '../../data/stockList';
 import { menuPreferencesService } from '../../services/menuPreferences';
 
 interface DoneDetailData {
@@ -123,31 +123,31 @@ const savePreferences = (prefs: Partial<UserPreferences>) => {
 
 export function StockTransactionDoneDetail() {
   const { showToast } = useToast();
-  
+
   // Load preferences from cookies on mount
   const savedPrefs = loadPreferences();
-  
+
   // Helper function to get previous business day (skip weekends)
   const getPreviousBusinessDay = (): string => {
     const today = new Date();
     let previousDay = new Date(today);
     previousDay.setDate(today.getDate() - 1);
-    
+
     // Keep going back until we find a weekday (Monday-Friday, day 1-5)
     while (previousDay.getDay() === 0 || previousDay.getDay() === 6) {
       previousDay.setDate(previousDay.getDate() - 1);
     }
-    
+
     // Format as YYYY-MM-DD
     const year = previousDay.getFullYear();
     const month = String(previousDay.getMonth() + 1).padStart(2, '0');
     const day = String(previousDay.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   };
-  
+
   // Set default date to previous business day
   const defaultDate = getPreviousBusinessDay();
-  
+
   // Set default date - will be updated when user selects dates
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(() => {
@@ -182,7 +182,7 @@ export function StockTransactionDoneDetail() {
     // Fallback to default
     return 'PTRO';
   });
-  
+
   // Real data state
   const [_availableStocks] = useState<string[]>(STOCK_LIST);
   const [doneDetailData, setDoneDetailData] = useState<Map<string, DoneDetailData[]>>(new Map());
@@ -192,12 +192,12 @@ export function StockTransactionDoneDetail() {
   const [isDataReady, setIsDataReady] = useState<boolean>(false);
   const [customPivotData, setCustomPivotData] = useState<any>(null);
   const [isProcessingPivot, setIsProcessingPivot] = useState(false);
-  
+
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
 
   // Filter states (removed - no longer used)
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(() => {
@@ -257,11 +257,11 @@ export function StockTransactionDoneDetail() {
     }
     // Default values
     return {
-    rows: [],
-    columns: [],
-    valueField: 'STK_VOLM', // Default: Volume
-    aggregations: ['COUNT'], // Default: Count
-    filters: [],
+      rows: [],
+      columns: [],
+      valueField: 'STK_VOLM', // Default: Volume
+      aggregations: ['COUNT'], // Default: Count
+      filters: [],
     };
   });
 
@@ -314,8 +314,8 @@ export function StockTransactionDoneDetail() {
       }
 
       console.log('Fetching data from Azure API:', { selectedStock, selectedDates });
-        setIsLoading(true);
-        setError(null);
+      setIsLoading(true);
+      setError(null);
       setIsDataReady(false);
 
       try {
@@ -410,26 +410,26 @@ export function StockTransactionDoneDetail() {
       }
       savePreferences(preferences);
     }, 500); // Debounce 500ms to reduce localStorage writes
-    
+
     return () => clearTimeout(timeout);
   }, [selectedStock, pivotMode, itemsPerPage, startDate, endDate, pivotConfig, filterSearchTerms, openFilterDropdowns]);
-  
+
   // Auto-load data from saved preferences on mount (after initial data is loaded)
   useEffect(() => {
     // Only auto-load if we have saved preferences with dates
     if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
       return; // No saved preferences, don't auto-load
     }
-    
+
     const savedStartDate = savedPrefs.startDate;
     const savedEndDate = savedPrefs.endDate;
-    
+
     // Wait a bit to ensure initial data is loaded
     const timer = setTimeout(() => {
       // Generate date array from saved startDate and endDate (only trading days)
       const startParts = savedStartDate.split('-').map(Number);
       const endParts = savedEndDate.split('-').map(Number);
-      
+
       if (startParts.length === 3 && endParts.length === 3) {
         const startYear = startParts[0];
         const startMonth = startParts[1];
@@ -437,18 +437,18 @@ export function StockTransactionDoneDetail() {
         const endYear = endParts[0];
         const endMonth = endParts[1];
         const endDay = endParts[2];
-        
+
         if (startYear !== undefined && startMonth !== undefined && startDay !== undefined &&
-            endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
+          endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
           const start = new Date(startYear, startMonth - 1, startDay);
           const end = new Date(endYear, endMonth - 1, endDay);
-          
+
           // Check if range is valid
           if (start <= end) {
             // Generate date array (only trading days)
             const dateArray: string[] = [];
             const currentDate = new Date(start);
-            
+
             while (currentDate <= end) {
               const dayOfWeek = currentDate.getDay();
               // Skip weekends (Saturday = 6, Sunday = 0)
@@ -463,23 +463,23 @@ export function StockTransactionDoneDetail() {
               // Move to next day
               currentDate.setDate(currentDate.getDate() + 1);
             }
-            
+
             // Sort by date (oldest first) for display
             const datesToUse = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-            
+
             // Check if total trading dates exceed 7
             if (datesToUse.length > 7) {
               console.warn('Saved preferences have more than 7 trading days, skipping auto-load');
               return;
             }
-            
+
             // Update selectedDates to trigger auto-load
             setSelectedDates(datesToUse);
           }
         }
       }
     }, 500); // Small delay to ensure initial data is loaded
-    
+
     return () => clearTimeout(timer);
   }, []); // Only run once on mount
 
@@ -500,6 +500,11 @@ export function StockTransactionDoneDetail() {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
+  }, []);
+
+  // Load stock list from backend on mount
+  useEffect(() => {
+    loadStockList();
   }, []);
 
 
@@ -580,8 +585,8 @@ export function StockTransactionDoneDetail() {
   const generateCustomPivot = () => {
     if (pivotConfig.rows.length === 0 && pivotConfig.columns.length === 0 && pivotConfig.aggregations.length === 0) {
       setCustomPivotData(null);
-        return;
-      }
+      return;
+    }
 
     setIsProcessingPivot(true);
 
@@ -747,8 +752,8 @@ export function StockTransactionDoneDetail() {
                   break;
                 case 'MAX':
                   values[valueKey] = Math.max(...colItems.map(item => Number(item[field as keyof DoneDetailData]) || 0));
-        break;
-      }
+                  break;
+              }
             });
 
             if (!pivotResult[rowKey]) {
@@ -781,10 +786,10 @@ export function StockTransactionDoneDetail() {
             switch (aggregation) {
               case 'SUM':
                 values[valueKey] = rowItems.reduce((sum, item) => sum + (Number(item[field as keyof DoneDetailData]) || 0), 0);
-        break;
+                break;
               case 'COUNT':
                 values[valueKey] = rowItems.length;
-        break;
+                break;
               case 'AVG':
                 const sum = rowItems.reduce((sum, item) => sum + (Number(item[field as keyof DoneDetailData]) || 0), 0);
                 values[valueKey] = rowItems.length > 0 ? sum / rowItems.length : 0;
@@ -794,8 +799,8 @@ export function StockTransactionDoneDetail() {
                 break;
               case 'MAX':
                 values[valueKey] = Math.max(...rowItems.map(item => Number(item[field as keyof DoneDetailData]) || 0));
-        break;
-    }
+                break;
+            }
           });
 
           pivotResult[rowKey] = {
@@ -834,7 +839,7 @@ export function StockTransactionDoneDetail() {
   // Helper function to find drop zone from element
   const findDropZone = (element: Element | null): 'rows' | 'columns' | 'filters' | 'available' | null => {
     if (!element) return null;
-    
+
     let current: Element | null = element;
     while (current) {
       if (current.hasAttribute && current.hasAttribute('data-drop-zone')) {
@@ -895,7 +900,7 @@ export function StockTransactionDoneDetail() {
         if (!isInFilters) {
           const filterType = fieldId === 'TRX_TIME' ? 'timeRange' : 'list';
           let initialValues: string[] = [];
-          
+
           if (filterType === 'list') {
             const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
             const uniqueValuesSet = new Set<string>();
@@ -978,7 +983,7 @@ export function StockTransactionDoneDetail() {
         if (!isInFilters) {
           const filterType = fieldId === 'TRX_TIME' ? 'timeRange' : 'list';
           let initialValues: string[] = [];
-          
+
           if (filterType === 'list') {
             const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
             const uniqueValuesSet = new Set<string>();
@@ -1152,8 +1157,8 @@ export function StockTransactionDoneDetail() {
     const endIndex = Math.min(startIndex + rowsPerPage, totalRows);
     const paginatedRows = rowKeys.slice(startIndex, endIndex);
     const paginatedParsedRows = parsedRows.slice(startIndex, endIndex);
-        
-        return (
+
+    return (
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1161,14 +1166,14 @@ export function StockTransactionDoneDetail() {
               <Grid3X3 className="w-5 h-5" />
               Pivot Table ({selectedStock})
             </CardTitle>
-              </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-[12px] border-collapse">
               <thead>
                 {/* Row dimension headers - First row for row dimensions and column group headers */}
-                    {type === 'cross' && parsedColumns.length > 0 && columns.length > 1 ? (
+                {type === 'cross' && parsedColumns.length > 0 && columns.length > 1 ? (
                   <>
                     {/* First row: Row dimension headers + Column group headers */}
                     <tr className="border-b border-border bg-muted/50">
@@ -1338,15 +1343,15 @@ export function StockTransactionDoneDetail() {
                 })}
               </tbody>
             </table>
-              </div>
+          </div>
 
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-4">
               <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                   disabled={currentPage === 1}
                 >
@@ -1362,8 +1367,8 @@ export function StockTransactionDoneDetail() {
                   disabled={currentPage === totalPages}
                 >
                   Next
-              </Button>
-            </div>
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
@@ -1413,7 +1418,7 @@ export function StockTransactionDoneDetail() {
                 <tr className="border-b border-border bg-muted/50">
                   <th className="text-left py-2 px-2 font-medium border-r-2 border-border sticky left-0 bg-muted/50 z-10">
                     {rowLabel}
-                    </th>
+                  </th>
                   {selectedDates.map(date => (
                     <React.Fragment key={date}>
                       <th className="text-center py-2 px-2 font-medium bg-blue-50 dark:bg-blue-900/20 border-l border-border" colSpan={showAvgPrice ? 1 : 1}>
@@ -1465,45 +1470,45 @@ export function StockTransactionDoneDetail() {
                       </td>
                       {selectedDates.map(date => {
                         const data = rowData[date];
-                      return (
-                        <React.Fragment key={date}>
+                        return (
+                          <React.Fragment key={date}>
                             <td className="py-2 px-2 text-right border-l border-border">
                               <div className="font-medium">{data ? formatNumber(data.volume) : '-'}</div>
                               <div className="text-xs text-muted-foreground">
                                 {data ? `(${data.count})` : ''}
                               </div>
-                          </td>
+                            </td>
                             {showAvgPrice && (
                               <td className="py-2 px-2 text-right border-l border-border">
                                 {data?.avgPrice ? formatNumber(Math.round(data.avgPrice)) : '-'}
-                          </td>
+                              </td>
                             )}
                             {showOrdNum && (
                               <>
                                 <td className="py-2 px-2 text-right border-l border-border">
                                   {data?.hakaVolume ? formatNumber(data.hakaVolume) : '-'}
-                          </td>
+                                </td>
                                 <td className="py-2 px-2 text-right border-l border-border">
                                   {data?.hakaAvg ? formatNumber(Math.round(data.hakaAvg)) : '-'}
-                          </td>
+                                </td>
                                 <td className="py-2 px-2 text-right border-l border-border">
                                   {data?.hakiVolume ? formatNumber(data.hakiVolume) : '-'}
-                          </td>
+                                </td>
                                 <td className="py-2 px-2 text-right border-l border-border">
                                   {data?.hakiAvg ? formatNumber(Math.round(data.hakiAvg)) : '-'}
-                          </td>
+                                </td>
                                 <td className="py-2 px-2 text-right border-l border-border">
                                   {data?.buyerOrdNum !== undefined ? data.buyerOrdNum : data?.sellerOrdNum !== undefined ? data.sellerOrdNum : '-'}
-                          </td>
+                                </td>
                               </>
                             )}
-                        </React.Fragment>
-                      );
-                    })}
+                          </React.Fragment>
+                        );
+                      })}
                       <td className="py-2 px-2 text-right font-medium border-l-2 border-border bg-muted/30">
                         {formatNumber(rowTotal)}
                       </td>
-                  </tr>
+                    </tr>
                   );
                 })}
               </tbody>
@@ -1544,27 +1549,27 @@ export function StockTransactionDoneDetail() {
 
           {/* Pagination Controls */}
           <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-             <div className="flex items-center gap-4 text-sm text-muted-foreground">
-               <div>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div>
                 Showing {startIndex + 1} to {endIndex} of {totalRows} {rowLabel.toLowerCase()}
-               </div>
-               <div className="flex items-center gap-2">
-                 <label className="text-xs">Rows per page:</label>
-                 <select
-                   value={itemsPerPage}
-                   onChange={(e) => {
-                     setItemsPerPage(Number(e.target.value));
-                     setCurrentPage(1);
-                   }}
-                   className="text-xs bg-background border border-border rounded px-2 py-1"
-                 >
-                   <option value={50}>50</option>
-                   <option value={100}>100</option>
-                   <option value={200}>200</option>
-                   <option value={500}>500</option>
-                 </select>
-               </div>
-             </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs">Rows per page:</label>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                >
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                  <option value={500}>500</option>
+                </select>
+              </div>
+            </div>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -1640,7 +1645,7 @@ export function StockTransactionDoneDetail() {
     const totalTransactions = allRawTransactions.length;
     const totalVolume = allRawTransactions.reduce((sum, t) => sum + (parseInt(t.STK_VOLM.toString()) || 0), 0);
 
-                return (
+    return (
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1648,7 +1653,7 @@ export function StockTransactionDoneDetail() {
               <Grid3X3 className="w-5 h-5" />
               Pivot View - Buyer vs Seller Cross ({selectedStock})
             </CardTitle>
-                    </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -1705,8 +1710,8 @@ export function StockTransactionDoneDetail() {
                               '-'
                             )}
                           </td>
-                );
-              })}
+                        );
+                      })}
                       <td className="py-2 px-2 text-right font-medium border-l-2 border-border bg-muted/30">
                         {formatNumber(buyerTotal)}
                       </td>
@@ -1821,7 +1826,7 @@ export function StockTransactionDoneDetail() {
 
 
   return (
-  <div className="w-full">
+    <div className="w-full">
       {/* Top Controls - Compact without Card, similar to DoneSummary */}
       {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
@@ -1830,92 +1835,92 @@ export function StockTransactionDoneDetail() {
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
             <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
-                <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                <input
-                  type="text"
-                  value={stockInput}
-                  onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
-                  onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
-                  onKeyDown={(e) => {
+              <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+              <input
+                type="text"
+                value={stockInput}
+                onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
+                onKeyDown={(e) => {
                   const suggestions = (stockInput === '' ? STOCK_LIST : filteredStocks).slice(0, 10);
-                    if (!suggestions.length) return;
-                    if (e.key === 'ArrowDown') {
-                      e.preventDefault();
-                      setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
-                    } else if (e.key === 'ArrowUp') {
-                      e.preventDefault();
-                      setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-                    } else if (e.key === 'Enter' && showStockSuggestions) {
-                      e.preventDefault();
-                      const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
-                      const choice = suggestions[idx];
-                      if (choice) handleStockSelect(choice);
-                    } else if (e.key === 'Escape') {
-                      setShowStockSuggestions(false);
-                      setHighlightedStockIndex(-1);
-                    }
-                  }}
-                  placeholder={selectedStock ? selectedStock : "Enter stock code..."}
+                  if (!suggestions.length) return;
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                  } else if (e.key === 'Enter' && showStockSuggestions) {
+                    e.preventDefault();
+                    const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                    const choice = suggestions[idx];
+                    if (choice) handleStockSelect(choice);
+                  } else if (e.key === 'Escape') {
+                    setShowStockSuggestions(false);
+                    setHighlightedStockIndex(-1);
+                  }
+                }}
+                placeholder={selectedStock ? selectedStock : "Enter stock code..."}
                 className={`w-full md:w-32 h-9 min-h-[36px] max-h-[36px] pl-10 pr-4 text-sm border border-input rounded-md bg-background text-foreground box-border flex items-center leading-none ${selectedStock ? 'placeholder:text-white' : ''}`}
                 style={{ height: '36px', lineHeight: '36px' }}
                 role="combobox"
                 aria-expanded={showStockSuggestions}
                 aria-controls="stock-suggestions"
                 aria-autocomplete="list"
-                />
-                {showStockSuggestions && (
+              />
+              {showStockSuggestions && (
                 <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
                   {stockInput === '' ? (
                     <>
                       <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
                         Available Stocks ({STOCK_LIST.length})
-                        </div>
+                      </div>
                       {STOCK_LIST.slice(0, 20).map(stock => (
-                          <div
-                            key={stock}
-                            onClick={() => handleStockSelect(stock)}
+                        <div
+                          key={stock}
+                          onClick={() => handleStockSelect(stock)}
                           className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                          >
-                            {stock}
-                          </div>
-                        ))}
+                        >
+                          {stock}
+                        </div>
+                      ))}
                       {STOCK_LIST.length > 20 && (
                         <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-t border-[#3a4252]">
                           ... and {STOCK_LIST.length - 20} more stocks
                         </div>
                       )}
-                      </>
-                    ) : filteredStocks.length > 0 ? (
-                      <>
+                    </>
+                  ) : filteredStocks.length > 0 ? (
+                    <>
                       <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                          {filteredStocks.length} stocks found
-                        </div>
+                        {filteredStocks.length} stocks found
+                      </div>
                       {filteredStocks.slice(0, 20).map(stock => (
-                          <div
-                            key={stock}
-                            onClick={() => handleStockSelect(stock)}
+                        <div
+                          key={stock}
+                          onClick={() => handleStockSelect(stock)}
                           className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                          >
-                            {stock}
-                          </div>
-                        ))}
+                        >
+                          {stock}
+                        </div>
+                      ))}
                       {filteredStocks.length > 20 && (
                         <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-t border-[#3a4252]">
                           ... and {filteredStocks.length - 20} more results
                         </div>
                       )}
-                      </>
-                    ) : (
+                    </>
+                  ) : (
                     <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                        No stocks found
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                      No stocks found
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+          </div>
 
-            {/* Date Range */}
+          {/* Date Range */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
             <div className="flex items-center gap-2 w-full md:w-auto">
@@ -1924,9 +1929,9 @@ export function StockTransactionDoneDetail() {
                 style={{ height: '36px' }}
                 onClick={() => triggerDatePicker(startDateRef)}
               >
-                  <input
+                <input
                   ref={startDateRef}
-                    type="date"
+                  type="date"
                   value={formatDateForInput(startDate)}
                   onChange={(e) => {
                     const selectedDate = new Date(e.target.value);
@@ -1968,9 +1973,9 @@ export function StockTransactionDoneDetail() {
                 style={{ height: '36px' }}
                 onClick={() => triggerDatePicker(endDateRef)}
               >
-                  <input
+                <input
                   ref={endDateRef}
-                    type="date"
+                  type="date"
                   value={formatDateForInput(endDate)}
                   onChange={(e) => {
                     const selectedDate = new Date(e.target.value);
@@ -2014,17 +2019,16 @@ export function StockTransactionDoneDetail() {
           <button
             onClick={() => {
               if (!isPivotBuilderOpen) {
-              setTempPivotConfig(pivotConfig);
-              setTempFilterSearchTerms(filterSearchTerms);
-              setTempOpenFilterDropdowns(openFilterDropdowns);
+                setTempPivotConfig(pivotConfig);
+                setTempFilterSearchTerms(filterSearchTerms);
+                setTempOpenFilterDropdowns(openFilterDropdowns);
               }
               setIsPivotBuilderOpen(!isPivotBuilderOpen);
             }}
-            className={`h-9 min-h-[36px] max-h-[36px] px-4 rounded-md transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto box-border leading-none ${
-              isPivotBuilderOpen 
-                ? 'bg-primary text-primary-foreground hover:bg-primary/90' 
+            className={`h-9 min-h-[36px] max-h-[36px] px-4 rounded-md transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto box-border leading-none ${isPivotBuilderOpen
+                ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                 : 'bg-secondary text-secondary-foreground hover:bg-secondary/90'
-            }`}
+              }`}
             style={{ height: '36px' }}
           >
             <Settings className="w-4 h-4" />
@@ -2079,8 +2083,8 @@ export function StockTransactionDoneDetail() {
           >
             Show
           </button>
-              </div>
-            </div>
+        </div>
+      </div>
 
       {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
       <div className="h-0 lg:h-[38px]"></div>
@@ -2159,9 +2163,8 @@ export function StockTransactionDoneDetail() {
 
         {/* Side Panel - Fixed position on the right, but part of layout flow */}
         <div
-          className={`fixed top-14 right-0 h-[calc(100vh-3.5rem)] w-full sm:w-[400px] md:w-[450px] bg-background border-l border-border shadow-2xl z-40 transition-transform duration-300 ease-in-out flex flex-col ${
-            isPivotBuilderOpen ? 'translate-x-0' : 'translate-x-full'
-          }`}
+          className={`fixed top-14 right-0 h-[calc(100vh-3.5rem)] w-full sm:w-[400px] md:w-[450px] bg-background border-l border-border shadow-2xl z-40 transition-transform duration-300 ease-in-out flex flex-col ${isPivotBuilderOpen ? 'translate-x-0' : 'translate-x-full'
+            }`}
         >
           {/* Header */}
           <div className="flex-shrink-0 bg-background border-b px-4 py-3 flex items-center justify-between">
@@ -2188,7 +2191,7 @@ export function StockTransactionDoneDetail() {
               <X className="w-5 h-5" />
             </button>
           </div>
-          
+
           {/* Content */}
           <div className="flex-1 overflow-y-auto min-h-0">
             <div className="py-3">
@@ -2196,676 +2199,668 @@ export function StockTransactionDoneDetail() {
               <div className="px-3 py-2 border-b border-[#3a4252] bg-[#0a0f20]">
                 <div className="flex flex-col gap-2">
                   {/* Available Fields - At the top */}
-                  <div 
+                  <div
                     data-drop-zone="available"
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = 'move';
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (draggedField && draggedFromSource && draggedFromSource !== 'available') {
-                handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'available');
-              }
-              setDraggedField(null);
-              setDraggedFromSource(null);
-              setDraggedIndex(null);
-            }}
-            className={`w-full border border-[#3a4252] rounded-lg p-1.5 bg-[#1a1f30] transition-colors ${
-              dropZoneHighlight === 'available' 
-                ? 'border-primary bg-primary/10' 
-                : ''
-            }`}
-          >
-            <div className="text-xs font-semibold text-foreground mb-1">Available Fields</div>
-            <div className="space-y-0.5 max-h-48 overflow-y-auto">
-              {availableFields.map(field => (
-                <div
-                  key={field.id}
-                  draggable
-                  onDragStart={(e) => {
-                    setDraggedField(field.id);
-                    setDraggedFromSource('available');
-                    setDraggedIndex(null);
-                    e.dataTransfer.effectAllowed = 'move';
-                  }}
-                  onDragEnd={() => {
-                    setDraggedField(null);
-                    setDraggedFromSource(null);
-                    setDraggedIndex(null);
-                  }}
-                  onTouchStart={(e) => {
-                    const touch = e.touches[0];
-                    setDraggedField(field.id);
-                    setDraggedFromSource('available');
-                    setDraggedIndex(null);
-                    setTouchDragState({
-                      isDragging: true,
-                      startX: touch.clientX,
-                      startY: touch.clientY,
-                      currentX: touch.clientX,
-                      currentY: touch.clientY
-                    });
-                  }}
-                  className="flex items-center gap-1 p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 active:bg-accent transition-colors touch-none"
-                  style={{
-                    opacity: touchDragState?.isDragging && draggedField === field.id ? 0.5 : 1
-                  }}
-                >
-                  <GripVertical className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-xs text-foreground flex-1">{field.label}</span>
-                  <span className="text-xs text-muted-foreground px-1 py-0.5 rounded bg-muted">
-                    {field.type === 'measure' ? 'M' : 'D'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Pivot Configuration Areas - Below Available Fields */}
-          <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Rows */}
-            <div
-              data-drop-zone="rows"
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (draggedField && draggedFromSource) {
-                  handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'rows');
-                }
-                setDraggedField(null);
-                setDraggedFromSource(null);
-                setDraggedIndex(null);
-              }}
-              className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${
-                dropZoneHighlight === 'rows' 
-                  ? 'border-primary bg-primary/10' 
-                  : 'border-[#3a4252]'
-              }`}
-            >
-              <div className="flex items-center gap-1.5 mb-1">
-                <div className="text-xs font-semibold text-muted-foreground uppercase">Rows</div>
-                <div className="relative group">
-                  <Info className="w-3 h-3 text-muted-foreground cursor-help" />
-                  <div className="absolute left-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
-                    <div className="text-xs text-popover-foreground mb-1"><strong>Baris - akan menjadi kolom pertama</strong></div>
-                    <div className="text-xs text-muted-foreground">Contoh: Price → setiap baris menampilkan harga yang berbeda</div>
-              </div>
-                </div>
-              </div>
-              <div className="space-y-1">
-                {tempPivotConfig.rows.map((fieldId, idx) => {
-                  const field = availableFields.find(f => f.id === fieldId);
-                  const isPrice = fieldId === 'STK_PRIC';
-                  const isDragging = draggedField === fieldId && draggedFromSource === 'rows';
-                  return field ? (
-                    <div 
-                      key={idx} 
-                      draggable
-                      onDragStart={(e) => {
-                        setDraggedField(fieldId);
-                        setDraggedFromSource('rows');
-                        setDraggedIndex(idx);
-                        e.dataTransfer.effectAllowed = 'move';
-                      }}
-                      onDragEnd={() => {
-                        setDraggedField(null);
-                        setDraggedFromSource(null);
-                        setDraggedIndex(null);
-                      }}
-                      onTouchStart={(e) => {
-                        e.stopPropagation();
-                        const touch = e.touches[0];
-                        setDraggedField(fieldId);
-                        setDraggedFromSource('rows');
-                        setDraggedIndex(idx);
-                        setTouchDragState({
-                          isDragging: true,
-                          startX: touch.clientX,
-                          startY: touch.clientY,
-                          currentX: touch.clientX,
-                          currentY: touch.clientY
-                        });
-                      }}
-                       className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
-                         isDragging ? 'opacity-50' : ''
-                       }`}
-                     >
-                       <div className="flex items-center gap-1">
-                        <GripVertical className="w-3 h-3 text-muted-foreground" />
-                         <span className="text-xs text-foreground flex-1">{field.label}</span>
-                        {isPrice && (
-                <select 
-                            value={tempPivotConfig.sort?.field === 'STK_PRIC' ? tempPivotConfig.sort.direction : 'desc'}
-                            onChange={(e) => {
-                              setTempPivotConfig(prev => ({
-                                ...prev,
-                                sort: { field: 'STK_PRIC', direction: e.target.value as 'asc' | 'desc' }
-                              }));
-                            }}
-                            className="text-[10px] bg-background border border-[#3a4252] rounded px-1 py-0.5 h-5 leading-none"
-                            onClick={(e) => e.stopPropagation()}
-                            onTouchStart={(e) => e.stopPropagation()}
-                          >
-                            <option value="desc">Desc</option>
-                            <option value="asc">Asc</option>
-                </select>
-                        )}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setTempPivotConfig(prev => {
-                              const newRows = prev.rows.filter((_, i) => i !== idx);
-                              // Remove sort if the sorted field is removed
-                              if (prev.sort?.field === fieldId) {
-                                const { sort, ...rest } = prev;
-                                return { ...rest, rows: newRows };
-                              }
-                              return { ...prev, rows: newRows };
-                            });
-                          }}
-                          onTouchStart={(e) => e.stopPropagation()}
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-              </div>
-                    </div>
-                  ) : null;
-                })}
-                {tempPivotConfig.rows.length === 0 && (
-                  <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
-                )}
-            </div>
-          </div>
-
-            {/* Columns */}
-            <div
-              data-drop-zone="columns"
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (draggedField && draggedFromSource) {
-                  handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'columns');
-                }
-                setDraggedField(null);
-                setDraggedFromSource(null);
-                setDraggedIndex(null);
-              }}
-              className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${
-                dropZoneHighlight === 'columns' 
-                  ? 'border-primary bg-primary/10' 
-                  : 'border-[#3a4252]'
-              }`}
-            >
-              <div className="flex items-center gap-1.5 mb-1">
-                <div className="text-xs font-semibold text-muted-foreground uppercase">Columns</div>
-                <div className="relative group">
-                  <Info className="w-3 h-3 text-muted-foreground cursor-help" />
-                  <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
-                    <div className="text-xs text-popover-foreground mb-1"><strong>Kolom - akan menjadi header horizontal</strong></div>
-                    <div className="text-xs text-muted-foreground">Contoh: Broker → setiap kolom menampilkan broker yang berbeda</div>
-              </div>
-                </div>
-              </div>
-              <div className="space-y-1">
-                {tempPivotConfig.columns.map((fieldId, idx) => {
-                  const field = availableFields.find(f => f.id === fieldId);
-                  const isDragging = draggedField === fieldId && draggedFromSource === 'columns';
-                  return field ? (
-                    <div 
-                      key={idx} 
-                      draggable
-                      onDragStart={(e) => {
-                        setDraggedField(fieldId);
-                        setDraggedFromSource('columns');
-                        setDraggedIndex(idx);
-                        e.dataTransfer.effectAllowed = 'move';
-                      }}
-                      onDragEnd={() => {
-                        setDraggedField(null);
-                        setDraggedFromSource(null);
-                        setDraggedIndex(null);
-                      }}
-                      onTouchStart={(e) => {
-                        e.stopPropagation();
-                        const touch = e.touches[0];
-                        setDraggedField(fieldId);
-                        setDraggedFromSource('columns');
-                        setDraggedIndex(idx);
-                        setTouchDragState({
-                          isDragging: true,
-                          startX: touch.clientX,
-                          startY: touch.clientY,
-                          currentX: touch.clientX,
-                          currentY: touch.clientY
-                        });
-                      }}
-                      className={`flex items-center gap-1 p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
-                        isDragging ? 'opacity-50' : ''
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (draggedField && draggedFromSource && draggedFromSource !== 'available') {
+                        handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'available');
+                      }
+                      setDraggedField(null);
+                      setDraggedFromSource(null);
+                      setDraggedIndex(null);
+                    }}
+                    className={`w-full border border-[#3a4252] rounded-lg p-1.5 bg-[#1a1f30] transition-colors ${dropZoneHighlight === 'available'
+                        ? 'border-primary bg-primary/10'
+                        : ''
                       }`}
-                    >
-                      <GripVertical className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-xs text-foreground flex-1">{field.label}</span>
-                    <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setTempPivotConfig(prev => ({ ...prev, columns: prev.columns.filter((_, i) => i !== idx) }));
-                        }}
-                        onTouchStart={(e) => e.stopPropagation()}
-                        className="text-muted-foreground hover:text-foreground"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                    </div>
-                  ) : null;
-                })}
-                {tempPivotConfig.columns.length === 0 && (
-                  <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
-                )}
-              </div>
-            </div>
-
-            {/* Values */}
-            <div className="border border-[#3a4252] rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px]">
-              <div className="flex items-center gap-1.5 mb-1">
-                <div className="text-xs font-semibold text-muted-foreground uppercase">Values</div>
-                <div className="relative group">
-                  <Info className="w-3 h-3 text-muted-foreground cursor-help" />
-                  <div className="absolute left-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
-                    <div className="text-xs text-popover-foreground mb-1"><strong>Pilih aggregation untuk Volume</strong></div>
-                    <div className="text-xs text-muted-foreground">Volume secara default sudah ada. Centang aggregation yang ingin ditampilkan.</div>
-              </div>
-              </div>
-              </div>
-              <div className="space-y-1">
-                <div className="p-1 bg-background rounded border border-[#3a4252]">
-                  <div className="text-xs text-foreground font-medium mb-1">Volume</div>
-                  <div className="space-y-1">
-                    {(['COUNT', 'SUM', 'AVG', 'MIN', 'MAX'] as const).map((agg) => (
-                      <label key={agg} className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={tempPivotConfig.aggregations.includes(agg)}
-                          onChange={(e) => {
-                            setTempPivotConfig(prev => {
-                              if (e.target.checked) {
-                                // Add aggregation if checked
-                                return {
-                                  ...prev,
-                                  aggregations: [...prev.aggregations, agg]
-                                };
-                              } else {
-                                // Remove aggregation if unchecked (but keep at least one)
-                                const newAggregations = prev.aggregations.filter(a => a !== agg);
-                                if (newAggregations.length === 0) {
-                                  // If removing last one, keep COUNT as default
-                                  return { ...prev, aggregations: ['COUNT'] };
-                                }
-                                return { ...prev, aggregations: newAggregations };
-                              }
-                            });
-                          }}
-                          className="w-3 h-3"
-                        />
-                        <span className="text-xs text-foreground leading-none">
-                          {agg === 'COUNT' ? 'Count' :
-                            agg === 'SUM' ? 'Sum' :
-                              agg === 'AVG' ? 'Avg' :
-                                agg === 'MIN' ? 'Min' :
-                                  agg === 'MAX' ? 'Max' : agg}
-                        </span>
-                      </label>
-              ))}
-            </div>
-          </div>
-              </div>
-            </div>
-
-            {/* Filters */}
-            <div
-              data-drop-zone="filters"
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (draggedField && draggedFromSource) {
-                  handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'filters');
-                }
-                setDraggedField(null);
-                setDraggedFromSource(null);
-                setDraggedIndex(null);
-              }}
-              className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${
-                dropZoneHighlight === 'filters' 
-                  ? 'border-primary bg-primary/10' 
-                  : 'border-[#3a4252]'
-              }`}
-            >
-              <div className="flex items-center gap-1.5 mb-1">
-                <div className="text-xs font-semibold text-muted-foreground uppercase">Filters</div>
-                <div className="relative group">
-                  <Info className="w-3 h-3 text-muted-foreground cursor-help" />
-                  <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
-                    <div className="text-xs text-popover-foreground mb-1"><strong>Filter data sebelum dihitung</strong></div>
-                    <div className="text-xs text-muted-foreground">Contoh: Buyer Broker → pilih broker tertentu, Transaction Time → pilih range waktu</div>
-              </div>
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                {tempPivotConfig.filters.map((filterConfig, idx) => {
-                  const field = availableFields.find(f => f.id === filterConfig.field);
-                  if (!field) return null;
-
-                  // Time range filter
-                  if (filterConfig.filterType === 'timeRange') {
-                    const isDragging = draggedField === filterConfig.field && draggedFromSource === 'filters';
-                    return (
-                      <div 
-                        key={idx} 
-                        draggable
-                        onDragStart={(e) => {
-                          setDraggedField(filterConfig.field);
-                          setDraggedFromSource('filters');
-                          setDraggedIndex(idx);
-                          e.dataTransfer.effectAllowed = 'move';
-                        }}
-                        onDragEnd={() => {
-                          setDraggedField(null);
-                          setDraggedFromSource(null);
-                          setDraggedIndex(null);
-                        }}
-                        onTouchStart={(e) => {
-                          e.stopPropagation();
-                          const touch = e.touches[0];
-                          setDraggedField(filterConfig.field);
-                          setDraggedFromSource('filters');
-                          setDraggedIndex(idx);
-                          setTouchDragState({
-                            isDragging: true,
-                            startX: touch.clientX,
-                            startY: touch.clientY,
-                            currentX: touch.clientX,
-                            currentY: touch.clientY
-                          });
-                        }}
-                        className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
-                          isDragging ? 'opacity-50' : ''
-                        }`}
-                      >
-                        <div className="flex items-center gap-1 mb-1">
-                          <GripVertical className="w-3 h-3 text-muted-foreground" />
-                          <span className="text-xs text-foreground flex-1 font-medium">{field.label}</span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPivotConfig(prev => ({ ...prev, filters: prev.filters.filter((_, i) => i !== idx) }));
-                            }}
-                            onTouchStart={(e) => e.stopPropagation()}
-                            className="text-muted-foreground hover:text-foreground"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-2 mt-2">
-                          <input
-                            type="time"
-                            value={filterConfig.timeRange?.start || '08:00'}
-                            onChange={(e) => {
-                              const newFilters = [...tempPivotConfig.filters];
-                              if (newFilters[idx]) {
-                                newFilters[idx].timeRange = {
-                                  ...(newFilters[idx].timeRange || { start: '08:00', end: '16:00' }),
-                                  start: e.target.value
-                                };
-                                setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
-                              }
-                            }}
-                            className="text-xs bg-background border border-[#3a4252] rounded px-2 py-1"
-                          />
-                          <span className="text-xs text-muted-foreground">to</span>
-                          <input
-                            type="time"
-                            value={filterConfig.timeRange?.end || '16:00'}
-                            onChange={(e) => {
-                              const newFilters = [...tempPivotConfig.filters];
-                              if (newFilters[idx]) {
-                                newFilters[idx].timeRange = {
-                                  ...(newFilters[idx].timeRange || { start: '08:00', end: '16:00' }),
-                                  end: e.target.value
-                                };
-                                setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
-                              }
-                            }}
-                            className="text-xs bg-background border border-[#3a4252] rounded px-2 py-1"
-                          />
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  // List filter with compact searchable dropdown (for broker, price, HAKA/HAKI, etc)
-                  const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
-                  // For numeric fields like price and HAKA_HAKI, sort numerically; otherwise sort alphabetically
-                  const uniqueValues = [...new Set(allData.map(item => {
-                    const value = item[filterConfig.field as keyof DoneDetailData];
-                    // For HAKA_HAKI, convert 1 to "HAKA" and 0 to "HAKI" for display
-                    if (filterConfig.field === 'HAKA_HAKI') {
-                      return value === 1 ? 'HAKA' : 'HAKI';
-                    }
-                    return String(value || '');
-                  }))].sort((a, b) => {
-                    // For HAKA/HAKI, sort HAKA first
-                    if (filterConfig.field === 'HAKA_HAKI') {
-                      if (a === 'HAKA' && b === 'HAKI') return -1;
-                      if (a === 'HAKI' && b === 'HAKA') return 1;
-                      return a.localeCompare(b);
-                    }
-                    // Try numeric sort first (for price)
-                    const numA = parseFloat(a);
-                    const numB = parseFloat(b);
-                    if (!isNaN(numA) && !isNaN(numB)) {
-                      return numA - numB;
-                    }
-                    // Otherwise alphabetical sort
-                    return a.localeCompare(b);
-                  });
-                  const searchTerm = tempFilterSearchTerms[filterConfig.field] || '';
-                  const isDropdownOpen = tempOpenFilterDropdowns[filterConfig.field] || false;
-                  const filteredValues = uniqueValues.filter(v =>
-                    v.toLowerCase().includes(searchTerm.toLowerCase())
-                  );
-
-                  const isDragging = draggedField === filterConfig.field && draggedFromSource === 'filters';
-                  return (
-                    <div 
-                      key={idx} 
-                      draggable
-                      onDragStart={(e) => {
-                        setDraggedField(filterConfig.field);
-                        setDraggedFromSource('filters');
-                        setDraggedIndex(idx);
-                        e.dataTransfer.effectAllowed = 'move';
-                      }}
-                      onDragEnd={() => {
-                        setDraggedField(null);
-                        setDraggedFromSource(null);
-                        setDraggedIndex(null);
-                      }}
-                      onTouchStart={(e) => {
-                        e.stopPropagation();
-                        const touch = e.touches[0];
-                        setDraggedField(filterConfig.field);
-                        setDraggedFromSource('filters');
-                        setDraggedIndex(idx);
-                        setTouchDragState({
-                          isDragging: true,
-                          startX: touch.clientX,
-                          startY: touch.clientY,
-                          currentX: touch.clientX,
-                          currentY: touch.clientY
-                        });
-                      }}
-                      className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
-                        isDragging ? 'opacity-50' : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <GripVertical className="w-3 h-3 text-muted-foreground" />
-                        <span className="text-sm text-foreground flex-1 font-medium">{field.label}</span>
-                        {filterConfig.values.length > 0 && (
-                          <span className="text-xs px-1.5 py-0.5 bg-primary/20 text-primary rounded">
-                            {filterConfig.values.length}
-                          </span>
-                        )}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setTempPivotConfig(prev => ({ ...prev, filters: prev.filters.filter((_, i) => i !== idx) }));
-                            const newSearchTerms = { ...tempFilterSearchTerms };
-                            delete newSearchTerms[filterConfig.field];
-                            setTempFilterSearchTerms(newSearchTerms);
-                            const newDropdowns = { ...tempOpenFilterDropdowns };
-                            delete newDropdowns[filterConfig.field];
-                            setTempOpenFilterDropdowns(newDropdowns);
-                          }}
-                          onTouchStart={(e) => e.stopPropagation()}
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-
-                      {/* Compact dropdown with search - only show when open */}
-                      <div className="relative" data-filter-dropdown>
+                  >
+                    <div className="text-xs font-semibold text-foreground mb-1">Available Fields</div>
+                    <div className="space-y-0.5 max-h-48 overflow-y-auto">
+                      {availableFields.map(field => (
                         <div
-                          className="relative cursor-pointer"
-                          onClick={() => setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: !prev[filterConfig.field] }))}
+                          key={field.id}
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggedField(field.id);
+                            setDraggedFromSource('available');
+                            setDraggedIndex(null);
+                            e.dataTransfer.effectAllowed = 'move';
+                          }}
+                          onDragEnd={() => {
+                            setDraggedField(null);
+                            setDraggedFromSource(null);
+                            setDraggedIndex(null);
+                          }}
+                          onTouchStart={(e) => {
+                            const touch = e.touches[0];
+                            setDraggedField(field.id);
+                            setDraggedFromSource('available');
+                            setDraggedIndex(null);
+                            setTouchDragState({
+                              isDragging: true,
+                              startX: touch.clientX,
+                              startY: touch.clientY,
+                              currentX: touch.clientX,
+                              currentY: touch.clientY
+                            });
+                          }}
+                          className="flex items-center gap-1 p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 active:bg-accent transition-colors touch-none"
+                          style={{
+                            opacity: touchDragState?.isDragging && draggedField === field.id ? 0.5 : 1
+                          }}
                         >
-                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                          <input
-                            type="text"
-                            placeholder={filterConfig.values.length > 0 ? `${filterConfig.values.length} selected - Click to search` : "Click to search and select..."}
-                            value={searchTerm}
-                            onChange={(e) => {
-                              setTempFilterSearchTerms(prev => ({ ...prev, [filterConfig.field]: e.target.value }));
-                              setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: true }));
-                            }}
-                            onFocus={() => {
-                              setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: true }));
-                            }}
-                            className="w-full pl-7 pr-2 py-1.5 text-xs bg-background border border-[#3a4252] rounded cursor-text"
-                            readOnly={!isDropdownOpen}
-                          />
+                          <GripVertical className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-xs text-foreground flex-1">{field.label}</span>
+                          <span className="text-xs text-muted-foreground px-1 py-0.5 rounded bg-muted">
+                            {field.type === 'measure' ? 'M' : 'D'}
+                          </span>
                         </div>
+                      ))}
+                    </div>
+                  </div>
 
-                        {/* Dropdown list - show when open */}
-                        {isDropdownOpen && (
-                          <div className="absolute top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-popover border border-[#3a4252] rounded shadow-lg z-50">
-                            {filteredValues.length > 0 ? (
-                              <>
-                                {/* "All" option */}
-                                <label
-                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent cursor-pointer border-b-2 border-[#3a4252] font-medium bg-muted/30"
+                  {/* Pivot Configuration Areas - Below Available Fields */}
+                  <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {/* Rows */}
+                    <div
+                      data-drop-zone="rows"
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedField && draggedFromSource) {
+                          handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'rows');
+                        }
+                        setDraggedField(null);
+                        setDraggedFromSource(null);
+                        setDraggedIndex(null);
+                      }}
+                      className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${dropZoneHighlight === 'rows'
+                          ? 'border-primary bg-primary/10'
+                          : 'border-[#3a4252]'
+                        }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase">Rows</div>
+                        <div className="relative group">
+                          <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+                          <div className="absolute left-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                            <div className="text-xs text-popover-foreground mb-1"><strong>Baris - akan menjadi kolom pertama</strong></div>
+                            <div className="text-xs text-muted-foreground">Contoh: Price → setiap baris menampilkan harga yang berbeda</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        {tempPivotConfig.rows.map((fieldId, idx) => {
+                          const field = availableFields.find(f => f.id === fieldId);
+                          const isPrice = fieldId === 'STK_PRIC';
+                          const isDragging = draggedField === fieldId && draggedFromSource === 'rows';
+                          return field ? (
+                            <div
+                              key={idx}
+                              draggable
+                              onDragStart={(e) => {
+                                setDraggedField(fieldId);
+                                setDraggedFromSource('rows');
+                                setDraggedIndex(idx);
+                                e.dataTransfer.effectAllowed = 'move';
+                              }}
+                              onDragEnd={() => {
+                                setDraggedField(null);
+                                setDraggedFromSource(null);
+                                setDraggedIndex(null);
+                              }}
+                              onTouchStart={(e) => {
+                                e.stopPropagation();
+                                const touch = e.touches[0];
+                                setDraggedField(fieldId);
+                                setDraggedFromSource('rows');
+                                setDraggedIndex(idx);
+                                setTouchDragState({
+                                  isDragging: true,
+                                  startX: touch.clientX,
+                                  startY: touch.clientY,
+                                  currentX: touch.clientX,
+                                  currentY: touch.clientY
+                                });
+                              }}
+                              className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${isDragging ? 'opacity-50' : ''
+                                }`}
+                            >
+                              <div className="flex items-center gap-1">
+                                <GripVertical className="w-3 h-3 text-muted-foreground" />
+                                <span className="text-xs text-foreground flex-1">{field.label}</span>
+                                {isPrice && (
+                                  <select
+                                    value={tempPivotConfig.sort?.field === 'STK_PRIC' ? tempPivotConfig.sort.direction : 'desc'}
+                                    onChange={(e) => {
+                                      setTempPivotConfig(prev => ({
+                                        ...prev,
+                                        sort: { field: 'STK_PRIC', direction: e.target.value as 'asc' | 'desc' }
+                                      }));
+                                    }}
+                                    className="text-[10px] bg-background border border-[#3a4252] rounded px-1 py-0.5 h-5 leading-none"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onTouchStart={(e) => e.stopPropagation()}
+                                  >
+                                    <option value="desc">Desc</option>
+                                    <option value="asc">Asc</option>
+                                  </select>
+                                )}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setTempPivotConfig(prev => {
+                                      const newRows = prev.rows.filter((_, i) => i !== idx);
+                                      // Remove sort if the sorted field is removed
+                                      if (prev.sort?.field === fieldId) {
+                                        const { sort, ...rest } = prev;
+                                        return { ...rest, rows: newRows };
+                                      }
+                                      return { ...prev, rows: newRows };
+                                    });
+                                  }}
+                                  onTouchStart={(e) => e.stopPropagation()}
+                                  className="text-muted-foreground hover:text-foreground"
                                 >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                          ) : null;
+                        })}
+                        {tempPivotConfig.rows.length === 0 && (
+                          <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Columns */}
+                    <div
+                      data-drop-zone="columns"
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedField && draggedFromSource) {
+                          handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'columns');
+                        }
+                        setDraggedField(null);
+                        setDraggedFromSource(null);
+                        setDraggedIndex(null);
+                      }}
+                      className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${dropZoneHighlight === 'columns'
+                          ? 'border-primary bg-primary/10'
+                          : 'border-[#3a4252]'
+                        }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase">Columns</div>
+                        <div className="relative group">
+                          <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+                          <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                            <div className="text-xs text-popover-foreground mb-1"><strong>Kolom - akan menjadi header horizontal</strong></div>
+                            <div className="text-xs text-muted-foreground">Contoh: Broker → setiap kolom menampilkan broker yang berbeda</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        {tempPivotConfig.columns.map((fieldId, idx) => {
+                          const field = availableFields.find(f => f.id === fieldId);
+                          const isDragging = draggedField === fieldId && draggedFromSource === 'columns';
+                          return field ? (
+                            <div
+                              key={idx}
+                              draggable
+                              onDragStart={(e) => {
+                                setDraggedField(fieldId);
+                                setDraggedFromSource('columns');
+                                setDraggedIndex(idx);
+                                e.dataTransfer.effectAllowed = 'move';
+                              }}
+                              onDragEnd={() => {
+                                setDraggedField(null);
+                                setDraggedFromSource(null);
+                                setDraggedIndex(null);
+                              }}
+                              onTouchStart={(e) => {
+                                e.stopPropagation();
+                                const touch = e.touches[0];
+                                setDraggedField(fieldId);
+                                setDraggedFromSource('columns');
+                                setDraggedIndex(idx);
+                                setTouchDragState({
+                                  isDragging: true,
+                                  startX: touch.clientX,
+                                  startY: touch.clientY,
+                                  currentX: touch.clientX,
+                                  currentY: touch.clientY
+                                });
+                              }}
+                              className={`flex items-center gap-1 p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${isDragging ? 'opacity-50' : ''
+                                }`}
+                            >
+                              <GripVertical className="w-3 h-3 text-muted-foreground" />
+                              <span className="text-xs text-foreground flex-1">{field.label}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTempPivotConfig(prev => ({ ...prev, columns: prev.columns.filter((_, i) => i !== idx) }));
+                                }}
+                                onTouchStart={(e) => e.stopPropagation()}
+                                className="text-muted-foreground hover:text-foreground"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : null;
+                        })}
+                        {tempPivotConfig.columns.length === 0 && (
+                          <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Values */}
+                    <div className="border border-[#3a4252] rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px]">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase">Values</div>
+                        <div className="relative group">
+                          <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+                          <div className="absolute left-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                            <div className="text-xs text-popover-foreground mb-1"><strong>Pilih aggregation untuk Volume</strong></div>
+                            <div className="text-xs text-muted-foreground">Volume secara default sudah ada. Centang aggregation yang ingin ditampilkan.</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="p-1 bg-background rounded border border-[#3a4252]">
+                          <div className="text-xs text-foreground font-medium mb-1">Volume</div>
+                          <div className="space-y-1">
+                            {(['COUNT', 'SUM', 'AVG', 'MIN', 'MAX'] as const).map((agg) => (
+                              <label key={agg} className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={tempPivotConfig.aggregations.includes(agg)}
+                                  onChange={(e) => {
+                                    setTempPivotConfig(prev => {
+                                      if (e.target.checked) {
+                                        // Add aggregation if checked
+                                        return {
+                                          ...prev,
+                                          aggregations: [...prev.aggregations, agg]
+                                        };
+                                      } else {
+                                        // Remove aggregation if unchecked (but keep at least one)
+                                        const newAggregations = prev.aggregations.filter(a => a !== agg);
+                                        if (newAggregations.length === 0) {
+                                          // If removing last one, keep COUNT as default
+                                          return { ...prev, aggregations: ['COUNT'] };
+                                        }
+                                        return { ...prev, aggregations: newAggregations };
+                                      }
+                                    });
+                                  }}
+                                  className="w-3 h-3"
+                                />
+                                <span className="text-xs text-foreground leading-none">
+                                  {agg === 'COUNT' ? 'Count' :
+                                    agg === 'SUM' ? 'Sum' :
+                                      agg === 'AVG' ? 'Avg' :
+                                        agg === 'MIN' ? 'Min' :
+                                          agg === 'MAX' ? 'Max' : agg}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Filters */}
+                    <div
+                      data-drop-zone="filters"
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedField && draggedFromSource) {
+                          handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'filters');
+                        }
+                        setDraggedField(null);
+                        setDraggedFromSource(null);
+                        setDraggedIndex(null);
+                      }}
+                      className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${dropZoneHighlight === 'filters'
+                          ? 'border-primary bg-primary/10'
+                          : 'border-[#3a4252]'
+                        }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase">Filters</div>
+                        <div className="relative group">
+                          <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+                          <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                            <div className="text-xs text-popover-foreground mb-1"><strong>Filter data sebelum dihitung</strong></div>
+                            <div className="text-xs text-muted-foreground">Contoh: Buyer Broker → pilih broker tertentu, Transaction Time → pilih range waktu</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        {tempPivotConfig.filters.map((filterConfig, idx) => {
+                          const field = availableFields.find(f => f.id === filterConfig.field);
+                          if (!field) return null;
+
+                          // Time range filter
+                          if (filterConfig.filterType === 'timeRange') {
+                            const isDragging = draggedField === filterConfig.field && draggedFromSource === 'filters';
+                            return (
+                              <div
+                                key={idx}
+                                draggable
+                                onDragStart={(e) => {
+                                  setDraggedField(filterConfig.field);
+                                  setDraggedFromSource('filters');
+                                  setDraggedIndex(idx);
+                                  e.dataTransfer.effectAllowed = 'move';
+                                }}
+                                onDragEnd={() => {
+                                  setDraggedField(null);
+                                  setDraggedFromSource(null);
+                                  setDraggedIndex(null);
+                                }}
+                                onTouchStart={(e) => {
+                                  e.stopPropagation();
+                                  const touch = e.touches[0];
+                                  setDraggedField(filterConfig.field);
+                                  setDraggedFromSource('filters');
+                                  setDraggedIndex(idx);
+                                  setTouchDragState({
+                                    isDragging: true,
+                                    startX: touch.clientX,
+                                    startY: touch.clientY,
+                                    currentX: touch.clientX,
+                                    currentY: touch.clientY
+                                  });
+                                }}
+                                className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${isDragging ? 'opacity-50' : ''
+                                  }`}
+                              >
+                                <div className="flex items-center gap-1 mb-1">
+                                  <GripVertical className="w-3 h-3 text-muted-foreground" />
+                                  <span className="text-xs text-foreground flex-1 font-medium">{field.label}</span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPivotConfig(prev => ({ ...prev, filters: prev.filters.filter((_, i) => i !== idx) }));
+                                    }}
+                                    onTouchStart={(e) => e.stopPropagation()}
+                                    className="text-muted-foreground hover:text-foreground"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
                                   <input
-                                    type="checkbox"
-                                    checked={filterConfig.values.length === uniqueValues.length && uniqueValues.length > 0}
+                                    type="time"
+                                    value={filterConfig.timeRange?.start || '08:00'}
                                     onChange={(e) => {
                                       const newFilters = [...tempPivotConfig.filters];
-                                      const currentFilter = newFilters[idx];
-                                      if (currentFilter) {
-                                        if (e.target.checked) {
-                                          // Select all unique values
-                                          currentFilter.values = [...uniqueValues];
-                                        } else {
-                                          // Deselect all
-                                          currentFilter.values = [];
-                                        }
+                                      if (newFilters[idx]) {
+                                        newFilters[idx].timeRange = {
+                                          ...(newFilters[idx].timeRange || { start: '08:00', end: '16:00' }),
+                                          start: e.target.value
+                                        };
                                         setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
                                       }
                                     }}
-                                    className="w-3 h-3"
-                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-xs bg-background border border-[#3a4252] rounded px-2 py-1"
                                   />
-                                  <span className="text-xs text-foreground flex-1 font-semibold">All ({uniqueValues.length})</span>
-                                </label>
-                                {/* Individual values */}
-                                {filteredValues.map(value => (
-                                  <label
-                                    key={value}
-                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent cursor-pointer border-b border-[#3a4252]/50 last:border-b-0"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={filterConfig.values.includes(value)}
-                                      onChange={(e) => {
-                                        const newFilters = [...tempPivotConfig.filters];
-                                        if (newFilters[idx]) {
-                                          if (e.target.checked) {
-                                            newFilters[idx].values = [...newFilters[idx].values, value];
-                                          } else {
+                                  <span className="text-xs text-muted-foreground">to</span>
+                                  <input
+                                    type="time"
+                                    value={filterConfig.timeRange?.end || '16:00'}
+                                    onChange={(e) => {
+                                      const newFilters = [...tempPivotConfig.filters];
+                                      if (newFilters[idx]) {
+                                        newFilters[idx].timeRange = {
+                                          ...(newFilters[idx].timeRange || { start: '08:00', end: '16:00' }),
+                                          end: e.target.value
+                                        };
+                                        setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                      }
+                                    }}
+                                    className="text-xs bg-background border border-[#3a4252] rounded px-2 py-1"
+                                  />
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // List filter with compact searchable dropdown (for broker, price, HAKA/HAKI, etc)
+                          const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
+                          // For numeric fields like price and HAKA_HAKI, sort numerically; otherwise sort alphabetically
+                          const uniqueValues = [...new Set(allData.map(item => {
+                            const value = item[filterConfig.field as keyof DoneDetailData];
+                            // For HAKA_HAKI, convert 1 to "HAKA" and 0 to "HAKI" for display
+                            if (filterConfig.field === 'HAKA_HAKI') {
+                              return value === 1 ? 'HAKA' : 'HAKI';
+                            }
+                            return String(value || '');
+                          }))].sort((a, b) => {
+                            // For HAKA/HAKI, sort HAKA first
+                            if (filterConfig.field === 'HAKA_HAKI') {
+                              if (a === 'HAKA' && b === 'HAKI') return -1;
+                              if (a === 'HAKI' && b === 'HAKA') return 1;
+                              return a.localeCompare(b);
+                            }
+                            // Try numeric sort first (for price)
+                            const numA = parseFloat(a);
+                            const numB = parseFloat(b);
+                            if (!isNaN(numA) && !isNaN(numB)) {
+                              return numA - numB;
+                            }
+                            // Otherwise alphabetical sort
+                            return a.localeCompare(b);
+                          });
+                          const searchTerm = tempFilterSearchTerms[filterConfig.field] || '';
+                          const isDropdownOpen = tempOpenFilterDropdowns[filterConfig.field] || false;
+                          const filteredValues = uniqueValues.filter(v =>
+                            v.toLowerCase().includes(searchTerm.toLowerCase())
+                          );
+
+                          const isDragging = draggedField === filterConfig.field && draggedFromSource === 'filters';
+                          return (
+                            <div
+                              key={idx}
+                              draggable
+                              onDragStart={(e) => {
+                                setDraggedField(filterConfig.field);
+                                setDraggedFromSource('filters');
+                                setDraggedIndex(idx);
+                                e.dataTransfer.effectAllowed = 'move';
+                              }}
+                              onDragEnd={() => {
+                                setDraggedField(null);
+                                setDraggedFromSource(null);
+                                setDraggedIndex(null);
+                              }}
+                              onTouchStart={(e) => {
+                                e.stopPropagation();
+                                const touch = e.touches[0];
+                                setDraggedField(filterConfig.field);
+                                setDraggedFromSource('filters');
+                                setDraggedIndex(idx);
+                                setTouchDragState({
+                                  isDragging: true,
+                                  startX: touch.clientX,
+                                  startY: touch.clientY,
+                                  currentX: touch.clientX,
+                                  currentY: touch.clientY
+                                });
+                              }}
+                              className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${isDragging ? 'opacity-50' : ''
+                                }`}
+                            >
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <GripVertical className="w-3 h-3 text-muted-foreground" />
+                                <span className="text-sm text-foreground flex-1 font-medium">{field.label}</span>
+                                {filterConfig.values.length > 0 && (
+                                  <span className="text-xs px-1.5 py-0.5 bg-primary/20 text-primary rounded">
+                                    {filterConfig.values.length}
+                                  </span>
+                                )}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setTempPivotConfig(prev => ({ ...prev, filters: prev.filters.filter((_, i) => i !== idx) }));
+                                    const newSearchTerms = { ...tempFilterSearchTerms };
+                                    delete newSearchTerms[filterConfig.field];
+                                    setTempFilterSearchTerms(newSearchTerms);
+                                    const newDropdowns = { ...tempOpenFilterDropdowns };
+                                    delete newDropdowns[filterConfig.field];
+                                    setTempOpenFilterDropdowns(newDropdowns);
+                                  }}
+                                  onTouchStart={(e) => e.stopPropagation()}
+                                  className="text-muted-foreground hover:text-foreground"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+
+                              {/* Compact dropdown with search - only show when open */}
+                              <div className="relative" data-filter-dropdown>
+                                <div
+                                  className="relative cursor-pointer"
+                                  onClick={() => setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: !prev[filterConfig.field] }))}
+                                >
+                                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                                  <input
+                                    type="text"
+                                    placeholder={filterConfig.values.length > 0 ? `${filterConfig.values.length} selected - Click to search` : "Click to search and select..."}
+                                    value={searchTerm}
+                                    onChange={(e) => {
+                                      setTempFilterSearchTerms(prev => ({ ...prev, [filterConfig.field]: e.target.value }));
+                                      setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: true }));
+                                    }}
+                                    onFocus={() => {
+                                      setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: true }));
+                                    }}
+                                    className="w-full pl-7 pr-2 py-1.5 text-xs bg-background border border-[#3a4252] rounded cursor-text"
+                                    readOnly={!isDropdownOpen}
+                                  />
+                                </div>
+
+                                {/* Dropdown list - show when open */}
+                                {isDropdownOpen && (
+                                  <div className="absolute top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-popover border border-[#3a4252] rounded shadow-lg z-50">
+                                    {filteredValues.length > 0 ? (
+                                      <>
+                                        {/* "All" option */}
+                                        <label
+                                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent cursor-pointer border-b-2 border-[#3a4252] font-medium bg-muted/30"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={filterConfig.values.length === uniqueValues.length && uniqueValues.length > 0}
+                                            onChange={(e) => {
+                                              const newFilters = [...tempPivotConfig.filters];
+                                              const currentFilter = newFilters[idx];
+                                              if (currentFilter) {
+                                                if (e.target.checked) {
+                                                  // Select all unique values
+                                                  currentFilter.values = [...uniqueValues];
+                                                } else {
+                                                  // Deselect all
+                                                  currentFilter.values = [];
+                                                }
+                                                setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                              }
+                                            }}
+                                            className="w-3 h-3"
+                                            onClick={(e) => e.stopPropagation()}
+                                          />
+                                          <span className="text-xs text-foreground flex-1 font-semibold">All ({uniqueValues.length})</span>
+                                        </label>
+                                        {/* Individual values */}
+                                        {filteredValues.map(value => (
+                                          <label
+                                            key={value}
+                                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent cursor-pointer border-b border-[#3a4252]/50 last:border-b-0"
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={filterConfig.values.includes(value)}
+                                              onChange={(e) => {
+                                                const newFilters = [...tempPivotConfig.filters];
+                                                if (newFilters[idx]) {
+                                                  if (e.target.checked) {
+                                                    newFilters[idx].values = [...newFilters[idx].values, value];
+                                                  } else {
+                                                    newFilters[idx].values = newFilters[idx].values.filter(v => v !== value);
+                                                  }
+                                                  setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                                }
+                                              }}
+                                              className="w-3 h-3"
+                                              onClick={(e) => e.stopPropagation()}
+                                            />
+                                            <span className="text-xs text-foreground flex-1">{value}</span>
+                                          </label>
+                                        ))}
+                                      </>
+                                    ) : (
+                                      <div className="text-xs text-muted-foreground px-2 py-2 text-center">No results found</div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Selected values as compact chips */}
+                              {filterConfig.values.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {filterConfig.values.slice(0, 5).map(value => (
+                                    <div key={value} className="flex items-center gap-1 px-1.5 py-0.5 bg-primary/20 text-primary rounded text-xs">
+                                      <span>{value}</span>
+                                      <button
+                                        onClick={() => {
+                                          const newFilters = [...tempPivotConfig.filters];
+                                          if (newFilters[idx]) {
                                             newFilters[idx].values = newFilters[idx].values.filter(v => v !== value);
+                                            setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
                                           }
-                                          setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
-                                        }
-                                      }}
-                                      className="w-3 h-3"
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                    <span className="text-xs text-foreground flex-1">{value}</span>
-                                  </label>
-                                ))}
-                              </>
-                            ) : (
-                              <div className="text-xs text-muted-foreground px-2 py-2 text-center">No results found</div>
-                            )}
-                          </div>
+                                        }}
+                                        className="hover:bg-primary/30 rounded px-0.5"
+                                      >
+                                        <X className="w-2.5 h-2.5" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                  {filterConfig.values.length > 5 && (
+                                    <div className="text-xs text-muted-foreground px-1.5 py-0.5">
+                                      +{filterConfig.values.length - 5} more
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {tempPivotConfig.filters.length === 0 && (
+                          <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
                         )}
                       </div>
-
-                      {/* Selected values as compact chips */}
-                      {filterConfig.values.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {filterConfig.values.slice(0, 5).map(value => (
-                            <div key={value} className="flex items-center gap-1 px-1.5 py-0.5 bg-primary/20 text-primary rounded text-xs">
-                              <span>{value}</span>
-          <button
-                                onClick={() => {
-                                  const newFilters = [...tempPivotConfig.filters];
-                                  if (newFilters[idx]) {
-                                    newFilters[idx].values = newFilters[idx].values.filter(v => v !== value);
-                                    setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
-                                  }
-                                }}
-                                className="hover:bg-primary/30 rounded px-0.5"
-                              >
-                                <X className="w-2.5 h-2.5" />
-          </button>
-                            </div>
-                          ))}
-                          {filterConfig.values.length > 5 && (
-                            <div className="text-xs text-muted-foreground px-1.5 py-0.5">
-                              +{filterConfig.values.length - 5} more
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {tempPivotConfig.filters.length === 0 && (
-                  <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
-                )}
-              </div>
                     </div>
                   </div>
                 </div>

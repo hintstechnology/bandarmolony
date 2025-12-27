@@ -4,13 +4,14 @@ import { Settings as SettingsIcon, BarChart2, Search, Plus, X } from 'lucide-rea
 // import { Button } from '../ui/button';
 import { FootprintChart } from '../footprint/FootprintChart';
 import { api } from '../../services/api';
-import { 
-  calculateSMA, 
-  calculateEMA, 
-  calculateRSI, 
-  calculateMACD, 
-  calculateStochastic, 
-  calculateVolumeHistogram, 
+import { STOCK_LIST, loadStockList } from '../../data/stockList';
+import {
+  calculateSMA,
+  calculateEMA,
+  calculateRSI,
+  calculateMACD,
+  calculateStochastic,
+  calculateVolumeHistogram,
   calculateBuySellFrequency,
   calculateDailyShio,
   calculateDailyElement,
@@ -139,26 +140,26 @@ type Indicator = {
 function aggregateByWeek(rows: OhlcRow[]): OhlcRow[] {
   const weeklyData: OhlcRow[] = [];
   const weekGroups: { [key: string]: OhlcRow[] } = {};
-  
+
   rows.forEach(row => {
     const date = new Date(row.time * 1000);
     const year = date.getFullYear();
     const weekNumber = getWeekNumber(date);
     const weekKey = `${year}-W${weekNumber}`;
-    
+
     if (!weekGroups[weekKey]) {
       weekGroups[weekKey] = [];
     }
     weekGroups[weekKey].push(row);
   });
-  
+
   Object.values(weekGroups).forEach(weekRows => {
     if (weekRows.length === 0) return;
-    
+
     const sortedWeek = weekRows.sort((a, b) => a.time - b.time);
     const first = sortedWeek[0];
     const last = sortedWeek[sortedWeek.length - 1];
-    
+
     if (first && last) {
       weeklyData.push({
         time: first.time,
@@ -170,31 +171,31 @@ function aggregateByWeek(rows: OhlcRow[]): OhlcRow[] {
       });
     }
   });
-  
+
   return weeklyData.sort((a, b) => a.time - b.time);
 }
 
 function aggregateByMonth(rows: OhlcRow[]): OhlcRow[] {
   const monthlyData: OhlcRow[] = [];
   const monthGroups: { [key: string]: OhlcRow[] } = {};
-  
+
   rows.forEach(row => {
     const date = new Date(row.time * 1000);
     const monthKey = `${date.getFullYear()}-${date.getMonth() + 1}`;
-    
+
     if (!monthGroups[monthKey]) {
       monthGroups[monthKey] = [];
     }
     monthGroups[monthKey].push(row);
   });
-  
+
   Object.values(monthGroups).forEach(monthRows => {
     if (monthRows.length === 0) return;
-    
+
     const sortedMonth = monthRows.sort((a, b) => a.time - b.time);
     const first = sortedMonth[0];
     const last = sortedMonth[sortedMonth.length - 1];
-    
+
     if (first && last) {
       monthlyData.push({
         time: first.time,
@@ -206,32 +207,32 @@ function aggregateByMonth(rows: OhlcRow[]): OhlcRow[] {
       });
     }
   });
-  
+
   return monthlyData.sort((a, b) => a.time - b.time);
 }
 
 function aggregateByQuarter(rows: OhlcRow[]): OhlcRow[] {
   const quarterlyData: OhlcRow[] = [];
   const quarterGroups: { [key: string]: OhlcRow[] } = {};
-  
+
   rows.forEach(row => {
     const date = new Date(row.time * 1000);
     const quarter = Math.floor((date.getMonth() + 1) / 3);
     const quarterKey = `${date.getFullYear()}-Q${quarter}`;
-    
+
     if (!quarterGroups[quarterKey]) {
       quarterGroups[quarterKey] = [];
     }
     quarterGroups[quarterKey].push(row);
   });
-  
+
   Object.values(quarterGroups).forEach(quarterRows => {
     if (quarterRows.length === 0) return;
-    
+
     const sortedQuarter = quarterRows.sort((a, b) => a.time - b.time);
     const first = sortedQuarter[0];
     const last = sortedQuarter[sortedQuarter.length - 1];
-    
+
     if (first && last) {
       quarterlyData.push({
         time: first.time,
@@ -243,32 +244,32 @@ function aggregateByQuarter(rows: OhlcRow[]): OhlcRow[] {
       });
     }
   });
-  
+
   return quarterlyData.sort((a, b) => a.time - b.time);
 }
 
 function aggregateByHalfYear(rows: OhlcRow[]): OhlcRow[] {
   const halfYearData: OhlcRow[] = [];
   const halfYearGroups: { [key: string]: OhlcRow[] } = {};
-  
+
   rows.forEach(row => {
     const date = new Date(row.time * 1000);
     const halfYear = Math.floor((date.getMonth() + 1) / 6) + 1;
     const halfYearKey = `${date.getFullYear()}-H${halfYear}`;
-    
+
     if (!halfYearGroups[halfYearKey]) {
       halfYearGroups[halfYearKey] = [];
     }
     halfYearGroups[halfYearKey].push(row);
   });
-  
+
   Object.values(halfYearGroups).forEach(halfYearRows => {
     if (halfYearRows.length === 0) return;
-    
+
     const sortedHalfYear = halfYearRows.sort((a, b) => a.time - b.time);
     const first = sortedHalfYear[0];
     const last = sortedHalfYear[sortedHalfYear.length - 1];
-    
+
     if (first && last) {
       halfYearData.push({
         time: first.time,
@@ -280,31 +281,31 @@ function aggregateByHalfYear(rows: OhlcRow[]): OhlcRow[] {
       });
     }
   });
-  
+
   return halfYearData.sort((a, b) => a.time - b.time);
 }
 
 function aggregateByYear(rows: OhlcRow[]): OhlcRow[] {
   const yearlyData: OhlcRow[] = [];
   const yearGroups: { [key: string]: OhlcRow[] } = {};
-  
+
   rows.forEach(row => {
     const date = new Date(row.time * 1000);
     const yearKey = date.getFullYear().toString();
-    
+
     if (!yearGroups[yearKey]) {
       yearGroups[yearKey] = [];
     }
     yearGroups[yearKey].push(row);
   });
-  
+
   Object.values(yearGroups).forEach(yearRows => {
     if (yearRows.length === 0) return;
-    
+
     const sortedYear = yearRows.sort((a, b) => a.time - b.time);
     const first = sortedYear[0];
     const last = sortedYear[sortedYear.length - 1];
-    
+
     if (first && last) {
       yearlyData.push({
         time: first.time,
@@ -316,7 +317,7 @@ function aggregateByYear(rows: OhlcRow[]): OhlcRow[] {
       });
     }
   });
-  
+
   return yearlyData.sort((a, b) => a.time - b.time);
 }
 
@@ -331,7 +332,7 @@ function getWeekNumber(date: Date): number {
 function aggregateByMinute(rows: OhlcRow[], minutes: number): OhlcRow[] {
   const minuteData: OhlcRow[] = [];
   const minuteGroups: { [key: string]: OhlcRow[] } = {};
-  
+
   rows.forEach(row => {
     const date = new Date(row.time * 1000);
     const year = date.getFullYear();
@@ -339,22 +340,22 @@ function aggregateByMinute(rows: OhlcRow[], minutes: number): OhlcRow[] {
     const day = date.getDate();
     const hour = date.getHours();
     const minute = Math.floor(date.getMinutes() / minutes) * minutes;
-    
+
     const minuteKey = `${year}-${month}-${day}-${hour}-${minute}`;
-    
+
     if (!minuteGroups[minuteKey]) {
       minuteGroups[minuteKey] = [];
     }
     minuteGroups[minuteKey].push(row);
   });
-  
+
   Object.values(minuteGroups).forEach(minuteRows => {
     if (minuteRows.length === 0) return;
-    
+
     const sortedMinute = minuteRows.sort((a, b) => a.time - b.time);
     const first = sortedMinute[0];
     const last = sortedMinute[sortedMinute.length - 1];
-    
+
     if (first && last) {
       minuteData.push({
         time: first.time,
@@ -366,36 +367,36 @@ function aggregateByMinute(rows: OhlcRow[], minutes: number): OhlcRow[] {
       });
     }
   });
-  
+
   return minuteData.sort((a, b) => a.time - b.time);
 }
 
 function aggregateByHour(rows: OhlcRow[]): OhlcRow[] {
   const hourlyData: OhlcRow[] = [];
   const hourGroups: { [key: string]: OhlcRow[] } = {};
-  
+
   rows.forEach(row => {
     const date = new Date(row.time * 1000);
     const year = date.getFullYear();
     const month = date.getMonth() + 1; // Fix: getMonth() returns 0-11, we need 1-12
     const day = date.getDate();
     const hour = date.getHours();
-    
+
     const hourKey = `${year}-${month}-${day}-${hour}`;
-    
+
     if (!hourGroups[hourKey]) {
       hourGroups[hourKey] = [];
     }
     hourGroups[hourKey].push(row);
   });
-  
+
   Object.values(hourGroups).forEach(hourRows => {
     if (hourRows.length === 0) return;
-    
+
     const sortedHour = hourRows.sort((a, b) => a.time - b.time);
     const first = sortedHour[0];
     const last = sortedHour[sortedHour.length - 1];
-    
+
     if (first && last) {
       hourlyData.push({
         time: first.time,
@@ -407,21 +408,21 @@ function aggregateByHour(rows: OhlcRow[]): OhlcRow[] {
       });
     }
   });
-  
+
   return hourlyData.sort((a, b) => a.time - b.time);
 }
 
 function aggregateByTradingDay(rows: OhlcRow[]): OhlcRow[] {
   const tradingDayData: OhlcRow[] = [];
   const tradingDayGroups: { [key: string]: OhlcRow[] } = {};
-  
+
   rows.forEach(row => {
     const date = new Date(row.time * 1000);
     const year = date.getFullYear();
     const month = date.getMonth() + 1; // Fix: getMonth() returns 0-11, we need 1-12
     const day = date.getDate();
     const hour = date.getHours();
-    
+
     // Determine trading day: if hour < 7, it belongs to previous day's trading session
     let tradingDay = `${year}-${month}-${day}`;
     if (hour < 7) {
@@ -430,20 +431,20 @@ function aggregateByTradingDay(rows: OhlcRow[]): OhlcRow[] {
       prevDate.setDate(prevDate.getDate() - 1);
       tradingDay = `${prevDate.getFullYear()}-${prevDate.getMonth() + 1}-${prevDate.getDate()}`;
     }
-    
+
     if (!tradingDayGroups[tradingDay]) {
       tradingDayGroups[tradingDay] = [];
     }
     tradingDayGroups[tradingDay]?.push(row);
   });
-  
+
   Object.values(tradingDayGroups).forEach(tradingDayRows => {
     if (tradingDayRows.length === 0) return;
-    
+
     const sortedTradingDay = tradingDayRows.sort((a, b) => a.time - b.time);
     const first = sortedTradingDay[0];
     const last = sortedTradingDay[sortedTradingDay.length - 1];
-    
+
     if (first && last) {
       tradingDayData.push({
         time: first.time,
@@ -455,7 +456,7 @@ function aggregateByTradingDay(rows: OhlcRow[]): OhlcRow[] {
       });
     }
   });
-  
+
   return tradingDayData.sort((a, b) => a.time - b.time);
 }
 
@@ -492,9 +493,9 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const [companyName, setCompanyName] = useState<string>('');
   const searchRef = useRef<HTMLDivElement>(null);
   const [chartColors, setChartColors] = useState({
-      line: '#2563eb',
+    line: '#2563eb',
     candles: { up: '#16a34a', down: '#dc2626', wickUp: '#16a34a', wickDown: '#dc2626' },
-      area: { line: '#2563eb', top: 'rgba(37,99,235,0.20)', bottom: 'rgba(37,99,235,0.05)' }
+    area: { line: '#2563eb', top: 'rgba(37,99,235,0.20)', bottom: 'rgba(37,99,235,0.05)' }
   });
   const [indicatorChartHeight, setIndicatorChartHeight] = useState(100);
   const [rsiSettings, setRsiSettings] = useState({
@@ -523,7 +524,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const [showIndividualSettings, setShowIndividualSettings] = useState(false);
   const [selectedIndicatorForSettings, setSelectedIndicatorForSettings] = useState<Indicator | null>(null);
   const [isLegendMinimized, setIsLegendMinimized] = useState(true);
-  
+
   // New: measure controls height and compute available viewport height for the chart
   const controlsContainerRef = useRef<HTMLDivElement | null>(null);
   const menuContainerRef = useRef<HTMLDivElement>(null);
@@ -545,7 +546,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     window.addEventListener('resize', recalc);
     return () => window.removeEventListener('resize', recalc);
   }, [hideControls]);
-  
+
   // Handle click outside to close dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -565,27 +566,22 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     };
   }, []);
 
-  // Load available symbols from API
+  // Load available symbols from stockList.ts
   useEffect(() => {
     const loadSymbols = async () => {
       try {
         setIsLoadingSymbols(true);
-        const result = await api.getStockList();
-        console.log('🔍 TechnicalAnalysis: Loading symbols result:', result);
-        if (result.success && result.data?.stocks) {
-          console.log('✅ TechnicalAnalysis: Loaded symbols:', result.data.stocks.length, 'symbols');
-          setAvailableSymbols(result.data.stocks);
-          // Set default symbol if none selected
-          if (!selectedStock && result.data.stocks.length > 0) {
-            // Try to set BBCA as default, fallback to first available
-            const defaultSymbol = result.data.stocks.includes('BBCA') ? 'BBCA' : result.data.stocks[0];
-            setSymbol(defaultSymbol);
-            setSearchQuery(defaultSymbol);
-          }
-        } else {
-          console.error('❌ TechnicalAnalysis: Failed to load stock symbols:', result.error);
-          // Don't set MOCK, just leave availableSymbols empty
-          setAvailableSymbols([]);
+        await loadStockList();
+        console.log('🔍 TechnicalAnalysis: Loading symbols from stockList.ts');
+        const stocks = STOCK_LIST;
+        console.log('✅ TechnicalAnalysis: Loaded symbols:', stocks.length, 'symbols');
+        setAvailableSymbols(stocks);
+        // Set default symbol if none selected
+        if (!selectedStock && stocks.length > 0) {
+          // Try to set BBCA as default, fallback to first available
+          const defaultSymbol = stocks.includes('BBCA') ? 'BBCA' : stocks[0];
+          setSymbol(defaultSymbol);
+          setSearchQuery(defaultSymbol);
         }
       } catch (error) {
         console.error('Error loading stock symbols:', error);
@@ -595,7 +591,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         setIsLoadingSymbols(false);
       }
     };
-    
+
     loadSymbols();
   }, []);
 
@@ -626,7 +622,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       fetchCompanyName();
     }
   }, [symbol]);
-  
+
   // Footprint chart settings
   const [footprintSettings, setFootprintSettings] = useState({
     showCrosshair: true,
@@ -646,7 +642,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         console.log('Failed to load saved colors, using defaults');
       }
     }
-    
+
     const savedHeight = localStorage.getItem('indicatorChartHeight');
     if (savedHeight) {
       try {
@@ -655,7 +651,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         console.log('Failed to load saved chart height, using defaults');
       }
     }
-    
+
     const savedRsiSettings = localStorage.getItem('rsiSettings');
     if (savedRsiSettings) {
       try {
@@ -664,7 +660,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         console.log('Failed to load saved RSI settings, using defaults');
       }
     }
-    
+
     const savedVolumeHistogramSettings = localStorage.getItem('volumeHistogramSettings');
     if (savedVolumeHistogramSettings) {
       try {
@@ -673,7 +669,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         console.log('Failed to load saved volume histogram settings, using defaults');
       }
     }
-    
+
   }, []);
 
   // Save colors to localStorage when they change
@@ -704,7 +700,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const indicatorRefs = useRef<{ [key: string]: any }>({});
   // Track any auxiliary series added for a single indicator (e.g., MACD signal, Stochastic %D)
   const indicatorAuxRefs = useRef<{ [key: string]: any[] }>({});
-  
+
   // Separate chart refs for indicators
   const indicatorChartRefs = useRef<{ [key: string]: IChartApi }>({});
   const indicatorContainerRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
@@ -724,15 +720,15 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       'daily_shio': 1,
       'daily_element': 1
     };
-    
+
     const newIndicator: Indicator = {
       id: `${type}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name: type === 'ma' ? `MA (${maMode === 'exponential' ? 'Exponential' : 'Simple'})` :
-            type === 'stochastic' ? '%K (Stochastic)' : 
-            type === 'buy_sell_frequency' ? 'Buy / Sell Frequency' : 
+        type === 'stochastic' ? '%K (Stochastic)' :
+          type === 'buy_sell_frequency' ? 'Buy / Sell Frequency' :
             type === 'daily_shio' ? 'Daily Shio' :
-            type === 'daily_element' ? 'Daily Element' :
-            `${type.toUpperCase()}`,
+              type === 'daily_element' ? 'Daily Element' :
+                `${type.toUpperCase()}`,
       type,
       period: (defaultPeriods as any)[type],
       color,
@@ -747,9 +743,9 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const removeIndicator = (id: string) => {
     // Get indicator to check type
     const indicator = indicators.find(ind => ind.id === id);
-    
+
     setIndicators(prev => prev.filter(ind => ind.id !== id));
-    
+
     // Remove from main chart - handle Daily Shio/Element specially
     if (chartRef.current) {
       if (indicator && (indicator.type === 'daily_shio' || indicator.type === 'daily_element')) {
@@ -766,7 +762,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           indicatorAuxRefs.current[id] = [];
         }
       }
-      
+
       // Remove main series
       if (indicatorRefs.current[id]) {
         chartRef.current.removeSeries(indicatorRefs.current[id]);
@@ -802,16 +798,16 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const toggleIndicator = (id: string) => {
     const indicator = indicators.find(ind => ind.id === id);
     if (!indicator) return;
-    
+
     const newEnabled = !indicator.enabled;
-    
+
     if (!newEnabled) {
       // Remove from main chart when disabled
       if (indicatorRefs.current[id] && chartRef.current) {
         chartRef.current.removeSeries(indicatorRefs.current[id]);
         delete indicatorRefs.current[id];
       }
-      
+
       // Remove separate chart when disabled
       if (indicatorChartRefs.current[id]) {
         const chart = indicatorChartRefs.current[id];
@@ -822,8 +818,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         delete indicatorChartRefs.current[id];
       }
     }
-    
-    setIndicators(prev => prev.map(ind => 
+
+    setIndicators(prev => prev.map(ind =>
       ind.id === id ? { ...ind, enabled: newEnabled } : ind
     ));
   };
@@ -840,8 +836,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       // Remove from main chart when moving to separate chart
       removeFromMainChart(updatedIndicator.id);
     }
-    
-    setIndicators(prev => prev.map(ind => 
+
+    setIndicators(prev => prev.map(ind =>
       ind.id === updatedIndicator.id ? updatedIndicator : ind
     ));
     setShowIndicatorEditor(false);
@@ -851,10 +847,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   // Function to sync time scale with all indicator charts
   const syncTimeScaleWithIndicators = () => {
     if (!chartRef.current) return;
-    
+
     const mainTimeScale = chartRef.current.timeScale();
     const visibleRange = mainTimeScale.getVisibleRange();
-    
+
     if (visibleRange) {
       Object.values(indicatorChartRefs.current).forEach(indicatorChart => {
         if (indicatorChart && (indicatorChart as any).timeScale) {
@@ -876,10 +872,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   };
 
   const symbols = useMemo(() => availableSymbols, [availableSymbols]);
-  
+
   // Filter symbols based on search query (like MarketRotationRRC)
   const getFilteredSymbols = () => {
-    return symbols.filter(symbol => 
+    return symbols.filter(symbol =>
       symbol.toLowerCase().includes(searchQuery.toLowerCase())
     );
   };
@@ -890,17 +886,17 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   // Handle keyboard navigation (like MarketRotationRRC)
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     const filteredSymbols = getFilteredSymbols();
-    
+
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setSearchDropdownIndex(prev => 
+        setSearchDropdownIndex(prev =>
           prev < filteredSymbols.length - 1 ? prev + 1 : 0
         );
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setSearchDropdownIndex(prev => 
+        setSearchDropdownIndex(prev =>
           prev > 0 ? prev - 1 : filteredSymbols.length - 1
         );
         break;
@@ -935,7 +931,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         // Always try to load from API first, regardless of availableSymbols status
         console.log(`Loading stock data for ${symbol} from API...`);
         const result = await api.getStockData(symbol);
-        
+
         if (!result.success) {
           throw new Error(result.error || `Failed to load data for ${symbol}`);
         }
@@ -950,7 +946,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           // Convert date to Unix timestamp
           const dateStr = row.Date || row.date || '';
           const time = new Date(dateStr).getTime() / 1000;
-          
+
           return {
             time: Math.floor(time),
             open: parseFloat(row.Open || row.open || 0),
@@ -1001,7 +997,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         }
 
         console.log(`📊 Loading Buy/Sell Frequency data for ${symbol} across all available dates...`);
-        
+
         // Extract unique dates from OHLC data
         const uniqueDates = new Set<string>();
         rows.forEach(row => {
@@ -1018,13 +1014,13 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         const today = new Date();
         const oneYearAgo = new Date(today);
         oneYearAgo.setFullYear(today.getFullYear() - 1);
-        
+
         console.log(`📊 Generating date range from ${oneYearAgo.toISOString().split('T')[0]} to ${today.toISOString().split('T')[0]}`);
-        
+
         // Generate all possible dates in the last year
         const possibleDates: string[] = [];
         const currentDate = new Date(today);
-        
+
         while (currentDate >= oneYearAgo) {
           const isoString = currentDate.toISOString();
           const dateStr = isoString.split('T')[0]?.replace(/-/g, '') || '';
@@ -1033,53 +1029,53 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           }
           currentDate.setDate(currentDate.getDate() - 1);
         }
-        
+
         console.log(`📊 Generated ${possibleDates.length} possible dates in the last year`);
-        
+
         // Filter to only include dates that exist in OHLC data
         const availableDates = possibleDates.filter(dateStr => uniqueDates.has(dateStr));
         console.log(`📊 Found ${availableDates.length} available dates in OHLC data:`, availableDates.slice(0, 10), '...');
-        
+
         // Load bid/ask data starting from the most recent date going backwards
         const allBidAskData: any[] = [];
         const maxDates = 365; // 1 year limit
         const dateArray = availableDates.slice(0, maxDates);
-        
+
         console.log(`📊 Loading bid/ask data for ${dateArray.length} dates (limited to ${maxDates} most recent dates)`);
 
         let dataFoundCount = 0;
         const maxDataDays = 21; // Stop after finding 21 days of data
-        
+
         for (const dateStr of dateArray) {
           // Check if cancelled before each API call
           if (cancelled) {
             console.log(`📊 Bid/ask data loading cancelled for ${symbol}`);
             return;
           }
-          
+
           try {
             console.log(`📊 Loading bid/ask data for ${symbol} on ${dateStr}...`);
             // Use the same API endpoint as FootprintChart for consistency
             const result = await api.getBidAskData(symbol, dateStr);
-            
+
             // Check if cancelled after API call
             if (cancelled) {
               console.log(`📊 Bid/ask data loading cancelled for ${symbol} after API call`);
               return;
             }
-            
+
             if (result.success && result.data?.data && result.data.data.length > 0) {
               console.log(`✅ Buy/Sell Frequency data found for ${symbol} on ${dateStr}: ${result.data.data.length} records`);
-              
+
               // Add date field to each record (same as FootprintChart)
               const dataWithDate = result.data.data.map((record: any) => ({
                 ...record,
                 date: dateStr
               }));
-              
+
               allBidAskData.push(...dataWithDate);
               dataFoundCount++;
-              
+
               // Stop if we have enough data days (21 days)
               if (dataFoundCount >= maxDataDays) {
                 console.log(`📊 Found data for ${dataFoundCount} days, stopping search`);
@@ -1110,26 +1106,26 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   // Detect data frequency and available timeframes
   const dataFrequency = useMemo(() => {
     if (!rows.length) return 'unknown';
-    
+
     const sortedRows = [...rows].sort((a, b) => a.time - b.time);
     if (sortedRows.length < 2) return 'unknown';
-    
+
     // Calculate time differences between consecutive data points
     const timeDiffs: number[] = [];
     for (let i = 1; i < Math.min(sortedRows.length, 10); i++) {
-      const diff = (sortedRows[i]?.time ?? 0) - (sortedRows[i-1]?.time ?? 0);
+      const diff = (sortedRows[i]?.time ?? 0) - (sortedRows[i - 1]?.time ?? 0);
       timeDiffs.push(diff);
     }
-    
+
     const avgDiff = timeDiffs.reduce((sum, diff) => sum + diff, 0) / timeDiffs.length;
     const avgDiffMinutes = avgDiff / 60;
-    
+
     console.log('Data frequency analysis:', {
       avgDiffSeconds: avgDiff,
       avgDiffMinutes: avgDiffMinutes,
       timeDiffs: timeDiffs.slice(0, 5)
     });
-    
+
     if (avgDiffMinutes <= 1) return '1min';
     if (avgDiffMinutes <= 5) return '5min';
     if (avgDiffMinutes <= 15) return '15min';
@@ -1150,10 +1146,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       { value: '6M', label: '6 Months', minFreq: '1day' },
       { value: '1Y', label: '1 Year', minFreq: '1day' }
     ];
-    
+
     const freqOrder = ['1min', '5min', '15min', '30min', '1hour', '1day', 'unknown'];
     const dataFreqIndex = freqOrder.indexOf(dataFrequency);
-    
+
     return allTimeframes.filter(tf => {
       const tfFreqIndex = freqOrder.indexOf(tf.minFreq);
       return tfFreqIndex <= dataFreqIndex;
@@ -1174,70 +1170,70 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   // Aggregate data based on timeframe
   const filteredRows = useMemo(() => {
     if (!rows.length) return rows;
-    
+
     // Sort rows by time
     const sortedRows = [...rows].sort((a, b) => a.time - b.time);
-    
+
     console.log('📊 Aggregating data for timeframe:', timeframe, 'Total rows:', rows.length);
     console.log('📊 First 3 original rows:', rows.slice(0, 3));
     console.log('📊 Last 3 original rows:', rows.slice(-3));
-    
+
     // Handle minute-based timeframes
     if (timeframe === '1M') {
       // 1 minute - no aggregation needed
       return sortedRows;
     }
-    
+
     if (timeframe === '5M') {
       // Group by 5-minute intervals
       return aggregateByMinute(sortedRows, 5);
     }
-    
+
     if (timeframe === '15M') {
       // Group by 15-minute intervals
       return aggregateByMinute(sortedRows, 15);
     }
-    
+
     if (timeframe === '30M') {
       // Group by 30-minute intervals
       return aggregateByMinute(sortedRows, 30);
     }
-    
+
     if (timeframe === '1H') {
       // Group by hour
       return aggregateByHour(sortedRows);
     }
-    
+
     if (timeframe === '1D') {
       // For 1D, group by trading day (7 AM to 1 AM next day)
       return aggregateByTradingDay(sortedRows);
     }
-    
+
     if (timeframe === '1W') {
       // Group by week (Monday to Friday = 1 bar)
       return aggregateByWeek(sortedRows);
     }
-    
+
     if (timeframe === '1MO') {
       // Group by month (each month = 1 bar)
       return aggregateByMonth(sortedRows);
     }
-    
+
     if (timeframe === '3M') {
       // Group by quarter (every 3 months = 1 bar)
       return aggregateByQuarter(sortedRows);
     }
-    
+
     if (timeframe === '6M') {
       // Group by half-year (every 6 months = 1 bar)
       return aggregateByHalfYear(sortedRows);
     }
-    
+
     if (timeframe === '1Y') {
       // Group by year (every year = 1 bar)
       return aggregateByYear(sortedRows);
     }
-    
+
     console.log('📊 Final filtered rows:', sortedRows.length);
     console.log('📊 First 3 filtered rows:', sortedRows.slice(0, 3));
     console.log('📊 Last 3 filtered rows:', sortedRows.slice(-3));
@@ -1268,7 +1264,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       console.log('⏳ Skipping chart creation - container not ready');
       return;
     }
-    
+
     // Cleanup existing chart when style changes or data changes
     if (chartRef.current) {
       console.log('🗑️ Removing existing chart for recreation');
@@ -1288,18 +1284,18 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     chartRef.current = createChart(el, {
       width,
       height,
-      layout: { 
-        background: { type: ColorType.Solid, color: 'transparent' }, 
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
         textColor: colors.axisTextColor
       },
-      grid: { 
-        horzLines: { visible: false }, 
-        vertLines: { visible: false } 
+      grid: {
+        horzLines: { visible: false },
+        vertLines: { visible: false }
       },
-      rightPriceScale: { 
+      rightPriceScale: {
         borderColor: colors.borderColor
       },
-      timeScale: { 
+      timeScale: {
         borderColor: colors.borderColor,
         visible: !indicators.some(ind => ind.enabled && ind.separateScale)
       },
@@ -1307,10 +1303,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       handleScroll: style === 'footprint' as ChartStyle ? false : true,
       handleScale: style === 'footprint' as ChartStyle ? false : true,
     });
-          // Reset indicator refs when recreating chart to avoid stale series handles
-          indicatorRefs.current = {};
-          indicatorAuxRefs.current = {};
-        }, [style, isLoadingData, rows.length]);
+    // Reset indicator refs when recreating chart to avoid stale series handles
+    indicatorRefs.current = {};
+    indicatorAuxRefs.current = {};
+  }, [style, isLoadingData, rows.length]);
 
   // Update chart data when data changes
   useEffect(() => {
@@ -1325,7 +1321,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     });
 
     const chart = chartRef.current!;
-    
+
     // Update timeScale visibility based on indicators
     const hasVisibleSeparateCharts = indicators.some(ind => ind.enabled && ind.separateScale);
     console.log(`📊 TimeScale visibility: ${!hasVisibleSeparateCharts}, hasVisibleSeparateCharts: ${hasVisibleSeparateCharts}`);
@@ -1334,29 +1330,29 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     });
 
     // bersihkan seri lama
-    if (priceRef.current) { 
+    if (priceRef.current) {
       try {
-        chart.removeSeries(priceRef.current); 
+        chart.removeSeries(priceRef.current);
       } catch (error) {
         console.warn('Error removing price series:', error);
       } finally {
-        priceRef.current = null; 
+        priceRef.current = null;
       }
     }
-    if (volRef.current) { 
+    if (volRef.current) {
       try {
-        chart.removeSeries(volRef.current); 
+        chart.removeSeries(volRef.current);
       } catch (error) {
         console.warn('Error removing volume series:', error);
       } finally {
-        volRef.current = null; 
+        volRef.current = null;
       }
     }
 
-    if (!filteredRows.length) { 
+    if (!filteredRows.length) {
       console.log('No rows to plot');
-      setPlotted(0); 
-      return; 
+      setPlotted(0);
+      return;
     }
 
     console.log(`📊 Rendering chart with ${filteredRows.length} rows, style: ${style}, isLoadingData: ${isLoadingData}`);
@@ -1383,7 +1379,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           lastValueVisible: false,
           priceLineVisible: false,
         });
-        
+
         // Set minimal line data for chart structure
         const lineData = filteredRows.map(d => ({
           time: d.time as any,
@@ -1419,17 +1415,17 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         enabledIndicators: indicators.filter(ind => ind.enabled).length,
         bidAskDataAvailable: bidAskData.length > 0
       });
-      
+
       // Collect all markers for Daily Shio and Element first
       const allMarkers: SeriesMarker[] = [];
-      
+
       indicators.forEach(indicator => {
         console.log(`📊 Processing indicator: ${indicator.type} (${indicator.id})`, {
           enabled: indicator.enabled,
           separateScale: indicator.separateScale,
           period: indicator.period
         });
-        
+
         // Remove existing series if indicator is disabled
         if (!indicator.enabled) {
           if (chartRef.current) {
@@ -1437,26 +1433,26 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               if (indicatorRefs.current[indicator.id]) {
                 chartRef.current?.removeSeries(indicatorRefs.current[indicator.id]);
               }
-            } catch {}
+            } catch { }
           }
           delete indicatorRefs.current[indicator.id];
           // Remove any auxiliary series for this indicator
           if (indicatorAuxRefs.current[indicator.id] && chartRef.current) {
             try {
               indicatorAuxRefs.current[indicator.id]?.forEach(s => {
-                try { chartRef.current?.removeSeries(s); } catch {}
+                try { chartRef.current?.removeSeries(s); } catch { }
               });
-            } catch {}
+            } catch { }
           }
           delete indicatorAuxRefs.current[indicator.id];
           return;
         }
-        
+
         // Skip separate scale indicators for main chart
         if (indicator.separateScale) return;
-        
+
         let indicatorData: IndicatorData[] = [];
-        
+
         switch (indicator.type) {
           case 'ma':
             if ((indicator.maMode || 'simple') === 'exponential') {
@@ -1520,14 +1516,14 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             (indicator as any).colors = elementResult.colors;
             break;
         }
-        
+
         console.log(`📊 Indicator ${indicator.type} data check:`, {
           indicatorId: indicator.id,
           dataLength: indicatorData.length,
           hasData: indicatorData.length > 0,
           sampleData: indicatorData.slice(0, 3)
         });
-        
+
         if (indicatorData.length > 0) {
           console.log(`📊 Adding ${indicator.type} series to main chart:`, {
             indicatorId: indicator.id,
@@ -1535,22 +1531,22 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             sampleData: indicatorData.slice(0, 3),
             chartExists: !!chartRef.current
           });
-          
+
           // Remove existing series (and any aux) if they exist
           if (chartRef.current) {
             try {
               if (indicatorRefs.current[indicator.id]) {
                 chartRef.current?.removeSeries(indicatorRefs.current[indicator.id]);
               }
-            } catch {}
+            } catch { }
             if (indicatorAuxRefs.current[indicator.id]) {
               indicatorAuxRefs.current[indicator.id]?.forEach(s => {
-                try { chartRef.current?.removeSeries(s); } catch {}
+                try { chartRef.current?.removeSeries(s); } catch { }
               });
               indicatorAuxRefs.current[indicator.id] = [];
             }
           }
-          
+
           // Add to main chart
           let indicatorSeries;
           if (indicator.type === 'volume_histogram') {
@@ -1561,7 +1557,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               color: indicator.color,
             });
             indicatorSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-            
+
             // Set data with color based on price movement
             indicatorSeries.setData(filteredRows.map(d => ({
               time: d.time as any,
@@ -1573,37 +1569,37 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             if (!indicator.enabled) {
               return;
             }
-            
+
             // Create markers for daily shio/element - calculate once per unique day from REAL data
             const processedDays = new Set<string>();
-            
+
             // First, get first row for each unique day to ensure precise timing
             const dayToFirstRow = new Map<string, { row: any; time: number }>();
-            
+
             filteredRows.forEach(row => {
               const date = new Date(row.time * 1000);
-                const dayKey = date.toDateString();
-                
+              const dayKey = date.toDateString();
+
               // Store first occurrence of each day
               if (!dayToFirstRow.has(dayKey)) {
                 dayToFirstRow.set(dayKey, { row, time: row.time });
               }
             });
-            
+
             // Now create markers only once per unique day using the first row's timestamp
             // Convert to array and sort by time to get the most recent days first
             const sortedDays = Array.from(dayToFirstRow.entries())
               .sort((a, b) => b[1].time - a[1].time); // Sort descending (newest first)
-            
+
             // Limit to dayLimit number of markers (most recent)
             const dayLimit = indicator.dayLimit || 30;
             const limitedDays = sortedDays.slice(0, dayLimit);
-            
+
             let collectedCount = 0;
-            
+
             for (const [dayKey, { row, time }] of limitedDays) {
               const date = new Date(time * 1000);
-              
+
               // Calculate for this day using BaZi method from BaZiCycleAnalysis
               let info;
               if (indicator.type === 'daily_shio') {
@@ -1611,10 +1607,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               } else {
                 info = getDailyElementInfo(date);
               }
-              
+
               // Determine display mode: emoji (default) or shape
               const displayMode = indicator.displayMode || 'emoji';
-              
+
               // Create marker for this day using the first row's timestamp
               if (displayMode === 'shape') {
                 // Use shape marker
@@ -1622,7 +1618,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                 const itemName = indicator.type === 'daily_shio' ? info.shio : info.element;
                 const markerColor = indicator.shapeColors?.[itemName] || info.color;
                 const markerShape = indicator.shape || 'circle';
-                
+
                 // Map shape names to TradingView marker shapes
                 let tvShape: 'circle' | 'square' | 'arrowUp' | 'arrowDown' | undefined;
                 if (markerShape === 'circle') tvShape = 'circle';
@@ -1630,7 +1626,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                 else if (markerShape === 'arrowUp') tvShape = 'arrowUp';
                 else if (markerShape === 'arrowDown') tvShape = 'arrowDown';
                 else tvShape = 'circle'; // default fallback
-                
+
                 allMarkers.push({
                   time: time,
                   position: indicator.type === 'daily_shio' ? 'belowBar' : 'aboveBar',
@@ -1653,10 +1649,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               }
               collectedCount++;
             }
-            
+
             // Log only total, not per-indicator to avoid spam
             console.log(`✅ Collected ${collectedCount} markers for ${indicator.type}`);
-            
+
             // Skip adding series for daily shio/element - we use markers instead
             indicatorRefs.current[indicator.id] = null;
             setIndicatorSeriesReady(prev => ({ ...prev, [indicator.id]: true }));
@@ -1667,77 +1663,77 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               lineWidth: 2,
               title: indicator.type === 'buy_sell_frequency' ? 'Bid Frequency' : indicator.name
             });
-            
+
             indicatorSeries.setData(indicatorData.map(d => ({
               time: d.time as any,
               value: d.value
             })));
-            
+
             console.log(`📊 Main chart ${indicator.type} series added successfully:`, {
               indicatorId: indicator.id,
               seriesType: 'LineSeries',
               dataPoints: indicatorData.length
             });
-            
+
             // Mark this indicator series as ready
             setIndicatorSeriesReady(prev => ({ ...prev, [indicator.id]: true }));
-            
-        // Add %D line for Stochastic Oscillator in main chart
-        if (indicator.type === 'stochastic') {
-          const stochasticData = calculateStochastic(filteredRows, indicator.period, 3);
-          if (stochasticData.d.length > 0) {
-            const dSeries = chart.addSeries(LineSeries, {
-              color: stochasticSettings.dColor,
-              lineWidth: 2,
-              title: '%D (Signal)'
-            });
-            dSeries.setData(stochasticData.d.map(d => ({
-              time: d.time as any,
-              value: d.value
-            })));
-            // track aux
-            if (!indicatorAuxRefs.current[indicator.id]) indicatorAuxRefs.current[indicator.id] = [];
-            indicatorAuxRefs.current[indicator.id]?.push(dSeries);
+
+            // Add %D line for Stochastic Oscillator in main chart
+            if (indicator.type === 'stochastic') {
+              const stochasticData = calculateStochastic(filteredRows, indicator.period, 3);
+              if (stochasticData.d.length > 0) {
+                const dSeries = chart.addSeries(LineSeries, {
+                  color: stochasticSettings.dColor,
+                  lineWidth: 2,
+                  title: '%D (Signal)'
+                });
+                dSeries.setData(stochasticData.d.map(d => ({
+                  time: d.time as any,
+                  value: d.value
+                })));
+                // track aux
+                if (!indicatorAuxRefs.current[indicator.id]) indicatorAuxRefs.current[indicator.id] = [];
+                indicatorAuxRefs.current[indicator.id]?.push(dSeries);
+              }
+            }
+
+            // Add signal line for MACD in main chart
+            if (indicator.type === 'macd') {
+              const macdData = calculateMACD(filteredRows, 12, 26, 9);
+              if (macdData.signal.length > 0) {
+                const signalSeries = chart.addSeries(LineSeries, {
+                  color: '#ff6b6b',
+                  lineWidth: 2,
+                  title: 'MACD Signal'
+                });
+                signalSeries.setData(macdData.signal.map(s => ({
+                  time: s.time as any,
+                  value: s.value
+                })));
+                if (!indicatorAuxRefs.current[indicator.id]) indicatorAuxRefs.current[indicator.id] = [];
+                indicatorAuxRefs.current[indicator.id]?.push(signalSeries);
+              }
+            }
+
+            // Add sell frequency line for Buy/Sell Frequency in main chart
+            if (indicator.type === 'buy_sell_frequency') {
+              const buySellData = calculateBuySellFrequency(filteredRows, bidAskData, indicator.period);
+              if (buySellData.sellFreq.length > 0) {
+                const sellSeries = chart.addSeries(LineSeries, {
+                  color: '#ef4444', // Red color for ask/sell frequency
+                  lineWidth: 2,
+                  title: 'Ask Frequency'
+                });
+                sellSeries.setData(buySellData.sellFreq.map(s => ({
+                  time: s.time as any,
+                  value: s.value
+                })));
+                if (!indicatorAuxRefs.current[indicator.id]) indicatorAuxRefs.current[indicator.id] = [];
+                indicatorAuxRefs.current[indicator.id]?.push(sellSeries);
+              }
+            }
           }
-        }
-        
-        // Add signal line for MACD in main chart
-        if (indicator.type === 'macd') {
-          const macdData = calculateMACD(filteredRows, 12, 26, 9);
-          if (macdData.signal.length > 0) {
-            const signalSeries = chart.addSeries(LineSeries, {
-              color: '#ff6b6b',
-              lineWidth: 2,
-              title: 'MACD Signal'
-            });
-            signalSeries.setData(macdData.signal.map(s => ({
-              time: s.time as any,
-              value: s.value
-            })));
-            if (!indicatorAuxRefs.current[indicator.id]) indicatorAuxRefs.current[indicator.id] = [];
-            indicatorAuxRefs.current[indicator.id]?.push(signalSeries);
-          }
-        }
-        
-        // Add sell frequency line for Buy/Sell Frequency in main chart
-        if (indicator.type === 'buy_sell_frequency') {
-          const buySellData = calculateBuySellFrequency(filteredRows, bidAskData, indicator.period);
-          if (buySellData.sellFreq.length > 0) {
-            const sellSeries = chart.addSeries(LineSeries, {
-              color: '#ef4444', // Red color for ask/sell frequency
-              lineWidth: 2,
-              title: 'Ask Frequency'
-            });
-            sellSeries.setData(buySellData.sellFreq.map(s => ({
-              time: s.time as any,
-              value: s.value
-            })));
-            if (!indicatorAuxRefs.current[indicator.id]) indicatorAuxRefs.current[indicator.id] = [];
-            indicatorAuxRefs.current[indicator.id]?.push(sellSeries);
-          }
-        }
-          }
-          
+
           indicatorRefs.current[indicator.id] = indicatorSeries;
         }
       });
@@ -1746,7 +1742,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       if (priceRef.current && allMarkers.length > 0) {
         const shioCount = allMarkers.filter(m => m.position === 'belowBar').length;
         const elementCount = allMarkers.filter(m => m.position === 'aboveBar').length;
-        
+
         console.log('📊 MARKERS DEBUG:', {
           total: allMarkers.length,
           shio: shioCount,
@@ -1755,22 +1751,22 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             .filter(ind => ind.enabled && (ind.type === 'daily_shio' || ind.type === 'daily_element'))
             .map(ind => ind.type)
         });
-        
+
         try {
           // Separate markers by position to avoid conflicts
           const belowBarMarkers = allMarkers.filter(m => m.position === 'belowBar');
           const aboveBarMarkers = allMarkers.filter(m => m.position === 'aboveBar');
-          
+
           console.log('🔍 Markers breakdown:', {
             belowBar: belowBarMarkers.length,
             aboveBar: aboveBarMarkers.length,
             sampleBelow: belowBarMarkers[0],
             sampleAbove: aboveBarMarkers[0]
           });
-          
+
           // Sort markers by time to ensure proper rendering
           const sortedMarkers = [...allMarkers].sort((a, b) => (a.time as number) - (b.time as number));
-          
+
           // Apply all markers at once (TradingView should handle mixed positions)
           createSeriesMarkers(priceRef.current as any, sortedMarkers);
           console.log('✅ Markers applied successfully', {
@@ -1782,8 +1778,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           console.error('❌ Error applying markers:', error, error);
         }
       } else {
-        console.log('📊 No markers to apply', { 
-          priceRef: !!priceRef.current, 
+        console.log('📊 No markers to apply', {
+          priceRef: !!priceRef.current,
           markersCount: allMarkers.length,
           enabledDailyIndicators: indicators
             .filter(ind => ind.enabled && (ind.type === 'daily_shio' || ind.type === 'daily_element'))
@@ -1795,7 +1791,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       console.log(`📊 Chart fitContent called, plotted ${filteredRows.length} rows`);
       setPlotted(filteredRows.length);
       setErr(null);
-      
+
       // Sync time scale with indicator charts
       syncTimeScaleWithIndicators();
     } catch (e: any) {
@@ -1809,7 +1805,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     if (!chartRef.current || style === 'footprint' as ChartStyle) return;
 
     const chart = chartRef.current;
-    
+
     // Add time scale change listener for synchronization (only once)
     if (!(chart as any)._timeScaleListenerAdded) {
       const timeScale = chart.timeScale();
@@ -1823,7 +1819,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           });
         }
       });
-      
+
       // Sync crosshair from main chart to indicator charts (two-way sync)
       // Helper function to get crosshair data point (based on TradingView example)
       const getCrosshairDataPoint = (series: any, param: any) => {
@@ -1855,7 +1851,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         if (param && param.time && priceRef.current) {
           // Get data point from main chart price series
           const dataPoint = getCrosshairDataPoint(priceRef.current, param);
-          
+
           // Sync with all indicator charts
           Object.entries(indicatorChartRefs.current).forEach(([id, indicatorChart]) => {
             if (indicatorChart) {
@@ -1882,7 +1878,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           });
         }
       });
-      
+
       // Store unsubscribe functions
       (chart as any)._timeScaleUnsubscribe = unsubscribeTimeScale;
       (chart as any)._crosshairUnsubscribe = unsubscribeCrosshair;
@@ -1915,20 +1911,20 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
 
   // Reload indicator chart if series not ready after timeout
   useEffect(() => {
-    const enabledBuySellIndicators = indicators.filter(ind => 
+    const enabledBuySellIndicators = indicators.filter(ind =>
       ind.enabled && ind.type === 'buy_sell_frequency' && !indicatorSeriesReady[ind.id]
     );
-    
+
     if (enabledBuySellIndicators.length === 0 || bidAskData.length === 0 || isLoadingData) {
       return;
     }
-    
+
     // Set timeout to reload if series not ready after 5 seconds
     const timeoutId = setTimeout(() => {
       enabledBuySellIndicators.forEach(indicator => {
         if (!indicatorSeriesReady[indicator.id] && bidAskData.length > 0) {
           console.log(`⚠️ Indicator ${indicator.id} series not ready after timeout, triggering reload...`);
-          
+
           // Remove existing chart
           if (indicatorChartRefs.current[indicator.id]) {
             const chart = indicatorChartRefs.current[indicator.id];
@@ -1938,31 +1934,31 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             chart?.remove();
             delete indicatorChartRefs.current[indicator.id];
           }
-          
+
           // Trigger re-render by updating state
           setPlotted(prev => prev + 1);
         }
       });
     }, 5000);
-    
+
     return () => clearTimeout(timeoutId);
   }, [indicators, indicatorSeriesReady, bidAskData, isLoadingData]);
-  
+
   // Create separate charts for indicators
   useEffect(() => {
     // Skip indicator charts for footprint style
     if (style === 'footprint' as ChartStyle) {
       return;
     }
-    
+
     const enabledSeparateIndicators = indicators.filter(ind => ind.enabled && ind.separateScale);
-    
+
     console.log('📊 Processing separate indicators:', {
       totalIndicators: indicators.length,
       enabledSeparateIndicators: enabledSeparateIndicators.length,
       bidAskDataAvailable: bidAskData.length > 0
     });
-    
+
     indicators.forEach((indicator) => {
       console.log(`📊 Processing separate indicator: ${indicator.type} (${indicator.id})`, {
         enabled: indicator.enabled,
@@ -1981,15 +1977,15 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         }
         return;
       }
-      
+
       if (!indicator.separateScale) return;
-      
+
       // Find index in enabled separate indicators
       const separateIndex = enabledSeparateIndicators.findIndex(ind => ind.id === indicator.id);
-      
+
       const container = indicatorContainerRefs.current[indicator.id];
       if (!container) return;
-      
+
       // Only remove existing chart if it doesn't exist or data has changed significantly
       if (indicatorChartRefs.current[indicator.id]) {
         const existingChart = indicatorChartRefs.current[indicator.id];
@@ -2004,37 +2000,37 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           return;
         }
       }
-      
+
       // Create new chart
       const colors = getThemeColors();
       const indicatorChart = createChart(container, {
         width: container.clientWidth || 400,
         height: indicatorChartHeight,
-        layout: { 
-          background: { type: ColorType.Solid, color: 'transparent' }, 
+        layout: {
+          background: { type: ColorType.Solid, color: 'transparent' },
           textColor: colors.axisTextColor
         },
-        grid: { 
-          horzLines: { visible: false }, 
-          vertLines: { visible: false } 
+        grid: {
+          horzLines: { visible: false },
+          vertLines: { visible: false }
         },
-        rightPriceScale: { 
+        rightPriceScale: {
           borderColor: colors.borderColor
         },
-        timeScale: { 
+        timeScale: {
           borderColor: colors.borderColor,
           visible: separateIndex === enabledSeparateIndicators.length - 1
         },
         crosshair: { mode: style === 'footprint' as ChartStyle ? CrosshairMode.Hidden : CrosshairMode.Normal },
       });
-      
+
       // Calculate indicator data
       console.log(`📊 Calculating separate indicator data for ${indicator.type}:`, {
         filteredRowsLength: filteredRows.length,
         bidAskDataLength: bidAskData.length,
         period: indicator.period
       });
-      
+
       let indicatorData: IndicatorData[] = [];
       switch (indicator.type) {
         case 'rsi':
@@ -2070,14 +2066,14 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           indicatorData = buySellDataSeparate.buyFreq;
           break;
       }
-      
+
       console.log(`📊 Separate Indicator ${indicator.type} data check:`, {
         indicatorId: indicator.id,
         dataLength: indicatorData.length,
         hasData: indicatorData.length > 0,
         sampleData: indicatorData.slice(0, 3)
       });
-      
+
       if (indicatorData.length > 0) {
         console.log(`📊 Adding ${indicator.type} series to separate chart:`, {
           indicatorId: indicator.id,
@@ -2085,7 +2081,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           sampleData: indicatorData.slice(0, 3),
           chartExists: !!indicatorChart
         });
-        
+
         // Add indicator series
         let indicatorSeries;
         if (indicator.type === 'volume_histogram') {
@@ -2096,7 +2092,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             color: indicator.color,
           });
           indicatorSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-          
+
           // Set data with color based on price movement
           indicatorSeries.setData(filteredRows.map(d => ({
             time: d.time as any,
@@ -2110,25 +2106,25 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             lineWidth: 2,
             title: indicator.type === 'buy_sell_frequency' ? 'Bid Frequency' : indicator.name
           });
-          
+
           // Convert data format for lightweight-charts
           const chartData = indicatorData.map(d => ({
             time: d.time as any,
             value: d.value
           }));
-          
+
           indicatorSeries.setData(chartData);
-          
+
           console.log(`📊 Separate chart ${indicator.type} series added successfully:`, {
             indicatorId: indicator.id,
             seriesType: 'LineSeries',
             dataPoints: indicatorData.length
           });
-          
+
           // Mark this indicator series as ready
           setIndicatorSeriesReady(prev => ({ ...prev, [indicator.id]: true }));
         }
-        
+
         // Add reference lines for RSI
         if (indicator.type === 'rsi') {
           // Overbought line
@@ -2142,7 +2138,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               title: 'Overbought'
             });
           }
-          
+
           // Oversold line
           if (rsiSettings.showOversold) {
             indicatorSeries.createPriceLine({
@@ -2155,7 +2151,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             });
           }
         }
-        
+
         // Add reference lines for Stochastic Oscillator
         if (indicator.type === 'stochastic') {
           // Overbought line (80)
@@ -2167,7 +2163,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             axisLabelVisible: true,
             title: 'Overbought (80)'
           });
-          
+
           // Oversold line (20)
           indicatorSeries.createPriceLine({
             price: 20,
@@ -2177,7 +2173,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             axisLabelVisible: true,
             title: 'Oversold (20)'
           });
-          
+
           // Add %D line (signal line)
           const stochasticData = calculateStochastic(filteredRows, indicator.period, 3);
           if (stochasticData.d.length > 0) {
@@ -2186,16 +2182,16 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               lineWidth: 2,
               title: '%D (Signal)'
             });
-            
+
             const dChartData = stochasticData.d.map(d => ({
               time: d.time as any,
               value: d.value
             }));
-            
+
             dSeries.setData(dChartData);
           }
         }
-        
+
         // Add zero line and signal line for MACD
         if (indicator.type === 'macd') {
           indicatorSeries.createPriceLine({
@@ -2206,7 +2202,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             axisLabelVisible: true,
             title: 'Zero'
           });
-          
+
           // Add signal line
           const macdData = calculateMACD(filteredRows, 12, 26, 9);
           if (macdData.signal.length > 0) {
@@ -2215,16 +2211,16 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               lineWidth: 2,
               title: 'MACD Signal'
             });
-            
+
             const signalChartData = macdData.signal.map(s => ({
               time: s.time as any,
               value: s.value
             }));
-            
+
             signalSeries.setData(signalChartData);
           }
         }
-        
+
         // Add sell frequency line for Buy/Sell Frequency in separate chart
         if (indicator.type === 'buy_sell_frequency') {
           const buySellData = calculateBuySellFrequency(filteredRows, bidAskData, indicator.period);
@@ -2234,44 +2230,44 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               lineWidth: 2,
               title: 'Ask Frequency'
             });
-            
+
             const sellChartData = buySellData.sellFreq.map(s => ({
               time: s.time as any,
               value: s.value
             }));
-            
+
             sellSeries.setData(sellChartData);
           }
         }
-        
+
         indicatorChart.timeScale().fitContent();
         indicatorChartRefs.current[indicator.id] = indicatorChart;
-        
-        
+
+
         // Synchronize time scale with main chart
         if (chartRef.current) {
           const mainTimeScale = chartRef.current.timeScale();
           const indicatorTimeScale = indicatorChart.timeScale();
-          
+
           // Sync visible range
           const visibleRange = mainTimeScale.getVisibleRange();
           if (visibleRange) {
             indicatorTimeScale.setVisibleRange(visibleRange);
           }
-          
+
           // Listen to main chart time scale changes
           const unsubscribeMain = mainTimeScale.subscribeVisibleTimeRangeChange((timeRange) => {
             if (timeRange) {
               indicatorTimeScale.setVisibleRange(timeRange);
             }
           });
-          
+
           // Listen to indicator chart time scale changes (two-way sync)
           indicatorTimeScale.subscribeVisibleTimeRangeChange((timeRange) => {
             if (timeRange && chartRef.current) {
               // Sync main chart with indicator chart
               chartRef.current.timeScale().setVisibleRange(timeRange);
-              
+
               // Sync other indicator charts
               Object.entries(indicatorChartRefs.current).forEach(([id, otherChart]) => {
                 if (id !== indicator.id && otherChart && otherChart !== indicatorChart) {
@@ -2280,7 +2276,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               });
             }
           });
-          
+
           // Sync crosshair/hover cursor (two-way sync)
           // Helper function to get crosshair data point (based on TradingView example)
           const getCrosshairDataPoint = (series: any, param: any) => {
@@ -2312,12 +2308,12 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             if (param && param.time && chartRef.current && indicatorSeries) {
               // Get data point from indicator series
               const dataPoint = getCrosshairDataPoint(indicatorSeries, param);
-              
+
               // Sync main chart crosshair
               if (priceRef.current) {
                 syncCrosshair(chartRef.current, priceRef.current, dataPoint);
               }
-              
+
               // Sync other indicator charts crosshair
               Object.entries(indicatorChartRefs.current).forEach(([id, otherChart]) => {
                 if (id !== indicator.id && otherChart && otherChart !== indicatorChart) {
@@ -2329,14 +2325,14 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               });
             }
           });
-          
+
           // Store unsubscribe functions for cleanup
           (indicatorChart as any)._timeScaleUnsubscribe = unsubscribeMain;
           (indicatorChart as any)._crosshairUnsubscribe = unsubscribeCrosshairIndicator;
         }
       }
     });
-    
+
     // Cleanup function to prevent memory leaks
     return () => {
       console.log('📊 Cleaning up indicator charts to prevent memory leaks');
@@ -2367,7 +2363,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   useEffect(() => {
     // Force re-layout of indicator containers to prevent positioning issues
     const enabledIndicators = indicators.filter(ind => ind.enabled && ind.separateScale);
-    
+
     enabledIndicators.forEach(indicator => {
       const container = indicatorContainerRefs.current[indicator.id];
       if (container) {
@@ -2383,63 +2379,63 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   // Check if indicator series are visible in viewport and auto-reload if needed
   useEffect(() => {
     const enabledIndicators = indicators.filter(ind => ind.enabled && ind.separateScale);
-    
+
     enabledIndicators.forEach(indicator => {
       const chart = indicatorChartRefs.current[indicator.id];
       if (!chart || !indicatorSeriesReady[indicator.id] || indicatorReloaded[indicator.id]) {
         return; // Skip if chart not ready, series not ready, or already reloaded
       }
-      
+
       // Check visibility after a delay to allow chart to render
       const timeoutId = setTimeout(() => {
         try {
           if (!chartRef.current) return;
-          
+
           // Get visible range from main chart
           const mainTimeScale = chartRef.current.timeScale();
           const visibleRange = mainTimeScale.getVisibleRange();
-          
+
           if (!visibleRange) return;
-          
+
           // Get all series from indicator chart
           const series = (chart as any).series();
           if (!series || series.length === 0) return;
-          
+
           // Check if any series has data in visible range
           let hasVisibleData = false;
           for (const s of series) {
             const data = s.data();
             if (!data || data.length === 0) continue;
-            
+
             // Check if any data point is in visible range
             const hasDataInRange = data.some((point: any) => {
               const pointTime = point.time;
               return pointTime >= visibleRange.from && pointTime <= visibleRange.to;
             });
-            
+
             if (hasDataInRange) {
               hasVisibleData = true;
               break;
             }
           }
-          
+
           console.log(`📊 Indicator ${indicator.id} visibility check:`, {
             hasVisibleData,
             visibleRange: { from: visibleRange.from, to: visibleRange.to },
             seriesCount: series.length,
             alreadyReloaded: indicatorReloaded[indicator.id]
           });
-          
+
           // If series is not visible and hasn't been reloaded yet, trigger invisible reload
           if (!hasVisibleData && !indicatorReloaded[indicator.id]) {
             console.log(`⚠️ Indicator ${indicator.id} series not visible in viewport, triggering invisible reload...`);
-            
+
             // Mark as reloaded to prevent multiple reloads
             setIndicatorReloaded(prev => ({ ...prev, [indicator.id]: true }));
-            
+
             // Mark series as not ready
             setIndicatorSeriesReady(prev => ({ ...prev, [indicator.id]: false }));
-            
+
             // Unload chart invisibly
             if (chart) {
               try {
@@ -2452,7 +2448,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               }
             }
             delete indicatorChartRefs.current[indicator.id];
-            
+
             // Trigger re-render after a short delay (invisible)
             setTimeout(() => {
               console.log(`🔄 Invisible reloading indicator ${indicator.id}...`);
@@ -2463,7 +2459,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           console.warn(`Error checking visibility for indicator ${indicator.id}:`, error);
         }
       }, 3000); // Check after 3 seconds
-      
+
       return () => clearTimeout(timeoutId);
     });
   }, [indicators, indicatorSeriesReady, indicatorReloaded]);
@@ -2477,7 +2473,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
 
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    
+
     const updateChartSize = () => {
       if (!chartRef.current || !el) return;
       const cr = el.getBoundingClientRect();
@@ -2488,19 +2484,19 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         height: newHeight,
       });
     };
-    
+
     // Force resize immediately when effect runs
     if (chartRef.current) {
       updateChartSize();
     }
-    
+
     const ro = new ResizeObserver((entries) => {
       const cr = entries[0]?.contentRect;
       if (!cr || !chartRef.current || !el) return;
-      
+
       const newWidth = Math.max(1, Math.floor(el.getBoundingClientRect().width));
       const newHeight = Math.max(1, Math.floor(el.getBoundingClientRect().height));
-      
+
       chartRef.current.applyOptions({
         width: newWidth,
         height: newHeight,
@@ -2546,7 +2542,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
 
   // Sync timeframe from parent when provided (but don't override user changes)
   const [isUserControlled, setIsUserControlled] = useState(false);
-  
+
   useEffect(() => {
     if (!isUserControlled && timeframeProp && timeframeProp !== timeframe) {
       setTimeframe(timeframeProp as Timeframe);
@@ -2557,17 +2553,17 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   useEffect(() => {
     const handleResize = () => {
       if (!chartRef.current || !containerRef.current) return;
-      
+
       const cr = containerRef.current.getBoundingClientRect();
       const newWidth = Math.max(1, Math.floor(cr.width));
       const newHeight = Math.max(1, Math.floor(cr.height));
-      
+
       // Force resize
       chartRef.current.applyOptions({
         width: newWidth,
         height: newHeight,
       });
-      
+
       // Force layout update
       setTimeout(() => {
         chartRef.current?.timeScale().fitContent();
@@ -2618,188 +2614,187 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           contain: layout style paint !important;
         }
       `}</style>
-      
+
       {!hideControls && (
         <>
-        {/* Top Controls - Compact without Card */}
-        {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
-        <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40" ref={controlsContainerRef}>
-          <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
-            {/* Symbol/Ticker selector */}
-            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-              <label className="text-sm font-medium whitespace-nowrap">Symbol:</label>
-              <div className="relative flex-1 md:flex-none md:w-64" ref={searchRef}>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setShowSearchDropdown(true);
-                      setSearchDropdownIndex(-1);
-                    }}
-                    onFocus={() => setShowSearchDropdown(true)}
-                    onKeyDown={handleSearchKeyDown}
-                    placeholder="Search and select stocks..."
-                    className="w-full h-9 pl-10 pr-3 text-sm border border-[#3a4252] rounded-md bg-background text-foreground hover:border-primary/50 focus:border-primary focus:outline-none transition-colors"
-                  />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground z-20 pointer-events-auto"
-                      onTouchStart={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log('🔍 Clear button onTouchStart clicked - searchQuery before:', searchQuery);
-                        setSearchQuery('');
-                        setShowSearchDropdown(false);
+          {/* Top Controls - Compact without Card */}
+          {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
+          <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40" ref={controlsContainerRef}>
+            <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
+              {/* Symbol/Ticker selector */}
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                <label className="text-sm font-medium whitespace-nowrap">Symbol:</label>
+                <div className="relative flex-1 md:flex-none md:w-64" ref={searchRef}>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setShowSearchDropdown(true);
                         setSearchDropdownIndex(-1);
-                        console.log('🔍 Clear button onTouchStart clicked - searchQuery after: ""');
                       }}
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log('🔍 Clear button onPointerDown clicked - searchQuery before:', searchQuery);
-                        setSearchQuery('');
-                        setShowSearchDropdown(false);
-                        setSearchDropdownIndex(-1);
-                        console.log('🔍 Clear button onPointerDown clicked - searchQuery after: ""');
-                      }}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log('🔍 Clear button onMouseDown clicked - searchQuery before:', searchQuery);
-                        setSearchQuery('');
-                        setShowSearchDropdown(false);
-                        setSearchDropdownIndex(-1);
-                        console.log('🔍 Clear button onMouseDown clicked - searchQuery after: ""');
-                      }}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log('🔍 Clear button onClick clicked - searchQuery before:', searchQuery);
-                        setSearchQuery('');
-                        setShowSearchDropdown(false);
-                        setSearchDropdownIndex(-1);
-                        console.log('🔍 Clear button onClick clicked - searchQuery after: ""');
-                      }}
-                      aria-label="Clear search"
-                      style={{ pointerEvents: 'auto' }}
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
-                
-                {/* Combined Search and Select Dropdown */}
-                {showSearchDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 sm:max-h-60 overflow-y-auto">
-                    {isLoadingSymbols ? (
-                      <div className="p-3 text-sm text-muted-foreground">Loading symbols...</div>
-                    ) : symbols.length === 0 ? (
-                      <div className="p-3 text-sm text-muted-foreground">No symbols available. Please check your connection.</div>
-                    ) : (
-                      <>
-                        {/* Show filtered results if searching, otherwise show all available */}
-                        {(searchQuery ? getFilteredSymbols() : symbols)
-                          .slice(0, 15)
-                          .map((symbol, index) => (
-                            <button
-                              key={symbol}
-                              onClick={() => {
-                                setSymbol(symbol);
-                                setSearchQuery(symbol);
-                                setShowSearchDropdown(false);
-                                setSearchDropdownIndex(-1);
-                              }}
-                              className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
-                                index === searchDropdownIndex ? 'bg-accent' : ''
-                              }`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div 
-                                  className="w-3 h-3 rounded-full" 
-                                  style={{ backgroundColor: '#3B82F6' }}
-                                ></div>
-                                <span className="text-sm">{symbol}</span>
-                              </div>
-                              <Plus className="w-3 h-3 text-muted-foreground" />
-                            </button>
-                          ))}
-                        
-                        {/* Show "more available" message */}
-                        {!searchQuery && symbols.length > 15 && (
-                          <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
-                            +{symbols.length - 15} more stocks available (use search to find specific stocks)
-                          </div>
-                        )}
-                        
-                        {/* Show "no results" message */}
-                        {searchQuery && getFilteredSymbols().length === 0 && (
-                          <div className="p-2 text-sm text-muted-foreground">
-                            No stocks found matching "{searchQuery}"
-                          </div>
-                        )}
-                      </>
+                      onFocus={() => setShowSearchDropdown(true)}
+                      onKeyDown={handleSearchKeyDown}
+                      placeholder="Search and select stocks..."
+                      className="w-full h-9 pl-10 pr-3 text-sm border border-[#3a4252] rounded-md bg-background text-foreground hover:border-primary/50 focus:border-primary focus:outline-none transition-colors"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground z-20 pointer-events-auto"
+                        onTouchStart={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('🔍 Clear button onTouchStart clicked - searchQuery before:', searchQuery);
+                          setSearchQuery('');
+                          setShowSearchDropdown(false);
+                          setSearchDropdownIndex(-1);
+                          console.log('🔍 Clear button onTouchStart clicked - searchQuery after: ""');
+                        }}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('🔍 Clear button onPointerDown clicked - searchQuery before:', searchQuery);
+                          setSearchQuery('');
+                          setShowSearchDropdown(false);
+                          setSearchDropdownIndex(-1);
+                          console.log('🔍 Clear button onPointerDown clicked - searchQuery after: ""');
+                        }}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('🔍 Clear button onMouseDown clicked - searchQuery before:', searchQuery);
+                          setSearchQuery('');
+                          setShowSearchDropdown(false);
+                          setSearchDropdownIndex(-1);
+                          console.log('🔍 Clear button onMouseDown clicked - searchQuery after: ""');
+                        }}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('🔍 Clear button onClick clicked - searchQuery before:', searchQuery);
+                          setSearchQuery('');
+                          setShowSearchDropdown(false);
+                          setSearchDropdownIndex(-1);
+                          console.log('🔍 Clear button onClick clicked - searchQuery after: ""');
+                        }}
+                        aria-label="Clear search"
+                        style={{ pointerEvents: 'auto' }}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
                     )}
                   </div>
-                )}
+
+                  {/* Combined Search and Select Dropdown */}
+                  {showSearchDropdown && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 sm:max-h-60 overflow-y-auto">
+                      {isLoadingSymbols ? (
+                        <div className="p-3 text-sm text-muted-foreground">Loading symbols...</div>
+                      ) : symbols.length === 0 ? (
+                        <div className="p-3 text-sm text-muted-foreground">No symbols available. Please check your connection.</div>
+                      ) : (
+                        <>
+                          {/* Show filtered results if searching, otherwise show all available */}
+                          {(searchQuery ? getFilteredSymbols() : symbols)
+                            .slice(0, 15)
+                            .map((symbol, index) => (
+                              <button
+                                key={symbol}
+                                onClick={() => {
+                                  setSymbol(symbol);
+                                  setSearchQuery(symbol);
+                                  setShowSearchDropdown(false);
+                                  setSearchDropdownIndex(-1);
+                                }}
+                                className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${index === searchDropdownIndex ? 'bg-accent' : ''
+                                  }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className="w-3 h-3 rounded-full"
+                                    style={{ backgroundColor: '#3B82F6' }}
+                                  ></div>
+                                  <span className="text-sm">{symbol}</span>
+                                </div>
+                                <Plus className="w-3 h-3 text-muted-foreground" />
+                              </button>
+                            ))}
+
+                          {/* Show "more available" message */}
+                          {!searchQuery && symbols.length > 15 && (
+                            <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
+                              +{symbols.length - 15} more stocks available (use search to find specific stocks)
+                            </div>
+                          )}
+
+                          {/* Show "no results" message */}
+                          {searchQuery && getFilteredSymbols().length === 0 && (
+                            <div className="p-2 text-sm text-muted-foreground">
+                              No stocks found matching "{searchQuery}"
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
 
-            {/* Timeframe */}
-            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-              <label className="text-sm font-medium whitespace-nowrap">Timeframe:</label>
-              <select
-                value={timeframe}
-                onChange={(e) => setTimeframe(e.target.value as Timeframe)}
-                className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+              {/* Timeframe */}
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                <label className="text-sm font-medium whitespace-nowrap">Timeframe:</label>
+                <select
+                  value={timeframe}
+                  onChange={(e) => setTimeframe(e.target.value as Timeframe)}
+                  className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+                >
+                  {availableTimeframes.map(tf => (
+                    <option key={tf.value} value={tf.value}>
+                      {tf.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Chart Style */}
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                <label className="text-sm font-medium whitespace-nowrap">Chart Style:</label>
+                <select
+                  value={style}
+                  onChange={(e) => setStyle(e.target.value as ChartStyle)}
+                  className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+                >
+                  <option value="line">Line</option>
+                  <option value="candles">Candles</option>
+                  <option value="footprint">Footprint</option>
+                </select>
+              </div>
+
+              {/* Indicators Button */}
+              <button
+                onClick={() => setShowIndicatorSettings(true)}
+                className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto"
               >
-                {availableTimeframes.map(tf => (
-                  <option key={tf.value} value={tf.value}>
-                    {tf.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+                <BarChart2 className="w-4 h-4" />
+                <span>Indicators</span>
+              </button>
 
-            {/* Chart Style */}
-            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-              <label className="text-sm font-medium whitespace-nowrap">Chart Style:</label>
-              <select
-                value={style}
-                onChange={(e) => setStyle(e.target.value as ChartStyle)}
-                className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+              {/* Settings Button */}
+              <button
+                onClick={() => setShowSettings(true)}
+                className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto"
               >
-                <option value="line">Line</option>
-                <option value="candles">Candles</option>
-                <option value="footprint">Footprint</option>
-              </select>
+                <SettingsIcon className="w-4 h-4" />
+                <span>Settings</span>
+              </button>
             </div>
-
-            {/* Indicators Button */}
-            <button
-              onClick={() => setShowIndicatorSettings(true)}
-              className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto"
-            >
-              <BarChart2 className="w-4 h-4" />
-              <span>Indicators</span>
-            </button>
-
-            {/* Settings Button */}
-            <button
-              onClick={() => setShowSettings(true)}
-              className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto"
-            >
-              <SettingsIcon className="w-4 h-4" />
-              <span>Settings</span>
-            </button>
           </div>
-        </div>
 
-        {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-        <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+          {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+          <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
         </>
       )}
 
@@ -2858,7 +2853,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                 </div>
               )}
             </div>
-            
+
             {/* Timeframe Selector */}
             {timeframeOptions && timeframeOptions.length > 0 && onTimeframeChange && (
               <div className="mt-2">
@@ -2880,7 +2875,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                 </select>
               </div>
             )}
-            
+
             {/* Price Info */}
             <div className="mt-2 pt-2 border-t border-border">
               <div className="font-mono text-xs sm:text-sm font-medium">{latest ? latest.close.toLocaleString() : '-'}</div>
@@ -2888,7 +2883,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                 {chg >= 0 ? '+' : ''}{chg.toFixed(0)} ({chgPct.toFixed(2)}%)
               </div>
             </div>
-            
+
             {/* Active Overlay Indicators List */}
             {indicators.filter(ind => ind.enabled && !ind.separateScale).length > 0 && (
               <div className="mt-2 pt-2 border-t border-border">
@@ -2897,13 +2892,13 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                     <div
                       key={ind.id}
                       className="flex items-center justify-between gap-2 px-2 py-1 rounded-md bg-muted/50 border border-border/50 w-full"
-                      style={{ 
+                      style={{
                         backgroundColor: `${ind.color}15`,
                         borderColor: `${ind.color}40`
                       }}
                     >
                       <span className="text-xs font-medium flex-1" style={{ color: ind.color }}>
-                      {ind.name}
+                        {ind.name}
                       </span>
                       <div className="flex items-center gap-1">
                         <button
@@ -2976,65 +2971,65 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         {/* Legend for Daily Shio and Element - Right Top */}
         {!hideControls && !isLoadingData && rows.length > 0 && (
           <>
-            {(indicators.some(ind => ind.enabled && ind.type === 'daily_shio') || 
+            {(indicators.some(ind => ind.enabled && ind.type === 'daily_shio') ||
               indicators.some(ind => ind.enabled && ind.type === 'daily_element')) && (
-              <div className="absolute bottom-[50px] left-2 sm:top-2 sm:bottom-auto sm:left-auto sm:right-[90px] z-10 bg-background/95 backdrop-blur-sm border border-border rounded-md px-3 py-2.5 shadow-lg max-h-[70vh] overflow-y-auto sm:scale-100 sm:max-w-[200px]" style={{ maxWidth: 'calc(100% - 16px)', transform: 'scale(0.68) sm:scale-100', transformOrigin: 'bottom left' }}>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-semibold text-foreground">
-                    {indicators.some(ind => ind.enabled && ind.type === 'daily_shio') && indicators.some(ind => ind.enabled && ind.type === 'daily_element') 
-                      ? 'Daily Shio & Element' 
-                      : indicators.some(ind => ind.enabled && ind.type === 'daily_shio') 
-                        ? 'Daily Shio' 
-                        : 'Daily Element'}
-                  </h3>
-                  <button
-                    onClick={() => setIsLegendMinimized(!isLegendMinimized)}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label={isLegendMinimized ? 'Expand legend' : 'Minimize legend'}
-                  >
-                    {isLegendMinimized ? (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
-                      </svg>
-                    ) : (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-                {!isLegendMinimized && (
-                  <div className="space-y-3">
-                    {indicators.some(ind => ind.enabled && ind.type === 'daily_shio') && (
-                      <div>
-                        <h4 className="text-[10px] font-semibold mb-1.5 text-muted-foreground">Daily Shio</h4>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {SHIO_INFO.map(shio => (
-                            <div key={shio.name} className="flex items-center gap-1.5">
-                              <span style={{ fontSize: '14px' }}>{shio.emoji}</span>
-                              <span className="text-muted-foreground text-xs">{shio.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {indicators.some(ind => ind.enabled && ind.type === 'daily_element') && (
-                      <div className={indicators.some(ind => ind.enabled && ind.type === 'daily_shio') ? 'border-t border-border pt-3' : ''}>
-                        <h4 className="text-[10px] font-semibold mb-1.5 text-muted-foreground">Daily Element</h4>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {ELEMENT_INFO.map(element => (
-                            <div key={element.name} className="flex items-center gap-1.5">
-                              <span style={{ fontSize: '14px' }}>{element.emoji}</span>
-                              <span className="text-muted-foreground text-xs">{element.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                <div className="absolute bottom-[50px] left-2 sm:top-2 sm:bottom-auto sm:left-auto sm:right-[90px] z-10 bg-background/95 backdrop-blur-sm border border-border rounded-md px-3 py-2.5 shadow-lg max-h-[70vh] overflow-y-auto sm:scale-100 sm:max-w-[200px]" style={{ maxWidth: 'calc(100% - 16px)', transform: 'scale(0.68) sm:scale-100', transformOrigin: 'bottom left' }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-xs font-semibold text-foreground">
+                      {indicators.some(ind => ind.enabled && ind.type === 'daily_shio') && indicators.some(ind => ind.enabled && ind.type === 'daily_element')
+                        ? 'Daily Shio & Element'
+                        : indicators.some(ind => ind.enabled && ind.type === 'daily_shio')
+                          ? 'Daily Shio'
+                          : 'Daily Element'}
+                    </h3>
+                    <button
+                      onClick={() => setIsLegendMinimized(!isLegendMinimized)}
+                      className="text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label={isLegendMinimized ? 'Expand legend' : 'Minimize legend'}
+                    >
+                      {isLegendMinimized ? (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      )}
+                    </button>
                   </div>
-                )}
-              </div>
-            )}
+                  {!isLegendMinimized && (
+                    <div className="space-y-3">
+                      {indicators.some(ind => ind.enabled && ind.type === 'daily_shio') && (
+                        <div>
+                          <h4 className="text-[10px] font-semibold mb-1.5 text-muted-foreground">Daily Shio</h4>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {SHIO_INFO.map(shio => (
+                              <div key={shio.name} className="flex items-center gap-1.5">
+                                <span style={{ fontSize: '14px' }}>{shio.emoji}</span>
+                                <span className="text-muted-foreground text-xs">{shio.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {indicators.some(ind => ind.enabled && ind.type === 'daily_element') && (
+                        <div className={indicators.some(ind => ind.enabled && ind.type === 'daily_shio') ? 'border-t border-border pt-3' : ''}>
+                          <h4 className="text-[10px] font-semibold mb-1.5 text-muted-foreground">Daily Element</h4>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {ELEMENT_INFO.map(element => (
+                              <div key={element.name} className="flex items-center gap-1.5">
+                                <span style={{ fontSize: '14px' }}>{element.emoji}</span>
+                                <span className="text-muted-foreground text-xs">{element.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
           </>
         )}
 
@@ -3043,7 +3038,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             <>
               {style === 'footprint' ? (
                 <div className="w-full h-full" style={{ height: '100%', padding: 0, margin: 0 }}>
-                  <FootprintChart 
+                  <FootprintChart
                     showCrosshair={footprintSettings.showCrosshair}
                     showPOC={footprintSettings.showPOC}
                     showDelta={footprintSettings.showDelta}
@@ -3061,8 +3056,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                   />
                 </div>
               ) : (
-                <div 
-                  ref={containerRef} 
+                <div
+                  ref={containerRef}
                   className="h-full w-full"
                 />
               )}
@@ -3071,14 +3066,14 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         </ChartErrorBoundary>
       </Card>
 
-        {/* Separate indicator charts */}
-        {indicators.filter(ind => ind.separateScale).map(indicator => (
-          <Card key={indicator.id} className="p-0 relative indicator-card">
-            <div className="p-2 border-b border-border indicator-header">
+      {/* Separate indicator charts */}
+      {indicators.filter(ind => ind.separateScale).map(indicator => (
+        <Card key={indicator.id} className="p-0 relative indicator-card">
+          <div className="p-2 border-b border-border indicator-header">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div 
-                  className="w-3 h-3 rounded-full" 
+                <div
+                  className="w-3 h-3 rounded-full"
                   style={{ backgroundColor: indicator.color }}
                 />
                 <span className="text-sm font-medium">{indicator.name}</span>
@@ -3115,7 +3110,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             </div>
           </div>
           {indicator.enabled && (
-            <div 
+            <div
               ref={(el) => {
                 if (el) {
                   indicatorContainerRefs.current[indicator.id] = el;
@@ -3130,9 +3125,9 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                   <div className="flex flex-col items-center gap-2">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
                     <div className="text-xs text-muted-foreground">
-                      {isLoadingData ? 'Loading chart data...' : 
-                       indicator.type === 'buy_sell_frequency' && bidAskData.length === 0 ? 'Loading bid/ask data...' :
-                       'Loading indicator series...'}
+                      {isLoadingData ? 'Loading chart data...' :
+                        indicator.type === 'buy_sell_frequency' && bidAskData.length === 0 ? 'Loading bid/ask data...' :
+                          'Loading indicator series...'}
                     </div>
                   </div>
                 </div>
@@ -3146,223 +3141,223 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       {showSettings && (
         <div className="fixed inset-0 flex items-center justify-center z-40">
           <div className="bg-background border border-border rounded-lg shadow-lg p-4 w-80 max-w-[90vw]">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">Chart Colors</h3>
-            <button
-              onClick={() => setShowSettings(false)}
-              className="text-muted-foreground hover:text-foreground text-xs"
-            >
-              ✕
-            </button>
-          </div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold">Chart Colors</h3>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="text-muted-foreground hover:text-foreground text-xs"
+              >
+                ✕
+              </button>
+            </div>
 
-          <div className="space-y-3">
-            {/* Line Chart Colors (Area Chart) */}
-            {style === 'line' && (
-              <div className="space-y-3">
+            <div className="space-y-3">
+              {/* Line Chart Colors (Area Chart) */}
+              {style === 'line' && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">Line Color</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={chartColors.area.line}
+                        onChange={(e) => setChartColors(prev => ({
+                          ...prev,
+                          area: { ...prev.area, line: e.target.value }
+                        }))}
+                        className="w-8 h-6 border border-border rounded cursor-pointer"
+                      />
+                      <span className="text-xs text-muted-foreground font-mono">{chartColors.area.line}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">Top Color</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={chartColors.area.top}
+                        onChange={(e) => setChartColors(prev => ({
+                          ...prev,
+                          area: { ...prev.area, top: e.target.value }
+                        }))}
+                        className="w-8 h-6 border border-border rounded cursor-pointer"
+                      />
+                      <span className="text-xs text-muted-foreground font-mono">{chartColors.area.top}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">Bottom Color</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={chartColors.area.bottom}
+                        onChange={(e) => setChartColors(prev => ({
+                          ...prev,
+                          area: { ...prev.area, bottom: e.target.value }
+                        }))}
+                        className="w-8 h-6 border border-border rounded cursor-pointer"
+                      />
+                      <span className="text-xs text-muted-foreground font-mono">{chartColors.area.bottom}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Candlestick Colors */}
+              {style === 'candles' && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">Bullish (Up)</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={chartColors.candles.up}
+                        onChange={(e) => setChartColors(prev => ({
+                          ...prev,
+                          candles: { ...prev.candles, up: e.target.value, wickUp: e.target.value }
+                        }))}
+                        className="w-8 h-6 border border-border rounded cursor-pointer"
+                      />
+                      <span className="text-xs text-muted-foreground font-mono">{chartColors.candles.up}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">Bearish (Down)</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={chartColors.candles.down}
+                        onChange={(e) => setChartColors(prev => ({
+                          ...prev,
+                          candles: { ...prev.candles, down: e.target.value, wickDown: e.target.value }
+                        }))}
+                        className="w-8 h-6 border border-border rounded cursor-pointer"
+                      />
+                      <span className="text-xs text-muted-foreground font-mono">{chartColors.candles.down}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+
+              {/* Footprint Chart Settings */}
+              {style === 'footprint' && (
+                <div className="space-y-3 border-t border-border pt-3">
+                  <h4 className="text-xs font-medium text-muted-foreground">Footprint Chart Settings</h4>
+
+                  {/* Display Controls */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs text-muted-foreground">Show Crosshair</label>
+                      <input
+                        type="checkbox"
+                        checked={footprintSettings.showCrosshair}
+                        onChange={(e) => setFootprintSettings(prev => ({ ...prev, showCrosshair: e.target.checked }))}
+                        className="w-3 h-3"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs text-muted-foreground">Show POC</label>
+                      <input
+                        type="checkbox"
+                        checked={footprintSettings.showPOC}
+                        onChange={(e) => setFootprintSettings(prev => ({ ...prev, showPOC: e.target.checked }))}
+                        className="w-3 h-3"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs text-muted-foreground">Show Delta</label>
+                      <input
+                        type="checkbox"
+                        checked={footprintSettings.showDelta}
+                        onChange={(e) => setFootprintSettings(prev => ({ ...prev, showDelta: e.target.checked }))}
+                        className="w-3 h-3"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Timeframe Selection */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">Timeframe</label>
+                    <select
+                      value={footprintSettings.timeframe}
+                      onChange={(e) => setFootprintSettings(prev => ({ ...prev, timeframe: e.target.value }))}
+                      className="w-full px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
+                    >
+                      <option value="1m">1 Minute</option>
+                      <option value="5m">5 Minutes</option>
+                      <option value="15m">15 Minutes</option>
+                      <option value="30m">30 Minutes</option>
+                      <option value="1h">1 Hour</option>
+                      <option value="4h">4 Hours</option>
+                      <option value="1d">1 Day</option>
+                    </select>
+                  </div>
+
+                  {/* Zoom Control */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">Zoom Level</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="3"
+                        step="0.1"
+                        value={footprintSettings.zoom}
+                        onChange={(e) => setFootprintSettings(prev => ({ ...prev, zoom: parseFloat(e.target.value) }))}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <span className="text-xs text-muted-foreground font-mono w-12 text-right">
+                        {footprintSettings.zoom.toFixed(1)}x
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Chart Height Control */}
               <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">Line Color</label>
+                <label className="text-xs font-medium text-muted-foreground">Indicator Chart Height</label>
                 <div className="flex items-center gap-2">
                   <input
-                    type="color"
-                      value={chartColors.area.line}
-                      onChange={(e) => setChartColors(prev => ({ 
-                        ...prev, 
-                        area: { ...prev.area, line: e.target.value }
-                      }))}
-                    className="w-8 h-6 border border-border rounded cursor-pointer"
+                    type="range"
+                    min="50"
+                    max="200"
+                    value={indicatorChartHeight}
+                    onChange={(e) => setIndicatorChartHeight(parseInt(e.target.value))}
+                    className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                   />
-                    <span className="text-xs text-muted-foreground font-mono">{chartColors.area.line}</span>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">Top Color</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={chartColors.area.top}
-                      onChange={(e) => setChartColors(prev => ({ 
-                        ...prev, 
-                        area: { ...prev.area, top: e.target.value }
-                      }))}
-                      className="w-8 h-6 border border-border rounded cursor-pointer"
-                    />
-                    <span className="text-xs text-muted-foreground font-mono">{chartColors.area.top}</span>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">Bottom Color</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={chartColors.area.bottom}
-                      onChange={(e) => setChartColors(prev => ({ 
-                        ...prev, 
-                        area: { ...prev.area, bottom: e.target.value }
-                      }))}
-                      className="w-8 h-6 border border-border rounded cursor-pointer"
-                    />
-                    <span className="text-xs text-muted-foreground font-mono">{chartColors.area.bottom}</span>
-                  </div>
+                  <span className="text-xs text-muted-foreground font-mono w-12 text-right">
+                    {indicatorChartHeight}px
+                  </span>
                 </div>
               </div>
-            )}
-
-            {/* Candlestick Colors */}
-            {style === 'candles' && (
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">Bullish (Up)</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={chartColors.candles.up}
-                      onChange={(e) => setChartColors(prev => ({ 
-                        ...prev, 
-                        candles: { ...prev.candles, up: e.target.value, wickUp: e.target.value }
-                      }))}
-                      className="w-8 h-6 border border-border rounded cursor-pointer"
-                    />
-                    <span className="text-xs text-muted-foreground font-mono">{chartColors.candles.up}</span>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">Bearish (Down)</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={chartColors.candles.down}
-                      onChange={(e) => setChartColors(prev => ({ 
-                        ...prev, 
-                        candles: { ...prev.candles, down: e.target.value, wickDown: e.target.value }
-                      }))}
-                      className="w-8 h-6 border border-border rounded cursor-pointer"
-                    />
-                    <span className="text-xs text-muted-foreground font-mono">{chartColors.candles.down}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-
-            {/* Footprint Chart Settings */}
-            {style === 'footprint' && (
-              <div className="space-y-3 border-t border-border pt-3">
-                <h4 className="text-xs font-medium text-muted-foreground">Footprint Chart Settings</h4>
-                
-                {/* Display Controls */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs text-muted-foreground">Show Crosshair</label>
-                    <input
-                      type="checkbox"
-                      checked={footprintSettings.showCrosshair}
-                      onChange={(e) => setFootprintSettings(prev => ({ ...prev, showCrosshair: e.target.checked }))}
-                      className="w-3 h-3"
-                    />
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs text-muted-foreground">Show POC</label>
-                    <input
-                      type="checkbox"
-                      checked={footprintSettings.showPOC}
-                      onChange={(e) => setFootprintSettings(prev => ({ ...prev, showPOC: e.target.checked }))}
-                      className="w-3 h-3"
-                    />
-                </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs text-muted-foreground">Show Delta</label>
-                    <input
-                      type="checkbox"
-                      checked={footprintSettings.showDelta}
-                      onChange={(e) => setFootprintSettings(prev => ({ ...prev, showDelta: e.target.checked }))}
-                      className="w-3 h-3"
-                    />
-                  </div>
-                </div>
-                
-                {/* Timeframe Selection */}
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">Timeframe</label>
-                  <select
-                    value={footprintSettings.timeframe}
-                    onChange={(e) => setFootprintSettings(prev => ({ ...prev, timeframe: e.target.value }))}
-                    className="w-full px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
-                  >
-                    <option value="1m">1 Minute</option>
-                    <option value="5m">5 Minutes</option>
-                    <option value="15m">15 Minutes</option>
-                    <option value="30m">30 Minutes</option>
-                    <option value="1h">1 Hour</option>
-                    <option value="4h">4 Hours</option>
-                    <option value="1d">1 Day</option>
-                  </select>
-                </div>
-                
-                {/* Zoom Control */}
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">Zoom Level</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="range"
-                      min="0.5"
-                      max="3"
-                      step="0.1"
-                      value={footprintSettings.zoom}
-                      onChange={(e) => setFootprintSettings(prev => ({ ...prev, zoom: parseFloat(e.target.value) }))}
-                      className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                    />
-                    <span className="text-xs text-muted-foreground font-mono w-12 text-right">
-                      {footprintSettings.zoom.toFixed(1)}x
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Chart Height Control */}
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">Indicator Chart Height</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min="50"
-                  max="200"
-                  value={indicatorChartHeight}
-                  onChange={(e) => setIndicatorChartHeight(parseInt(e.target.value))}
-                  className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                />
-                <span className="text-xs text-muted-foreground font-mono w-12 text-right">
-                  {indicatorChartHeight}px
-                </span>
-              </div>
-            </div>
 
 
               {/* Action Buttons */}
-            <div className="pt-2 border-t border-border">
+              <div className="pt-2 border-t border-border">
                 <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setChartColors({
-                    line: '#2563eb',
-                    candles: { up: '#16a34a', down: '#dc2626', wickUp: '#16a34a', wickDown: '#dc2626' },
-                    area: { line: '#2563eb', top: 'rgba(37,99,235,0.20)', bottom: 'rgba(37,99,235,0.05)' }
-                  });
-                  setIndicatorChartHeight(100);
-                }}
-                className="px-3 py-1 text-xs border border-border rounded hover:bg-accent"
-              >
-                Reset Default
-              </button>
+                  <button
+                    onClick={() => {
+                      setChartColors({
+                        line: '#2563eb',
+                        candles: { up: '#16a34a', down: '#dc2626', wickUp: '#16a34a', wickDown: '#dc2626' },
+                        area: { line: '#2563eb', top: 'rgba(37,99,235,0.20)', bottom: 'rgba(37,99,235,0.05)' }
+                      });
+                      setIndicatorChartHeight(100);
+                    }}
+                    className="px-3 py-1 text-xs border border-border rounded hover:bg-accent"
+                  >
+                    Reset Default
+                  </button>
                   <button
                     onClick={() => setShowSettings(false)}
                     className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90"
                   >
                     Save Changes
-              </button>
+                  </button>
                 </div>
               </div>
             </div>
@@ -3450,8 +3445,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                     {indicators.map((indicator) => (
                       <div key={indicator.id} className="flex items-center justify-between p-2 border border-border rounded">
                         <div className="flex items-center gap-2">
-                          <div 
-                            className="w-3 h-3 rounded-full" 
+                          <div
+                            className="w-3 h-3 rounded-full"
                             style={{ backgroundColor: indicator.color }}
                           />
                           <span className="text-xs font-mono">{indicator.name}</span>
@@ -3468,11 +3463,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                           </button>
                           <button
                             onClick={() => toggleIndicator(indicator.id)}
-                            className={`px-2 py-1 text-xs rounded ${
-                              indicator.enabled 
-                                ? 'bg-green-100 text-green-700' 
+                            className={`px-2 py-1 text-xs rounded ${indicator.enabled
+                                ? 'bg-green-100 text-green-700'
                                 : 'bg-gray-100 text-gray-700'
-                            }`}
+                              }`}
                           >
                             {indicator.enabled ? 'ON' : 'OFF'}
                           </button>
@@ -3516,7 +3510,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               {selectedIndicatorForSettings.type === 'rsi' && (
                 <div className="space-y-3">
                   <h4 className="text-xs font-medium text-muted-foreground">RSI Reference Lines</h4>
-                  
+
                   {/* Overbought Line */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -3625,7 +3619,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               </button>
             </div>
 
-            <IndicatorEditor 
+            <IndicatorEditor
               indicator={editingIndicator}
               onSave={updateIndicator}
               onCancel={() => setShowIndicatorEditor(false)}

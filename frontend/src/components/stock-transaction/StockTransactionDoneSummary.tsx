@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { ChevronDown, Calendar, Search, Loader2 } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../services/api';
-import { STOCK_LIST, searchStocks } from '../../data/stockList';
+import { STOCK_LIST, loadStockList, searchStocks } from '../../data/stockList';
 
 interface PriceData {
   price: number;
@@ -521,6 +521,11 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
       }
     };
     loadBrokers();
+  }, []);
+
+  // Load stock list from backend on mount
+  useEffect(() => {
+    loadStockList();
   }, []);
 
   // Monitor menu height to detect if it wraps to 2 rows

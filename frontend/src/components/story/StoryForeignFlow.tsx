@@ -6,6 +6,7 @@ import { createChart, IChartApi, ColorType, CandlestickSeries, HistogramSeries, 
 import { useUserChartColors } from '../../hooks/useUserChartColors';
 import { api } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
+import { STOCK_LIST, loadStockList, searchStocks } from '../../data/stockList';
 
 // Data interfaces
 interface PriceData {
@@ -42,14 +43,14 @@ interface VolumeData {
 
 
 // Individual chart component for split view
-const IndividualChart = ({ 
-  data, 
-  chartType, 
-  color, 
-  height = 200 
-}: { 
-  data: any[], 
-  chartType: 'candlestick' | 'histogram', 
+const IndividualChart = ({
+  data,
+  chartType,
+  color,
+  height = 200
+}: {
+  data: any[],
+  chartType: 'candlestick' | 'histogram',
   color?: string,
   height?: number
 }) => {
@@ -75,25 +76,25 @@ const IndividualChart = ({
       chartRef.current.remove();
       chartRef.current = null;
     }
-    
+
     const width = el.clientWidth || 800;
     const colors = getThemeColors();
-    
+
     chartRef.current = createChart(el, {
       width,
       height,
-      layout: { 
-        background: { type: ColorType.Solid, color: 'transparent' }, 
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
         textColor: colors.axisTextColor,
       },
-      grid: { 
-        horzLines: { visible: false }, 
-        vertLines: { visible: false } 
+      grid: {
+        horzLines: { visible: false },
+        vertLines: { visible: false }
       },
-      rightPriceScale: { 
+      rightPriceScale: {
         borderColor: colors.borderColor
       },
-      timeScale: { 
+      timeScale: {
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
@@ -193,14 +194,14 @@ const IndividualChart = ({
 };
 
 // TradingView-style chart with multiple panes
-const TradingViewMultiPaneChart = ({ 
-  candlestickData, 
-  foreignFlowData, 
-  volumeData 
-}: { 
-  candlestickData: any[], 
-  foreignFlowData: any[], 
-  volumeData: any[] 
+const TradingViewMultiPaneChart = ({
+  candlestickData,
+  foreignFlowData,
+  volumeData
+}: {
+  candlestickData: any[],
+  foreignFlowData: any[],
+  volumeData: any[]
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -225,7 +226,7 @@ const TradingViewMultiPaneChart = ({
 
   // Store previous data to prevent unnecessary recreations
   const prevDataRef = useRef<string>('');
-  
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -238,48 +239,48 @@ const TradingViewMultiPaneChart = ({
       firstCandle: candlestickData[0]?.time,
       lastCandle: candlestickData[candlestickData.length - 1]?.time
     });
-    
+
     // Skip if data hasn't actually changed
     if (prevDataRef.current === dataSignature && chartRef.current && paneHeightsSetRef.current) {
       console.log('[StoryForeignFlow] Data unchanged, skipping recreation');
       return;
     }
-    
+
     prevDataRef.current = dataSignature;
-    
+
     console.log('[StoryForeignFlow] useEffect triggered - Chart recreation', dataSignature);
-    
+
     // Clean up existing chart
     if (chartRef.current) {
       console.log('[StoryForeignFlow] Removing existing chart');
       chartRef.current.remove();
       chartRef.current = null;
     }
-    
+
     // Reset pane heights flag when recreating chart
     console.log('[StoryForeignFlow] Resetting flags');
     paneHeightsSetRef.current = false;
     isSettingHeightsRef.current = false;
     isResizingRef.current = false;
-    
+
     // Clear any pending resize operations and timeouts
     if (resizeTimeoutRef.current) {
       clearTimeout(resizeTimeoutRef.current);
       resizeTimeoutRef.current = null;
     }
-    
+
     const width = el.clientWidth || 800;
     const height = el.clientHeight || 650;
     const colors = getThemeColors();
-    
+
     console.log('[StoryForeignFlow] Creating chart with dimensions:', { width, height });
-    
+
     // Create chart with separate panes
     chartRef.current = createChart(el, {
       width,
       height,
-      layout: { 
-        background: { type: ColorType.Solid, color: 'transparent' }, 
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
         textColor: colors.axisTextColor,
         panes: {
           separatorColor: colors.separatorColor,
@@ -287,14 +288,14 @@ const TradingViewMultiPaneChart = ({
           enableResize: false, // Disable resize to prevent loop
         }
       },
-      grid: { 
-        horzLines: { visible: false }, 
-        vertLines: { visible: false } 
+      grid: {
+        horzLines: { visible: false },
+        vertLines: { visible: false }
       },
-      rightPriceScale: { 
+      rightPriceScale: {
         borderColor: colors.borderColor
       },
-      timeScale: { 
+      timeScale: {
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
@@ -363,14 +364,14 @@ const TradingViewMultiPaneChart = ({
         console.log('[StoryForeignFlow] Setting pane heights - START');
         isSettingHeightsRef.current = true;
         isResizingRef.current = true;
-        
+
         // Use requestAnimationFrame + single setTimeout to prevent multiple calls
         requestAnimationFrame(() => {
           // Clear any existing timeout first
           if (resizeTimeoutRef.current) {
             clearTimeout(resizeTimeoutRef.current);
           }
-          
+
           resizeTimeoutRef.current = setTimeout(() => {
             // Double check conditions inside timeout
             if (!chartRef.current || paneHeightsSetRef.current) {
@@ -379,10 +380,10 @@ const TradingViewMultiPaneChart = ({
               isSettingHeightsRef.current = false;
               return;
             }
-            
+
             const panes = chartRef.current?.panes();
             console.log('[StoryForeignFlow] Pane heights timeout - panes:', panes?.length, 'paneHeightsSet:', paneHeightsSetRef.current);
-            
+
             if (panes && panes.length >= 3 && !paneHeightsSetRef.current) {
               try {
                 // Calculate fixed heights based on container
@@ -390,23 +391,23 @@ const TradingViewMultiPaneChart = ({
                 const pane0Height = Math.floor(totalHeight * 0.75); // 75% - Price
                 const pane1Height = Math.floor(totalHeight * 0.125); // 12.5% - Foreign Flow
                 const pane2Height = Math.floor(totalHeight * 0.125); // 12.5% - Volume
-                
+
                 console.log('[StoryForeignFlow] Setting pane heights:', {
                   totalHeight,
                   pane0Height,
                   pane1Height,
                   pane2Height
                 });
-                
+
                 // Set heights ONCE and lock them IMMEDIATELY
                 paneHeightsSetRef.current = true; // Set BEFORE calling setHeight to prevent re-entry
-                
+
                 panes[0]?.setHeight(pane0Height);
                 panes[1]?.setHeight(pane1Height);
                 panes[2]?.setHeight(pane2Height);
-                
+
                 console.log('[StoryForeignFlow] Pane heights SET - locked');
-                
+
                 // Keep flags locked for extended period
                 setTimeout(() => {
                   console.log('[StoryForeignFlow] Unlocking flags after 3s');
@@ -424,7 +425,7 @@ const TradingViewMultiPaneChart = ({
               isResizingRef.current = false;
               isSettingHeightsRef.current = false;
             }
-            
+
             resizeTimeoutRef.current = null;
           }, 500);
         });
@@ -443,11 +444,11 @@ const TradingViewMultiPaneChart = ({
   // as it causes infinite loops with pane height recalculation
   useEffect(() => {
     console.log('[StoryForeignFlow] Resize effect - DISABLED');
-    
+
     // NO RESIZE HANDLING - Fixed dimensions only
     // This prevents the infinite loop caused by ResizeObserver triggering
     // setHeight which triggers resize which triggers ResizeObserver again
-    
+
     // Debug: Check if anything is trying to resize
     const checkResize = () => {
       if (chartRef.current) {
@@ -461,10 +462,10 @@ const TradingViewMultiPaneChart = ({
         });
       }
     };
-    
+
     // Check every 2 seconds for debugging
     const debugInterval = setInterval(checkResize, 2000);
-    
+
     return () => {
       clearInterval(debugInterval);
       if (resizeTimeoutRef.current) {
@@ -496,7 +497,7 @@ const TradingViewMultiPaneChart = ({
           display: none !important;
         }
       `}</style>
-      
+
       {/* Y-axis titles - positioned for 5:1:1 ratio */}
       <div className="absolute -left-4 top-36 text-sm font-bold text-muted-foreground transform -rotate-90 origin-left whitespace-nowrap z-10">
         Price
@@ -507,12 +508,12 @@ const TradingViewMultiPaneChart = ({
       <div className="absolute -left-4 top-140 text-sm font-bold text-muted-foreground transform -rotate-90 origin-left whitespace-nowrap z-10">
         Volume
       </div>
-      
+
       {/* X-axis title */}
       <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 text-sm font-bold text-muted-foreground z-10">
         Date
       </div>
-      
+
       <div ref={containerRef} className="h-full w-full" />
     </div>
   );
@@ -522,7 +523,7 @@ export function StoryForeignFlow() {
   const { showToast } = useToast();
   const [selectedTicker, setSelectedTicker] = useState('BBCA');
   const [layoutMode, setLayoutMode] = useState<'split' | 'combined'>('combined');
-  
+
   // Real data states
   const [priceData, setPriceData] = useState<PriceData[]>([]);
   const [foreignFlowData, setForeignFlowData] = useState<ForeignFlowData[]>([]);
@@ -530,23 +531,15 @@ export function StoryForeignFlow() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Real stocks from API
-  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
+  // Stock selection states
   const [stockInput, setStockInput] = useState('BBCA');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  
+
   // Control menu ref and spacer height for fixed positioning
   const controlMenuRef = useRef<HTMLDivElement>(null);
   const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
-
-  // Fallback stocks if API fails
-  const FALLBACK_STOCKS = [
-    'BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF',
-    'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS',
-    'YUPI', 'ZYRX', 'ZONE'
-  ];
 
   // Convert backend foreign flow data to frontend format
   const convertBackendToFrontend = (backendData: BackendForeignFlowData[]): ForeignFlowData[] => {
@@ -560,24 +553,9 @@ export function StoryForeignFlow() {
     }));
   };
 
-  // Load available stocks on component mount
+  // Load stock list from backend on component mount
   useEffect(() => {
-    const loadAvailableStocks = async () => {
-      try {
-        // Use the same API as StoryMarketParticipant to get all available stocks
-        const response = await api.getStockList();
-        if (response.success && response.data?.stocks) {
-          setAvailableStocks(response.data.stocks);
-        } else {
-          setAvailableStocks(FALLBACK_STOCKS);
-        }
-      } catch (error) {
-        console.error('Error loading available stocks:', error);
-        setAvailableStocks(FALLBACK_STOCKS);
-      }
-    };
-
-    loadAvailableStocks();
+    loadStockList();
   }, []);
 
   // Fetch real data when selected ticker changes
@@ -590,28 +568,28 @@ export function StoryForeignFlow() {
 
       try {
         console.log('Fetching data for ticker:', selectedTicker);
-        
+
         // Fetch foreign flow data first to get the count
         const foreignFlowResponse = await api.getForeignFlowData(selectedTicker, 1000); // Get max possible
-        
+
         // Get the count of foreign flow data
-        const foreignFlowCount = foreignFlowResponse.success && foreignFlowResponse.data?.data 
-          ? foreignFlowResponse.data.data.length 
+        const foreignFlowCount = foreignFlowResponse.success && foreignFlowResponse.data?.data
+          ? foreignFlowResponse.data.data.length
           : 30; // fallback to 30 if no data
-        
+
         console.log(`Foreign Flow Data Count: ${foreignFlowCount}`);
-        
+
         // Fetch ALL stock data (no limit)
         const stockResponse = await api.getStockData(selectedTicker, undefined, undefined, 10000); // Get all possible stock data
 
         console.log('Stock Response:', stockResponse);
         console.log('Foreign Flow Response:', foreignFlowResponse);
-        
+
         // Debug: Print TOP 5 and LAST 5 stock data
         if (stockResponse.success && stockResponse.data?.data) {
           const stockDataArray = stockResponse.data.data;
           console.log(`=== STOCK DATA DEBUG - Total: ${stockDataArray.length} records ===`);
-          
+
           // TOP 5 Stock Data (from beginning)
           console.log('=== TOP 5 STOCK DATA (FROM BEGINNING) ===');
           const top5StockData = stockDataArray.slice(0, 5);
@@ -625,7 +603,7 @@ export function StoryForeignFlow() {
               Volume: item.Volume
             });
           });
-          
+
           // LAST 5 Stock Data (from end)
           console.log('=== LAST 5 STOCK DATA (FROM END) ===');
           const last5StockData = stockDataArray.slice(-5);
@@ -640,12 +618,12 @@ export function StoryForeignFlow() {
             });
           });
         }
-        
+
         // Debug: Print TOP 5 and LAST 5 foreign flow data
         if (foreignFlowResponse.success && foreignFlowResponse.data?.data) {
           const foreignFlowArray = foreignFlowResponse.data.data;
           console.log(`=== FOREIGN FLOW DATA DEBUG - Total: ${foreignFlowArray.length} records ===`);
-          
+
           // TOP 5 Foreign Flow Data (from beginning)
           console.log('=== TOP 5 FOREIGN FLOW DATA (FROM BEGINNING) ===');
           foreignFlowArray.slice(0, 5).forEach((item: any, index: number) => {
@@ -656,7 +634,7 @@ export function StoryForeignFlow() {
               NetBuyVol: item.NetBuyVol
             });
           });
-          
+
           // LAST 5 Foreign Flow Data (from end)
           console.log('=== LAST 5 FOREIGN FLOW DATA (FROM END) ===');
           foreignFlowArray.slice(-5).forEach((item: any, index: number) => {
@@ -676,7 +654,7 @@ export function StoryForeignFlow() {
           const allStockData = [...stockResponse.data.data].sort((a: any, b: any) => {
             return new Date(a.Date).getTime() - new Date(b.Date).getTime();
           });
-          
+
           // Take only the LAST foreignFlowCount records (from the end for latest data)
           sortedStockData = allStockData.slice(-foreignFlowCount);
           console.log(`Using LAST ${foreignFlowCount} stock records out of ${allStockData.length} total records`);
@@ -700,9 +678,9 @@ export function StoryForeignFlow() {
         console.log('All Unique Dates:', allDates);
         console.log('Stock Data Dates:', Array.from(stockDates).sort());
         console.log('Foreign Flow Dates:', Array.from(foreignDates).sort());
-        console.log('Stock Data Period:', sortedStockData.length > 0 ? 
+        console.log('Stock Data Period:', sortedStockData.length > 0 ?
           `${sortedStockData[0].Date} to ${sortedStockData[sortedStockData.length - 1].Date}` : 'No data');
-        console.log('Foreign Flow Period:', sortedForeignFlowData.length > 0 ? 
+        console.log('Foreign Flow Period:', sortedForeignFlowData.length > 0 ?
           `${sortedForeignFlowData[0].Date} to ${sortedForeignFlowData[sortedForeignFlowData.length - 1].Date}` : 'No data');
 
         // Filter stock data to only include common dates
@@ -722,10 +700,10 @@ export function StoryForeignFlow() {
             const flowImpact = item.NetBuyVol > 0 ? 0.02 : -0.02; // 2% impact
             const randomMovement = (Math.random() - 0.5) * 0.01; // ±0.5% random
             const totalMovement = flowImpact + randomMovement;
-            
+
             basePrice = basePrice * (1 + totalMovement);
             const volatility = basePrice * 0.01; // 1% volatility
-            
+
             return {
               Date: item.Date,
               Open: basePrice + (Math.random() - 0.5) * volatility,
@@ -771,7 +749,7 @@ export function StoryForeignFlow() {
           volume: volumeData.length,
           foreignFlow: convertedData.length
         });
-        
+
         // Debug: Print top 3 final data
         console.log('=== TOP 3 FINAL STOCK DATA ===');
         stockData.slice(0, 3).forEach((item: any, index: number) => {
@@ -784,7 +762,7 @@ export function StoryForeignFlow() {
             volume: item.volume
           });
         });
-        
+
         console.log('=== TOP 3 FINAL FOREIGN FLOW DATA ===');
         convertedData.slice(0, 3).forEach((item: any, index: number) => {
           console.log(`Final Foreign Flow ${index + 1}:`, {
@@ -821,10 +799,6 @@ export function StoryForeignFlow() {
     fetchData();
   }, [selectedTicker, showToast]);
 
-  // Filter stocks based on input
-  const filteredStocks = (availableStocks || []).filter(stock => 
-    stock.toLowerCase().includes(stockInput.toLowerCase())
-  );
 
   const handleStockSelect = (stock: string) => {
     setStockInput(stock);
@@ -838,10 +812,13 @@ export function StoryForeignFlow() {
     setShowStockSuggestions(true);
     setHighlightedStockIndex(-1);
     // Auto-select if exact match
-    if (availableStocks.includes(value.toUpperCase())) {
+    if (STOCK_LIST.includes(value.toUpperCase())) {
       setSelectedTicker(value.toUpperCase());
     }
   };
+
+  // Filter stocks using searchStocks from stockList.ts
+  const filteredStocks = searchStocks(stockInput);
 
   const clearStockInput = () => {
     setStockInput('');
@@ -970,7 +947,7 @@ export function StoryForeignFlow() {
                   <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
                     {stockInput === '' && (
                       <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                        All Stocks ({availableStocks.length > 0 ? availableStocks.length : FALLBACK_STOCKS.length} available)
+                        All Stocks ({STOCK_LIST.length} available)
                       </div>
                     )}
                     {filteredStocks.slice(0, 10).map((stock, idx) => (
@@ -995,7 +972,7 @@ export function StoryForeignFlow() {
                 )}
               </div>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium whitespace-nowrap">Layout:</label>
               <div className="flex gap-1 border border-border rounded-lg p-1 h-10">
@@ -1057,7 +1034,7 @@ export function StoryForeignFlow() {
                 <p className="text-sm text-muted-foreground">Price action, foreign flow, and volume analysis</p>
               </CardHeader>
               <CardContent>
-                <TradingViewMultiPaneChart 
+                <TradingViewMultiPaneChart
                   candlestickData={candlestickData}
                   foreignFlowData={foreignFlowChartData}
                   volumeData={volumeChartData}
@@ -1067,59 +1044,59 @@ export function StoryForeignFlow() {
           ) : (
             // Split View - Individual Charts
             <div className="space-y-4">
-            {/* Price Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle>{selectedTicker} - Price Action</CardTitle>
-                <p className="text-sm text-muted-foreground">Candlestick chart showing price movement</p>
-              </CardHeader>
-              <CardContent>
-                <IndividualChart 
-                  data={candlestickData}
-                  chartType="candlestick"
-                  height={300}
-                />
-            </CardContent>
-          </Card>
+              {/* Price Chart */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>{selectedTicker} - Price Action</CardTitle>
+                  <p className="text-sm text-muted-foreground">Candlestick chart showing price movement</p>
+                </CardHeader>
+                <CardContent>
+                  <IndividualChart
+                    data={candlestickData}
+                    chartType="candlestick"
+                    height={300}
+                  />
+                </CardContent>
+              </Card>
 
-            {/* Foreign Flow Chart */}
-          <Card>
-            <CardHeader>
-                <CardTitle>{selectedTicker} - Foreign Flow</CardTitle>
-                <p className="text-sm text-muted-foreground">Foreign investor buying and selling activity</p>
-            </CardHeader>
-            <CardContent>
-                <IndividualChart 
-                  data={foreignFlowChartData.map(d => ({
-                    time: d.time,
-                    value: d.netBuy
-                  }))}
-                  chartType="histogram"
-                  color="#3b82f6"
-                  height={200}
-                />
-            </CardContent>
-          </Card>
+              {/* Foreign Flow Chart */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>{selectedTicker} - Foreign Flow</CardTitle>
+                  <p className="text-sm text-muted-foreground">Foreign investor buying and selling activity</p>
+                </CardHeader>
+                <CardContent>
+                  <IndividualChart
+                    data={foreignFlowChartData.map(d => ({
+                      time: d.time,
+                      value: d.netBuy
+                    }))}
+                    chartType="histogram"
+                    color="#3b82f6"
+                    height={200}
+                  />
+                </CardContent>
+              </Card>
 
-            {/* Volume Chart */}
-          <Card>
-            <CardHeader>
-                <CardTitle>{selectedTicker} - Volume</CardTitle>
-                <p className="text-sm text-muted-foreground">Trading volume analysis</p>
-            </CardHeader>
-            <CardContent>
-                <IndividualChart 
-                  data={volumeChartData.map(d => ({
-                    time: d.time,
-                    value: d.volume
-                  }))}
-                  chartType="histogram"
-                  color="#8b5cf6"
-                  height={200}
-                />
-            </CardContent>
-          </Card>
-          </div>
+              {/* Volume Chart */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>{selectedTicker} - Volume</CardTitle>
+                  <p className="text-sm text-muted-foreground">Trading volume analysis</p>
+                </CardHeader>
+                <CardContent>
+                  <IndividualChart
+                    data={volumeChartData.map(d => ({
+                      time: d.time,
+                      value: d.volume
+                    }))}
+                    chartType="histogram"
+                    color="#8b5cf6"
+                    height={200}
+                  />
+                </CardContent>
+              </Card>
+            </div>
           )}
         </div>
       )}
