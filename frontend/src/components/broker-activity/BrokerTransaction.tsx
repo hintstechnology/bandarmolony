@@ -2105,6 +2105,9 @@ export function BrokerTransaction() {
     let isSyncing = false;
 
     const syncTableWidths = () => {
+      // GUARD: If showing only totals (> 7 days), skip width syncing to allow centering
+      if (selectedDates.length > 7) return;
+
       // GUARD: Prevent recursive calls
       if (isSyncing) return;
 
@@ -2634,6 +2637,9 @@ export function BrokerTransaction() {
     if (isLoading || !isDataReady) return;
 
     const syncContainerWidths = () => {
+      // GUARD: If showing only totals (> 7 days), skip width syncing to allow centering
+      if (selectedDates.length > 7) return;
+
       const valueContainer = valueTableContainerRef.current;
       const netContainer = netTableContainerRef.current;
 
@@ -3961,9 +3967,9 @@ export function BrokerTransaction() {
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
             <h3 className="font-semibold text-sm">B/S - {pivotFilter === 'Stock' ? (selectedTickers.length > 0 ? selectedTickers.join(', ') : '') : selectedBrokers.join(', ')}</h3>
           </div>
-          <div className="w-full max-w-full">
-            <div ref={valueTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[494px] overflow-y-auto border-l-2 border-r-2 border-b-2 border-white">
-              <table ref={valueTableRef} className={`min-w-[1000px] ${getFontSizeClass()} border-collapse`} style={{ borderSpacing: 0 }}>
+          <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
+            <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} overflow-x-auto max-h-[494px] overflow-y-auto border-l-2 border-r-2 border-b-2 border-white`}>
+              <table ref={valueTableRef} className={`${showOnlyTotal ? 'min-w-0' : 'min-w-[1000px]'} ${getFontSizeClass()} border-collapse`} style={{ borderSpacing: 0 }}>
                 <thead className="bg-[#3a4252]">
                   {/* Date Header Row */}
                   <tr className="border-t-2 border-white">
@@ -4490,9 +4496,9 @@ export function BrokerTransaction() {
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
             <h3 className="font-semibold text-sm">NET - {pivotFilter === 'Stock' ? (selectedTickers.length > 0 ? selectedTickers.join(', ') : '') : selectedBrokers.join(', ')}</h3>
           </div>
-          <div className="w-full max-w-full">
-            <div ref={netTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[494px] overflow-y-auto border-l-2 border-r-2 border-b-2 border-white">
-              <table ref={netTableRef} className={`min-w-[1000px] ${getFontSizeClass()} border-collapse`} style={{ borderSpacing: 0 }}>
+          <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
+            <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} overflow-x-auto max-h-[494px] overflow-y-auto border-l-2 border-r-2 border-b-2 border-white`}>
+              <table ref={netTableRef} className={`${showOnlyTotal ? 'min-w-0' : 'min-w-[1000px]'} ${getFontSizeClass()} border-collapse`} style={{ borderSpacing: 0 }}>
                 <thead className="bg-[#3a4252]">
                   {/* Date Header Row */}
                   <tr className="border-t-2 border-white">
