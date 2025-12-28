@@ -1,3 +1,4 @@
+
 import { BlobServiceClient } from '@azure/storage-blob';
 
 interface StockData {
@@ -56,12 +57,37 @@ export class WatchlistCalculator {
         .getContainerClient(this.containerName)
         .getBlobClient(blobName);
 
-      if (!(await blobClient.exists())) {
-        return [];
+      // Retry configuration
+      const MAX_RETRIES = 3;
+      const BASE_DELAY = 1000;
+      let csvContent = '';
+
+      // Retry loop for download
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          if (!(await blobClient.exists())) {
+            return [];
+          }
+
+          const downloadResponse = await blobClient.download();
+          csvContent = await this.streamToString(downloadResponse.readableStreamBody!);
+          break; // Success, exit retry loop
+        } catch (error: any) {
+          const isRetryable = error.name === 'AbortError' ||
+            error.code === 'ECONNRESET' ||
+            error.code === 'ETIMEDOUT' ||
+            (error.response && error.response.status >= 500);
+
+          if (attempt < MAX_RETRIES && isRetryable) {
+            const delay = BASE_DELAY * Math.pow(2, attempt);
+            console.warn(`⚠️ Retry ${attempt + 1}/${MAX_RETRIES} for ${ticker} due to ${error.message}. Waiting ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          throw error; // Rethrow if max retries reached or not retryable
+        }
       }
 
-      const downloadResponse = await blobClient.download();
-      const csvContent = await this.streamToString(downloadResponse.readableStreamBody!);
       const lines = csvContent.trim().split('\n');
       const headers = lines[0]?.split(',') || [];
 
@@ -78,21 +104,21 @@ export class WatchlistCalculator {
       // Parse from beginning (CSV should be sorted descending - newest first)
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i]?.trim();
-        
+
         // Skip empty lines or lines with only commas
         if (!line || line === '' || /^,+\s*$/.test(line)) {
           emptyLines++;
           continue;
         }
-        
+
         const values = line.split(',') || [];
-        
+
         // Skip if not enough columns or all values are empty
         if (values.length < headers.length || values.every(v => !v.trim())) {
           invalidLines++;
           continue;
         }
-        
+
         const row: any = {};
 
         headers.forEach((header, index) => {
@@ -158,7 +184,7 @@ export class WatchlistCalculator {
 
       // Log data quality info for debugging (only if issues found)
       if (emptyLines > 0 || invalidLines > 0 || skippedLines > 0) {
-        console.log(`📊 ${ticker}: Total lines=${lines.length-1}, Valid=${data.length}, Empty=${emptyLines}, Invalid=${invalidLines}, Skipped=${skippedLines}`);
+        console.log(`📊 ${ticker}: Total lines=${lines.length - 1}, Valid=${data.length}, Empty=${emptyLines}, Invalid=${invalidLines}, Skipped=${skippedLines}`);
       }
 
       // If we have data and it's not sorted descending, sort it
@@ -200,7 +226,7 @@ export class WatchlistCalculator {
           }
         }
       }
-      
+
       console.log(`📊 Found ${stocks.length} stock files in Azure`);
     } catch (error) {
       console.error(`❌ Error reading stocks from Azure: ${error}`);
@@ -230,12 +256,12 @@ export class WatchlistCalculator {
 
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i]?.trim();
-        
+
         // Skip empty lines or lines with only commas
         if (!line || line === '' || /^,+\s*$/.test(line)) {
           continue;
         }
-        
+
         const values = line.split(',').map(v => v.trim()) || [];
         if (values.length >= headers.length) {
           const row: any = {};
@@ -293,7 +319,7 @@ export class WatchlistCalculator {
   ): Promise<WatchlistStock[]> {
     try {
       console.log(`📊 Fetching watchlist data for ${symbols.length} stocks...`);
-      
+
       const normalizedSymbols = symbols
         .map((symbol) => symbol.trim().toUpperCase())
         .filter((symbol) => symbol.length > 0);
@@ -312,11 +338,17 @@ export class WatchlistCalculator {
         options?.emitenDetails ?? (await this.loadEmitenDetailsFromAzure());
 
       // Get watchlist stocks data
-      // Note: Batch processing is handled by watchlistSnapshotService.ts
-      // This function processes all symbols directly without internal batching
+      // Note: Batch processing is handled by watchlistSnapshotService.ts (batches of 500)
+      // We further batch internally here to limit concurrent connections to Azure (prevent hangs)
       const watchlistStocks: WatchlistStock[] = [];
-      
-      const stockPromises = normalizedSymbols.map(async (symbol) => {
+      const INTERNAL_BATCH_SIZE = 50;
+
+      for (let i = 0; i < normalizedSymbols.length; i += INTERNAL_BATCH_SIZE) {
+        const chunk = normalizedSymbols.slice(i, i + INTERNAL_BATCH_SIZE);
+        // Optional: log internal progress for large batches
+        // console.log(`    Processing internal batch ${Math.floor(i/INTERNAL_BATCH_SIZE) + 1}/${Math.ceil(normalizedSymbols.length/INTERNAL_BATCH_SIZE)}`);
+
+        const stockPromises = chunk.map(async (symbol) => {
           const stock = stockLookup.get(symbol);
           if (!stock) {
             return null;
@@ -324,7 +356,7 @@ export class WatchlistCalculator {
 
           // Load stock data
           const data = await this.loadStockDataFromAzure(stock.sector, stock.ticker);
-          
+
           if (data.length === 0) {
             return null;
           }
@@ -348,8 +380,14 @@ export class WatchlistCalculator {
           }
 
           // Get company name from emiten details
+          // Fallback to empty string if missing (as per user request: "mengosongkan... nama perusahaan")
           const emitenDetail = emitenDetails.get(symbol);
-          const companyName = emitenDetail?.CompanyName || symbol;
+          const companyName = emitenDetail?.CompanyName || '';
+
+          // Log progress for each item
+          if (latestData.Close) {
+            console.log(`  Processed: ${symbol} - Price: ${latestData.Close}`);
+          }
 
           return {
             symbol: symbol,
@@ -360,14 +398,15 @@ export class WatchlistCalculator {
             lastUpdate: latestData.Date
           };
         });
-      
-      const results = await Promise.allSettled(stockPromises);
-      
-      results.forEach((result) => {
-        if (result.status === 'fulfilled' && result.value) {
-          watchlistStocks.push(result.value);
-        }
-      });
+
+        const results = await Promise.allSettled(stockPromises);
+
+        results.forEach((result) => {
+          if (result.status === 'fulfilled' && result.value) {
+            watchlistStocks.push(result.value);
+          }
+        });
+      }
 
       console.log(`✅ Watchlist data fetched: ${watchlistStocks.length}/${symbols.length} stocks`);
       return watchlistStocks;

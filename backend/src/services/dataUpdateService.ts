@@ -1,3 +1,4 @@
+
 // dataUpdateService.ts
 // Base service with parallel processing and connection pooling
 
@@ -50,61 +51,61 @@ const MEMORY_CLEANUP_INTERVAL = 100;
 // Azure Storage Service with Connection Pooling
 class OptimizedAzureStorageService {
   private containerClient: any;
-  
+
   constructor() {
     const connectionString = process.env['AZURE_STORAGE_CONNECTION_STRING'];
     const containerName = process.env['AZURE_STORAGE_CONTAINER_NAME'] || 'stock-trading-data';
-    
+
     if (!connectionString) {
       throw new Error('AZURE_STORAGE_CONNECTION_STRING is required');
     }
-    
+
     const connectionStringParts = connectionString.split(';');
     const accountNamePart = connectionStringParts.find(part => part.startsWith('AccountName='));
     const accountKeyPart = connectionStringParts.find(part => part.startsWith('AccountKey='));
     const endpointSuffixPart = connectionStringParts.find(part => part.startsWith('EndpointSuffix='));
-    
+
     if (!accountNamePart || !accountKeyPart || !endpointSuffixPart) {
       throw new Error('Invalid connection string format - missing required parts');
     }
-    
+
     const accountName = accountNamePart.split('=')[1];
     const accountKey = accountKeyPart.split('=')[1];
     const endpointSuffix = endpointSuffixPart.split('=')[1];
-    
+
     if (!accountName || !accountKey || !endpointSuffix) {
       throw new Error('Invalid connection string format - empty values');
     }
-    
+
     const accountUrl = `https://${accountName}.blob.${endpointSuffix}`;
     const credential = new StorageSharedKeyCredential(accountName, accountKey);
-    
+
     this.containerClient = new BlobServiceClient(accountUrl, credential)
       .getContainerClient(containerName);
   }
-  
+
   async ensureContainerExists(): Promise<void> {
     await this.containerClient.createIfNotExists();
   }
-  
+
   async uploadCsvData(blobName: string, csvData: string): Promise<void> {
     const blobClient = this.containerClient.getBlockBlobClient(blobName);
     await blobClient.upload(csvData, Buffer.byteLength(csvData), {
       blobHTTPHeaders: { blobContentType: 'text/csv' }
     });
   }
-  
+
   async downloadCsvData(blobName: string): Promise<string> {
     const blobClient = this.containerClient.getBlockBlobClient(blobName);
     const downloadResponse = await blobClient.download();
     return await this.streamToString(downloadResponse.readableStreamBody!);
   }
-  
+
   async blobExists(blobName: string): Promise<boolean> {
     const blobClient = this.containerClient.getBlockBlobClient(blobName);
     return await blobClient.exists();
   }
-  
+
   async listBlobs(prefix: string): Promise<string[]> {
     const blobs: string[] = [];
     for await (const blob of this.containerClient.listBlobsFlat({ prefix })) {
@@ -112,7 +113,7 @@ class OptimizedAzureStorageService {
     }
     return blobs;
   }
-  
+
   private async streamToString(readableStream: NodeJS.ReadableStream): Promise<string> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
@@ -128,7 +129,7 @@ class OptimizedHttpClient {
   private axiosInstance: AxiosInstance;
   private requestQueue: Array<() => Promise<any>> = [];
   private activeRequests = 0;
-  
+
   constructor(baseURL: string, jwtToken: string) {
     this.axiosInstance = axios.create({
       baseURL,
@@ -144,7 +145,7 @@ class OptimizedHttpClient {
       maxContentLength: 50 * 1024 * 1024, // 50MB
       maxBodyLength: 50 * 1024 * 1024, // 50MB
     });
-    
+
     // Add request interceptor for retry logic
     this.axiosInstance.interceptors.response.use(
       (response) => response,
@@ -153,35 +154,35 @@ class OptimizedHttpClient {
         if (!config || !config.retryCount) {
           config.retryCount = 0;
         }
-        
+
         if (config.retryCount < RETRY_ATTEMPTS && this.shouldRetry(error)) {
           config.retryCount++;
           await this.delay(RETRY_DELAY * config.retryCount);
           return this.axiosInstance(config);
         }
-        
+
         return Promise.reject(error);
       }
     );
   }
-  
+
   private shouldRetry(error: any): boolean {
     // Retry on network errors, timeouts, and server errors
-    const isTimeout = error.code === 'ETIMEDOUT' || 
-                     error.code === 'ECONNABORTED' ||
-                     error.message?.includes('timeout');
+    const isTimeout = error.code === 'ETIMEDOUT' ||
+      error.code === 'ECONNABORTED' ||
+      error.message?.includes('timeout');
     const isNetworkError = error.code === 'ECONNRESET' ||
-                          error.code === 'ENOTFOUND' ||
-                          error.code === 'ECONNREFUSED';
+      error.code === 'ENOTFOUND' ||
+      error.code === 'ECONNREFUSED';
     const isServerError = error.response && error.response.status >= 500;
-    
+
     return isTimeout || isNetworkError || isServerError;
   }
-  
+
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
-  
+
   async get(url: string, params?: any): Promise<any> {
     return new Promise((resolve, reject) => {
       this.requestQueue.push(async () => {
@@ -195,15 +196,15 @@ class OptimizedHttpClient {
       this.processQueue();
     });
   }
-  
+
   private async processQueue(): Promise<void> {
     if (this.activeRequests >= MAX_CONCURRENT_REQUESTS || this.requestQueue.length === 0) {
       return;
     }
-    
+
     this.activeRequests++;
     const request = this.requestQueue.shift();
-    
+
     if (request) {
       try {
         await request();
@@ -224,41 +225,41 @@ class ParallelProcessor {
     maxConcurrency: number
   ): Promise<R[]> {
     const results: R[] = [];
-    
+
     for (let i = 0; i < items.length; i += batchSize) {
       const batch = items.slice(i, i + batchSize);
-      
+
       // Process batch with controlled concurrency
-      const batchPromises = batch.map((item, batchIndex) => 
+      const batchPromises = batch.map((item, batchIndex) =>
         processor(item, i + batchIndex)
       );
-      
+
       // Limit concurrent requests
       const batchResults = await this.limitConcurrency(batchPromises, maxConcurrency);
       results.push(...batchResults);
-      
+
       // Memory cleanup every few batches
       if (i % MEMORY_CLEANUP_INTERVAL === 0) {
         await this.cleanupMemory();
       }
     }
-    
+
     return results;
   }
-  
+
   static async limitConcurrency<T>(
     promises: Promise<T>[],
     maxConcurrency: number
   ): Promise<T[]> {
     const results: T[] = [];
-    
+
     // Process promises in batches to control concurrency
     for (let i = 0; i < promises.length; i += maxConcurrency) {
       const batch = promises.slice(i, i + maxConcurrency);
-      
+
       // Use Promise.allSettled to ensure all promises are tracked
       const batchResults = await Promise.allSettled(batch);
-      
+
       // Extract successful results and handle rejected promises
       batchResults.forEach((result) => {
         if (result.status === 'fulfilled') {
@@ -275,10 +276,10 @@ class ParallelProcessor {
         }
       });
     }
-    
+
     return results;
   }
-  
+
   private static async cleanupMemory(): Promise<void> {
     if (global.gc) {
       global.gc();
@@ -290,7 +291,7 @@ class ParallelProcessor {
 class CacheService {
   private cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
   private readonly DEFAULT_TTL = 5 * 60 * 1000; // 5 minutes
-  
+
   set(key: string, data: any, ttl: number = this.DEFAULT_TTL): void {
     this.cache.set(key, {
       data,
@@ -298,23 +299,23 @@ class CacheService {
       ttl
     });
   }
-  
+
   get(key: string): any | null {
     const item = this.cache.get(key);
     if (!item) return null;
-    
+
     if (Date.now() - item.timestamp > item.ttl) {
       this.cache.delete(key);
       return null;
     }
-    
+
     return item.data;
   }
-  
+
   clear(): void {
     this.cache.clear();
   }
-  
+
   cleanup(): void {
     const now = Date.now();
     for (const [key, item] of this.cache.entries()) {
@@ -337,14 +338,14 @@ function getTodayDate(): string {
 
 function removeDuplicates(data: any[]): any[] {
   if (data.length === 0) return data;
-  
+
   const firstRow = data[0];
   let dateColumn: string | null = null;
-  
+
   if ('Date' in firstRow) dateColumn = 'Date';
   else if ('date' in firstRow) dateColumn = 'date';
   else if ('timestamp' in firstRow) dateColumn = 'timestamp';
-  
+
   if (dateColumn) {
     const seen = new Set();
     return data.filter(row => {
@@ -366,10 +367,10 @@ function removeDuplicates(data: any[]): any[] {
 
 function convertToCsv(data: any[]): string {
   if (data.length === 0) return '';
-  
+
   const headers = Object.keys(data[0]);
   const csvRows = [headers.join(',')];
-  
+
   for (const row of data) {
     const values = headers.map(header => {
       const value = row[header];
@@ -377,33 +378,33 @@ function convertToCsv(data: any[]): string {
     });
     csvRows.push(values.join(','));
   }
-  
+
   return csvRows.join('\n');
 }
 
 async function parseCsvString(csvString: string): Promise<any[]> {
   const data: any[] = [];
   const lines = csvString.split('\n');
-  
+
   if (lines.length < 2 || !lines[0]) return [];
-  
+
   const headers = lines[0].split(',');
-  
+
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (line && line.trim()) {
       const values = line.split(',');
       const row: any = {};
-      
+
       headers.forEach((header, index) => {
         const value = values[index];
         row[header.trim()] = value ? value.trim() : '';
       });
-      
+
       data.push(row);
     }
   }
-  
+
   return data;
 }
 
@@ -440,5 +441,45 @@ export {
   BATCH_SIZE_PHASE_8,
   MAX_CONCURRENT_REQUESTS_PHASE_8,
   MAX_CONCURRENT_REQUESTS_INDEX,
-  MAX_CONCURRENT_REQUESTS
+  MAX_CONCURRENT_REQUESTS,
+  getEmitenListFromCsv,
+  getSectorFallback
 };
+
+async function getEmitenListFromCsv(azureStorage: OptimizedAzureStorageService): Promise<string[]> {
+  try {
+    const csvData = await azureStorage.downloadCsvData('csv_input/emiten_list.csv');
+    const lines = csvData.split('\n').map(l => l.trim()).filter(l => l);
+    const emitenList: string[] = [];
+
+    // Skip header
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      const parts = line.split(',');
+      if (parts.length > 0) {
+        const firstPart = parts[0];
+        if (firstPart) {
+          const code = firstPart.trim();
+          if (code && code.length === 4) {
+            emitenList.push(code);
+          }
+        }
+      }
+    }
+    return emitenList;
+  } catch (err) {
+    console.warn('⚠️ Failed to load emiten_list.csv, returning empty list');
+    return [];
+  }
+}
+
+function getSectorFallback(emiten: string, sectors: string[]): string {
+  if (!sectors || sectors.length === 0) return 'Technology';
+  const hash = emiten.split('').reduce((a, b) => {
+    a = ((a << 5) - a) + b.charCodeAt(0);
+    return a & a;
+  }, 0);
+
+  return sectors[Math.abs(hash) % sectors.length] || 'Technology';
+}

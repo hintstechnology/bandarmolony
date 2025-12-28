@@ -1,17 +1,18 @@
 // shareholdersDataUpdateService.ts
 // Shareholders data update service with parallel processing
 
-import { 
-  OptimizedAzureStorageService, 
-  OptimizedHttpClient, 
-  ParallelProcessor, 
+import {
+  OptimizedAzureStorageService,
+  OptimizedHttpClient,
+  ParallelProcessor,
   CacheService,
   getTodayDate,
   removeDuplicates,
   convertToCsv,
   parseCsvString,
   BATCH_SIZE_PHASE_1_SHAREHOLDERS,
-  MAX_CONCURRENT_REQUESTS_PHASE_1_SHAREHOLDERS
+  MAX_CONCURRENT_REQUESTS_PHASE_1_SHAREHOLDERS,
+  getEmitenListFromCsv
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
 
@@ -34,13 +35,13 @@ import { SchedulerLogService } from './schedulerLogService';
 // -------------------------------------------------
 function normalizeShareholdersData(data: any[]): any[] {
   const normalizedData: any[] = [];
-  
+
   for (const item of data) {
     // Pastikan item memiliki struktur yang benar
     if (!item || typeof item !== 'object') {
       continue;
     }
-    
+
     // Flatten PemegangSaham array untuk setiap DataDate
     if (Array.isArray(item.PemegangSaham) && item.PemegangSaham.length > 0) {
       for (const pemegang of item.PemegangSaham) {
@@ -48,7 +49,7 @@ function normalizeShareholdersData(data: any[]): any[] {
         if (!pemegang || typeof pemegang !== 'object') {
           continue;
         }
-        
+
         const row: any = {
           EmitenCode: item.EmitenCode || '',
           DataDate: item.DataDate || '',
@@ -78,7 +79,7 @@ function normalizeShareholdersData(data: any[]): any[] {
       normalizedData.push(row);
     }
   }
-  
+
   return normalizedData;
 }
 
@@ -100,7 +101,7 @@ async function processShareholdersEmiten(
     if (cachedData) {
       return { success: true, skipped: false };
     }
-    
+
     // Progress logging
     if ((index + 1) % 50 === 0 || index === 0) {
       const percentage = Math.round(((index + 1) / total) * 100);
@@ -112,25 +113,25 @@ async function processShareholdersEmiten(
         });
       }
     }
-    
+
     const azureBlobName = `shareholders/${emiten}.csv`;
-    
+
     // Check if data already exists for today - sesuai file asli
     let existingData: any[] = [];
     if (await azureStorage.blobExists(azureBlobName)) {
       const existingCsvData = await azureStorage.downloadCsvData(azureBlobName);
       existingData = await parseCsvString(existingCsvData);
     }
-    
+
     // Cek apakah data untuk tanggal hari ini sudah ada - sesuai file asli
-    const todayDataExists = existingData.some(row => 
+    const todayDataExists = existingData.some(row =>
       row.DataDate === todayDate || row.date === todayDate || row.Date === todayDate
     );
-    
+
     if (todayDataExists) {
       return { success: true, skipped: true };
     }
-    
+
     // Fetch data from API - sesuai file asli (hanya secCode)
     const params = {
       secCode: emiten,
@@ -162,7 +163,7 @@ async function processShareholdersEmiten(
         // Handle 400 Bad Request - emiten may not exist or be invalid in TICMI API
         if (status === 400) {
           console.warn(`⚠️ Emiten ${emiten} returned 400 Bad Request - may not be available in TICMI API. Body: ${bodySnippet}`);
-          
+
           // Save placeholder data to indicate emiten is not available
           const placeholderData = [{
             EmitenCode: emiten,
@@ -175,7 +176,7 @@ async function processShareholdersEmiten(
             PemegangSaham_Persentase: '',
             PemegangSaham_JmlSaham: ''
           }];
-          
+
           const combinedData = [...placeholderData, ...existingData];
           // Sort descending: newest first (consistent with main data processing)
           combinedData.sort((a, b) => {
@@ -185,38 +186,38 @@ async function processShareholdersEmiten(
             const timeB = new Date(dateB).getTime();
             return timeB - timeA; // Descending: newest first
           });
-          
+
           const deduplicatedData = removeDuplicates(combinedData);
           const csvData = convertToCsv(deduplicatedData);
-          
+
           await azureStorage.uploadCsvData(azureBlobName, csvData);
-          
+
           // Cache the result
           cache.set(cacheKey, { processed: true });
-          
+
           return { success: true, skipped: true };
         }
       }
-      
+
       // Re-throw other errors (akan ditangkap di catch luar)
       throw apiError;
     }
-    
+
     // Jika respons kosong - sesuai file asli
     if (!response.data) {
       return { success: true, skipped: true };
     }
 
     const payload = response.data;
-    
+
     // Pastikan payload memiliki struktur yang benar
     if (!payload || typeof payload !== 'object') {
       return { success: true, skipped: true };
     }
-    
+
     // Ambil data dari payload.data (sesuai struktur TICMI API)
     const data = payload.data;
-    
+
     // Normalisasi JSON menjadi array sesuai dengan file asli
     let normalizedData: any[] = [];
     if (Array.isArray(data) && data.length > 0) {
@@ -226,15 +227,15 @@ async function processShareholdersEmiten(
     } else {
       return { success: true, skipped: true };
     }
-    
+
     // Cek apakah ada data yang berhasil dinormalisasi
     if (normalizedData.length === 0) {
       return { success: true, skipped: true };
     }
-    
+
     // Gabungkan data baru dengan data existing
     const combinedData = [...normalizedData, ...existingData];
-    
+
     // Sort descending: newest first (consistent with holding data processing)
     combinedData.sort((a, b) => {
       const dateA = a.DataDate || a.date || a.Date || '';
@@ -244,16 +245,16 @@ async function processShareholdersEmiten(
       const timeB = new Date(dateB).getTime();
       return timeB - timeA; // Descending: newest first
     });
-    
+
     // Hapus duplikat berdasarkan kombinasi unik - sesuai file asli
     const deduplicatedData = removeDuplicates(combinedData);
     const csvData = convertToCsv(deduplicatedData);
-    
+
     await azureStorage.uploadCsvData(azureBlobName, csvData);
-    
+
     // Cache the result
     cache.set(cacheKey, { processed: true });
-    
+
     return { success: true, skipped: false };
 
   } catch (error: any) {
@@ -271,7 +272,7 @@ export async function updateShareholdersData(logId?: string | null, triggeredBy?
   // if (dayOfWeek === 0 || dayOfWeek === 6) {
   //   return;
   // }
-  
+
   // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
   let finalLogId = logId;
   if (!finalLogId) {
@@ -290,18 +291,16 @@ export async function updateShareholdersData(logId?: string | null, triggeredBy?
 
     finalLogId = logEntry.id!;
   }
-  
+
   try {
     console.log('🚀 Shareholders scheduler started - Optimized daily shareholders data update');
-    
+
     const azureStorage = new OptimizedAzureStorageService();
     await azureStorage.ensureContainerExists();
 
     // Get list of emitens from CSV input
-    const emitensCsvData = await azureStorage.downloadCsvData('csv_input/emiten_list.csv');
-    const emitenList = emitensCsvData.split('\n')
-      .map(line => line.trim())
-      .filter(line => line && line.length > 0);
+    // Get list of emitens from CSV input using shared helper
+    const emitenList = await getEmitenListFromCsv(azureStorage);
 
     console.log(`ℹ️ Found ${emitenList.length} emitens to update`);
 
