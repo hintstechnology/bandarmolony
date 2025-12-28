@@ -1,10 +1,10 @@
 // stockDataUpdateService.ts
 // Stock data update service with parallel processing
 
-import { 
-  OptimizedAzureStorageService, 
-  OptimizedHttpClient, 
-  ParallelProcessor, 
+import {
+  OptimizedAzureStorageService,
+  OptimizedHttpClient,
+  ParallelProcessor,
   CacheService,
   getTodayDate,
   parseCsvString,
@@ -25,36 +25,46 @@ function getSectorForEmiten(emiten: string): string {
       return sector;
     }
   }
-  
-  // If not found, use default fallback
-  return 'Financials'; // Default fallback
+
+  // If not found, distribute based on hash (same logic as stock.ts)
+  const sectors = Object.keys(SECTOR_MAPPING);
+  if (sectors.length === 0) {
+    return 'Technology'; // Default fallback
+  }
+
+  const hash = emiten.split('').reduce((a, b) => {
+    a = ((a << 5) - a) + b.charCodeAt(0);
+    return a & a;
+  }, 0);
+
+  return sectors[Math.abs(hash) % sectors.length] || 'Technology';
 }
 
 async function buildSectorMappingFromCsv(azureStorage: OptimizedAzureStorageService): Promise<void> {
   console.log('🔍 Building sector mapping from csv_input/sector_mapping.csv...');
-  
+
   try {
     // Load sector mapping from CSV
     const sectorMappingCsvData = await azureStorage.downloadCsvData('csv_input/sector_mapping.csv');
     const sectorMappingLines = sectorMappingCsvData.split('\n')
       .map(line => line.trim())
       .filter(line => line && line.length > 0);
-    
+
     // Clear existing mapping
     Object.keys(SECTOR_MAPPING).forEach(sector => {
       SECTOR_MAPPING[sector] = [];
     });
-    
+
     // Parse CSV data (skip header)
     for (let i = 1; i < sectorMappingLines.length; i++) {
       const line = sectorMappingLines[i];
       if (!line) continue;
-      
+
       const values = line.split(',');
       if (values.length >= 2) {
         const sector = values[0]?.trim() || '';
         const emiten = values[1]?.trim() || '';
-        
+
         if (sector && emiten) {
           if (!SECTOR_MAPPING[sector]) {
             SECTOR_MAPPING[sector] = [];
@@ -63,23 +73,23 @@ async function buildSectorMappingFromCsv(azureStorage: OptimizedAzureStorageServ
         }
       }
     }
-    
+
     console.log('📊 Sector mapping built successfully from CSV');
     console.log(`📊 Found ${Object.keys(SECTOR_MAPPING).length} sectors with total ${Object.values(SECTOR_MAPPING).flat().length} emitens`);
-    
+
     // Log sector breakdown
     Object.entries(SECTOR_MAPPING).forEach(([sector, emitens]) => {
       console.log(`📊 ${sector}: ${emitens.length} emitens`);
     });
-    
+
   } catch (error) {
     console.warn('⚠️ Could not build sector mapping from CSV:', error);
     console.log('⚠️ Using default sector mapping');
-    
+
     // Initialize with default sectors
     const defaultSectors = [
       'Basic Materials',
-      'Consumer Cyclicals', 
+      'Consumer Cyclicals',
       'Consumer Non-Cyclicals',
       'Energy',
       'Financials',
@@ -90,10 +100,48 @@ async function buildSectorMappingFromCsv(azureStorage: OptimizedAzureStorageServ
       'Technology',
       'Transportation & Logistic'
     ];
-    
+
     defaultSectors.forEach(sector => {
       SECTOR_MAPPING[sector] = [];
     });
+  }
+}
+
+// Get list of emitens from csv_input/emiten_list.csv
+async function getEmitenListFromCsv(azureStorage: OptimizedAzureStorageService): Promise<string[]> {
+  console.log('🔍 Getting emiten list from csv_input/emiten_list.csv...');
+
+  try {
+    if (!await azureStorage.blobExists('csv_input/emiten_list.csv')) {
+      console.warn('⚠️ csv_input/emiten_list.csv not found');
+      return [];
+    }
+
+    const csvData = await azureStorage.downloadCsvData('csv_input/emiten_list.csv');
+    const lines = csvData.split('\n')
+      .map(line => line.trim())
+      .filter(line => line && line.length > 0);
+
+    // Skip header and extract codes (assuming code is first column)
+    const emitenList: string[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      const parts = line.split(',');
+      if (parts.length > 0) {
+        const code = parts[0]?.trim();
+        if (code && code.length === 4) {
+          emitenList.push(code);
+        }
+      }
+    }
+
+    console.log(`📊 Found ${emitenList.length} emitens from emiten_list.csv`);
+    return emitenList;
+
+  } catch (error) {
+    console.error('❌ Error reading emiten_list.csv:', error);
+    return [];
   }
 }
 
@@ -116,7 +164,7 @@ async function processEmiten(
     if (cachedData) {
       return { success: true, skipped: false };
     }
-    
+
     // Progress logging
     if ((index + 1) % 50 === 0 || index === 0) {
       const percentage = Math.round(((index + 1) / total) * 100);
@@ -128,28 +176,28 @@ async function processEmiten(
         });
       }
     }
-    
+
     const sector = getSectorForEmiten(emiten);
     const azureBlobName = `stock/${sector}/${emiten}.csv`;
-    
+
     // Calculate 7 days ago date
     const sevenDaysAgo = new Date(todayDate);
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const sevenDaysAgoDate = sevenDaysAgo.toISOString().split('T')[0] || '';
-    
+
     // Validate dates
     if (!sevenDaysAgoDate || !todayDate) {
       console.error(`❌ Stock ERROR - ${emiten} - Invalid date calculation`);
       return { success: false, skipped: false, error: 'Invalid date calculation' };
     }
-    
+
     // Check if data already exists
     let existingData: any[] = [];
     if (await azureStorage.blobExists(azureBlobName)) {
       const existingCsvData = await azureStorage.downloadCsvData(azureBlobName);
       existingData = await parseCsvString(existingCsvData);
     }
-    
+
     // Generate all dates in the past 7 days range
     const requiredDates: string[] = [];
     for (let d = new Date(sevenDaysAgoDate); d <= new Date(todayDate); d.setDate(d.getDate() + 1)) {
@@ -158,13 +206,13 @@ async function processEmiten(
         requiredDates.push(dateStr);
       }
     }
-    
+
     // Check which dates are missing
     const existingDates = new Set(
       existingData.map(row => {
         const rowDate = row.date || row.tanggal || row.Date || '';
         if (!rowDate) return '';
-        
+
         // Try different date formats
         let rowDateObj: Date;
         if (rowDate.includes('/')) {
@@ -179,18 +227,18 @@ async function processEmiten(
         } else {
           rowDateObj = new Date(rowDate);
         }
-        
+
         return isNaN(rowDateObj.getTime()) ? '' : rowDateObj.toISOString().split('T')[0];
       }).filter(d => d)
     );
-    
+
     const missingDates = requiredDates.filter(date => !existingDates.has(date));
-    
+
     // If all dates exist, skip
     if (missingDates.length === 0) {
       return { success: true, skipped: true };
     }
-    
+
     // Fetch data from API for the date range (7 days)
     const params = {
       secCode: emiten,
@@ -200,7 +248,7 @@ async function processEmiten(
     };
 
     const response = await httpClient.get(baseUrl, params);
-    
+
     if (!response.data || response.data === null) {
       // Jika API return null/empty, jangan ubah data existing sama sekali
       // Return error atau skip, jangan upload placeholder yang bisa mempengaruhi existing data
@@ -220,13 +268,13 @@ async function processEmiten(
     } else {
       return { success: true, skipped: true };
     }
-    
+
     // Filter: Hanya ambil data untuk tanggal yang belum ada (missing dates)
     const missingDatesSet = new Set(missingDates);
     const newDataOnly = normalizedData.filter(row => {
       const rowDate = row.date || row.tanggal || row.Date || '';
       if (!rowDate) return false;
-      
+
       // Normalize date format to YYYY-MM-DD for comparison
       let rowDateNormalized: string = '';
       if (rowDate.includes('/')) {
@@ -257,17 +305,17 @@ async function processEmiten(
           rowDateNormalized = isoString ? isoString.split('T')[0] || '' : '';
         }
       }
-      
+
       // Hanya include jika tanggal ini ada di missing dates
       return rowDateNormalized && missingDatesSet.has(rowDateNormalized);
     });
-    
+
     // Jika tidak ada data baru setelah filter, skip update (preserve existing)
     if (newDataOnly.length === 0) {
       cache.set(cacheKey, { processed: true });
       return { success: true, skipped: true };
     }
-    
+
     // Gabungkan data baru dengan data existing, sort berdasarkan tanggal (terbaru di atas),
     // lalu hilangkan duplikat berdasarkan kolom tanggal.
     const combinedData = [...newDataOnly, ...existingData];
@@ -284,25 +332,25 @@ async function processEmiten(
     const csvData = convertToCsv(deduplicatedData);
 
     await azureStorage.uploadCsvData(azureBlobName, csvData);
-    
+
     // Cache the result
     cache.set(cacheKey, { processed: true });
-    
+
     return { success: true, skipped: false };
 
   } catch (error: any) {
     // Handle timeout errors gracefully - log but don't crash
     const errorMessage = error.message || 'Unknown error';
-    const isTimeout = error.code === 'ETIMEDOUT' || 
-                     error.code === 'ECONNABORTED' ||
-                     errorMessage.includes('timeout');
-    
+    const isTimeout = error.code === 'ETIMEDOUT' ||
+      error.code === 'ECONNABORTED' ||
+      errorMessage.includes('timeout');
+
     if (isTimeout) {
       console.warn(`⚠️ Stock ERROR - ${emiten} - Timeout: ${errorMessage}`);
     } else {
       console.error(`❌ Stock ERROR - ${emiten} - ${errorMessage}`);
     }
-    
+
     // Return error result - don't throw to prevent crash
     return { success: false, skipped: false, error: errorMessage };
   }
@@ -313,12 +361,12 @@ export async function updateStockData(logId?: string | null, triggeredBy?: strin
   // Skip if weekend
   const today = new Date();
   const dayOfWeek = today.getDay();
-  
-  if (dayOfWeek === 0 || dayOfWeek === 6) {
+
+  if ((dayOfWeek === 0 || dayOfWeek === 6) && triggeredBy !== 'manual_force') {
     console.log('📅 Weekend detected - skipping Stock Data update (no market data available)');
     return;
   }
-  
+
   // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
   let finalLogId = logId;
   if (!finalLogId) {
@@ -337,10 +385,10 @@ export async function updateStockData(logId?: string | null, triggeredBy?: strin
 
     finalLogId = logEntry.id!;
   }
-  
+
   try {
     console.log('🚀 Stock scheduler started - Optimized daily stock data update');
-    
+
     const azureStorage = new OptimizedAzureStorageService();
     await azureStorage.ensureContainerExists();
 
@@ -348,9 +396,18 @@ export async function updateStockData(logId?: string | null, triggeredBy?: strin
     console.log('ℹ️ Sector mapping built from CSV');
 
     // Get list of emitens from sector mapping (all emitens from all sectors)
-    const emitenList = Object.values(SECTOR_MAPPING).flat();
-    
-    console.log(`ℹ️ Found ${emitenList.length} emitens from sector mapping`);
+    const sectorEmitens = Object.values(SECTOR_MAPPING).flat();
+
+    // Get list of emitens from emiten_list.csv
+    const csvEmitens = await getEmitenListFromCsv(azureStorage);
+
+    // Merge and deduplicate
+    const uniqueEmitens = new Set([...sectorEmitens, ...csvEmitens]);
+    const emitenList = Array.from(uniqueEmitens).sort();
+
+    console.log(`ℹ️ Found ${sectorEmitens.length} emitens from sector mapping`);
+    console.log(`ℹ️ Found ${csvEmitens.length} emitens from emiten_list.csv`);
+    console.log(`ℹ️ Total unique emitens to process: ${emitenList.length}`);
 
     const jwtToken = process.env['TICMI_JWT_TOKEN'] || '';
     const baseUrl = `${process.env['TICMI_API_BASE_URL'] || ''}/dp/eq/`;
@@ -364,15 +421,15 @@ export async function updateStockData(logId?: string | null, triggeredBy?: strin
 
     // Process emitens in parallel batches with memory management
     const results: Array<{ success: boolean; skipped: boolean; error?: string }> = [];
-    const BATCH_SIZE = BATCH_SIZE_PHASE_1_STOCK; 
-    
+    const BATCH_SIZE = BATCH_SIZE_PHASE_1_STOCK;
+
     for (let i = 0; i < emitenList.length; i += BATCH_SIZE) {
       const batch = emitenList.slice(i, i + BATCH_SIZE);
       const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
       const totalBatches = Math.ceil(emitenList.length / BATCH_SIZE);
-      
+
       console.log(`📦 Processing batch ${batchNumber}/${totalBatches} (${batch.length} stocks)...`);
-      
+
       // Memory check before batch
       if (global.gc) {
         const memBefore = process.memoryUsage();
@@ -383,7 +440,7 @@ export async function updateStockData(logId?: string | null, triggeredBy?: strin
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
-      
+
       // Process batch
       const batchResults = await ParallelProcessor.processInBatches(
         batch,
@@ -403,9 +460,9 @@ export async function updateStockData(logId?: string | null, triggeredBy?: strin
         BATCH_SIZE,
         MAX_CONCURRENT_REQUESTS_PHASE_1_STOCK
       );
-      
+
       results.push(...batchResults);
-      
+
       // Memory cleanup after batch
       if (global.gc) {
         global.gc();
@@ -413,7 +470,7 @@ export async function updateStockData(logId?: string | null, triggeredBy?: strin
         const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
         console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
       }
-      
+
       // Small delay between batches for event loop breathing room
       if (i + BATCH_SIZE < emitenList.length) {
         await new Promise(resolve => setTimeout(resolve, 100));

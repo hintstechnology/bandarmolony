@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Search, Plus } from 'lucide-react';
+import { STOCK_LIST, loadStockList } from '../../data/stockList';
 // @ts-ignore
 import { getImageUrl } from '../../utils/imageMapping';
 import { api } from '../../services/api';
@@ -420,18 +421,13 @@ export function AstrologyLunarCalendar() {
   const menuContainerRef = useRef<HTMLDivElement>(null);
   const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
 
-  // Load available stocks from Azure
+  // Load available stocks from stockList.ts
   useEffect(() => {
     const loadStocks = async () => {
       try {
         setLoading(true);
-        const result = await api.getStockList();
-        if (result.success && result.data?.stocks) {
-          const stockList = result.data.stocks;
-          setAvailableStocks(stockList);
-        } else {
-          setError('Failed to load stock list');
-        }
+        await loadStockList();
+        setAvailableStocks(STOCK_LIST);
       } catch (err) {
         console.error('Error loading stocks:', err);
         setError('Failed to load stock list');
