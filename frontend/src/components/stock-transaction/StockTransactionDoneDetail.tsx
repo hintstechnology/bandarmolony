@@ -2026,8 +2026,8 @@ export function StockTransactionDoneDetail() {
               setIsPivotBuilderOpen(!isPivotBuilderOpen);
             }}
             className={`h-9 min-h-[36px] max-h-[36px] px-4 rounded-md transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto box-border leading-none ${isPivotBuilderOpen
-                ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                : 'bg-secondary text-secondary-foreground hover:bg-secondary/90'
+              ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+              : 'bg-secondary text-secondary-foreground hover:bg-secondary/90'
               }`}
             style={{ height: '36px' }}
           >
@@ -2215,8 +2215,8 @@ export function StockTransactionDoneDetail() {
                       setDraggedIndex(null);
                     }}
                     className={`w-full border border-[#3a4252] rounded-lg p-1.5 bg-[#1a1f30] transition-colors ${dropZoneHighlight === 'available'
-                        ? 'border-primary bg-primary/10'
-                        : ''
+                      ? 'border-primary bg-primary/10'
+                      : ''
                       }`}
                   >
                     <div className="text-xs font-semibold text-foreground mb-1">Available Fields</div>
@@ -2283,8 +2283,8 @@ export function StockTransactionDoneDetail() {
                         setDraggedIndex(null);
                       }}
                       className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${dropZoneHighlight === 'rows'
-                          ? 'border-primary bg-primary/10'
-                          : 'border-[#3a4252]'
+                        ? 'border-primary bg-primary/10'
+                        : 'border-[#3a4252]'
                         }`}
                     >
                       <div className="flex items-center gap-1.5 mb-1">
@@ -2399,8 +2399,8 @@ export function StockTransactionDoneDetail() {
                         setDraggedIndex(null);
                       }}
                       className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${dropZoneHighlight === 'columns'
-                          ? 'border-primary bg-primary/10'
-                          : 'border-[#3a4252]'
+                        ? 'border-primary bg-primary/10'
+                        : 'border-[#3a4252]'
                         }`}
                     >
                       <div className="flex items-center gap-1.5 mb-1">
@@ -2543,8 +2543,8 @@ export function StockTransactionDoneDetail() {
                         setDraggedIndex(null);
                       }}
                       className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${dropZoneHighlight === 'filters'
-                          ? 'border-primary bg-primary/10'
-                          : 'border-[#3a4252]'
+                        ? 'border-primary bg-primary/10'
+                        : 'border-[#3a4252]'
                         }`}
                     >
                       <div className="flex items-center gap-1.5 mb-1">

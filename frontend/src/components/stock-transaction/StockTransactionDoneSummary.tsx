@@ -122,24 +122,23 @@ const calculateTotals = (data: PriceData[]) => {
   }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
 };
 
-// Helper function to get all unique prices across all dates (no sorting, preserve CSV order)
-// Returns prices in the order they appear in CSV (first date's order)
+// Helper function to get all unique prices across all dates (sorted from highest to lowest)
+// Returns prices sorted in descending order
 const getAllUniquePrices = (_stock: string, dates: string[], stockPriceDataByDate: { [date: string]: PriceData[] }): number[] => {
   const priceSet = new Set<number>();
-  const priceOrder: number[] = []; // Preserve order from CSV
 
-  // Collect prices from all dates, preserving order from first date
+  // Collect all unique prices from all dates
   dates.forEach(date => {
     const data = stockPriceDataByDate[date] || [];
     data.forEach(item => {
-      if (item.price && !priceSet.has(item.price)) {
+      if (item.price) {
         priceSet.add(item.price);
-        priceOrder.push(item.price);
       }
     });
   });
 
-  return priceOrder; // Return in CSV order, no sorting
+  // Convert to array and sort from highest to lowest
+  return Array.from(priceSet).sort((a, b) => b - a);
 };
 
 // Helper function to get data for specific price and date
