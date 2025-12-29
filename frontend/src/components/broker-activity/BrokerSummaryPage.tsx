@@ -2169,7 +2169,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
               <h3 className="font-semibold text-sm">VALUE - {displayedTickers.map(t => formatStockDisplayName(t)).join(', ')} - {getMarketLabel(displayedMarket)}</h3>
             </div>
             <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
-              <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '470px' }}>
+              <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '460px' }}>
                 <table ref={valueTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : 'auto'), width: summaryByDate.size === 0 ? '100%' : undefined }}>
                   <thead className="bg-[#3a4252] sticky top-0 z-10">
                     <tr className="border-t-2 border-white">
@@ -2408,7 +2408,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
               <h3 className="font-semibold text-sm">NET - {displayedTickers.map(t => formatStockDisplayName(t)).join(', ')} - {getMarketLabel(displayedMarket)}</h3>
             </div>
             <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
-              <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '510px' }}>
+              <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '520px' }}>
                 <table ref={netTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : 'auto'), width: summaryByDate.size === 0 ? '100%' : undefined }}>
                   <thead className="bg-[#3a4252] sticky top-0 z-10">
                     <tr className="border-t-2 border-white">
