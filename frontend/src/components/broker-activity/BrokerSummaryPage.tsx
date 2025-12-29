@@ -2877,10 +2877,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                       {/* Per-date headers (only shown when not showOnlyTotal) */}
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
                         <React.Fragment key={`summary-header-${date}`}>
-                          {/* Spacer columns for broker codes */}
-                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} colSpan={5}></th>
+                          {/* Spacer for BY column */}
+                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}></th>
+                          {/* Spacer for BLot, BVal, BAvg */}
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white" colSpan={3}></th>
 
-                          {/* Summary Headers - 4 columns matching Total table */}
+                          {/* Summary Headers - 4 columns centered */}
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252]">#</th>
                           <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TVal</th>
                           <th className="text-center py-[1px] px-[5.4px] font-bold text-white">FNVal</th>
                           <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TLot</th>
@@ -2889,7 +2892,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                       ))}
 
                       {/* Total column headers */}
-                      <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={5}></th>
+                      <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}></th>
+                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white" colSpan={3}></th>
+                      <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252]">#</th>
                       <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TVal</th>
                       <th className="text-center py-[1px] px-[4.5px] font-bold text-white">FNVal</th>
                       <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TLot</th>
@@ -2914,10 +2919,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                           // Filter by F/D
                           if (!brokerFDScreen(item.broker)) return;
 
-                          const buyVal = Number(item.buyValue) || 0;
-                          const sellVal = Number(item.sellValue) || 0;
-                          const buyVol = Number(item.buyVol) || 0;
-                          const sellVol = Number(item.sellVol) || 0;
+                          // Use same fields as Total table
+                          const buyVal = Number(item.buyerValue) || 0;
+                          const sellVal = Number(item.sellerValue) || 0;
+                          const buyVol = Number(item.buyerVol) || 0;
+                          const sellVol = Number(item.sellerVol) || 0;
 
                           // Buy side totals
                           dateBuyTotalValue += buyVal;
@@ -2944,10 +2950,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
 
                         return (
                           <React.Fragment key={`summary-${date}`}>
-                            {/* Spacer columns for broker codes */}
-                            <td className={`text-center py-[2px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} colSpan={5}></td>
+                            {/* Spacer for BY column */}
+                            <td className={`text-center py-[2px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}></td>
+                            {/* Spacer for BLot, BVal, BAvg */}
+                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white" colSpan={3}></td>
 
-                            {/* Summary Data - 4 columns matching Total table */}
+                            {/* Summary Data - 4 columns centered */}
+                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white bg-[#3a4252]"></td>
                             <td className="text-center py-[2px] px-[5.4px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(totalValue)}</td>
                             <td className={`text-center py-[2px] px-[5.4px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(foreignNetValue)}</td>
                             <td className="text-center py-[2px] px-[5.4px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalLot)}</td>
@@ -2972,15 +2981,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                             // Filter by F/D
                             if (!brokerFDScreen(item.broker)) return;
 
-                            grandBuyTotalValue += Number(item.buyValue) || 0;
-                            grandBuyTotalLotShares += Number(item.buyVol) || 0;
-                            grandSellTotalValue += Number(item.sellValue) || 0;
-                            grandSellTotalLotShares += Number(item.sellVol) || 0;
+                            // Use same fields as Total table
+                            grandBuyTotalValue += Number(item.buyerValue) || 0;
+                            grandBuyTotalLotShares += Number(item.buyerVol) || 0;
+                            grandSellTotalValue += Number(item.sellerValue) || 0;
+                            grandSellTotalLotShares += Number(item.sellerVol) || 0;
 
                             const brokerCode = (item.broker || '').toUpperCase();
                             if (brokerCode && FOREIGN_BROKERS.includes(brokerCode)) {
-                              grandBuyForeignValue += Number(item.buyValue) || 0;
-                              grandSellForeignValue += Number(item.sellValue) || 0;
+                              grandBuyForeignValue += Number(item.buyerValue) || 0;
+                              grandSellForeignValue += Number(item.sellerValue) || 0;
                             }
                           });
                         });
@@ -2995,7 +3005,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
 
                         return (
                           <>
-                            <td className={`text-center py-[2px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={5}></td>
+                            <td className={`text-center py-[2px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}></td>
+                            <td className="text-center py-[2px] px-[4.5px] font-bold text-white" colSpan={3}></td>
+                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white bg-[#3a4252]"></td>
                             <td className="text-center py-[2px] px-[4.5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(grandTotalValue)}</td>
                             <td className={`text-center py-[2px] px-[4.5px] font-bold ${grandForeignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(grandForeignNetValue)}</td>
                             <td className="text-center py-[2px] px-[4.5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(grandTotalLot)}</td>
