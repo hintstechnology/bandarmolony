@@ -2895,7 +2895,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                     </tr>
 
                     {/* Summary Data Row */}
-                    <tr className="bg-background">
+                    <tr className="bg-[#0a0f20]">
                       {/* Per-date summary columns (only shown when not showOnlyTotal) */}
                       {!showOnlyTotal && availableDates.map((date, dateIndex) => {
                         // Calculate totals for this specific date using same logic as Total table
@@ -3012,7 +3012,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
             </div>
           </div>
         </div>
-        {/* Total Table - Per Date Totals with 8 columns (Buy and Sell separate) */}
+
         {(() => {
           // Calculate totals per date - separate Buy and Sell
           const totalsByDate = new Map<string, {
@@ -3092,7 +3092,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
           // Use availableDates when data exists (to show only dates with data)
           const datesForHeader = summaryByDate.size === 0 ? selectedDates : availableDates;
 
-          return (
+          if (true) return null; (
             <div className="w-full max-w-full mt-2">
               <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
                 <div ref={totalTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto'} border-l-2 border-r-2 border-b-2 border-white`}>
@@ -3156,7 +3156,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                           );
                         })()}
                       </tr>
-                    </thead>
+                    </thead >
                     <tbody className="text-[12px]">
                       <tr className="bg-[#0f172a] border-b-2 border-white">
                         {!showOnlyTotal && availableDates.map((date, dateIndex) => {
@@ -3230,13 +3230,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                         })()}
                       </tr>
                     </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+                  </table >
+                </div >
+              </div >
+            </div >
           );
         })()}
-      </div>
+      </div >
     );
   };
 
