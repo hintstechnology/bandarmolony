@@ -2882,13 +2882,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
             // Buy side
             buyTotalValue: number;
             buyForeignValue: number;
-            buyTotalLot: number;
-            buyAvgPrice: number;
+            buyTotalShares: number;
             // Sell side
             sellTotalValue: number;
             sellForeignValue: number;
-            sellTotalLot: number;
-            sellAvgPrice: number;
+            sellTotalShares: number;
           }>();
 
           // Grand totals across all dates - separate Buy and Sell
@@ -2932,20 +2930,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
               }
             });
 
-            const dateBuyTotalLot = dateBuyTotalLotShares / 100;
-            const dateSellTotalLot = dateSellTotalLotShares / 100;
-            const dateBuyAvgPrice = (dateBuyTotalLotShares > 0 && dateBuyTotalValue > 0) ? dateBuyTotalValue / dateBuyTotalLotShares : 0;
-            const dateSellAvgPrice = (dateSellTotalLotShares > 0 && dateSellTotalValue > 0) ? dateSellTotalValue / dateSellTotalLotShares : 0;
-
             totalsByDate.set(date, {
               buyTotalValue: dateBuyTotalValue,
               buyForeignValue: dateBuyForeignValue,
-              buyTotalLot: dateBuyTotalLot,
-              buyAvgPrice: dateBuyAvgPrice,
+              buyTotalShares: dateBuyTotalLotShares,
               sellTotalValue: dateSellTotalValue,
               sellForeignValue: dateSellForeignValue,
-              sellTotalLot: dateSellTotalLot,
-              sellAvgPrice: dateSellAvgPrice
+              sellTotalShares: dateSellTotalLotShares
             });
 
             grandBuyTotalValue += dateBuyTotalValue;
@@ -2956,11 +2947,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
             grandSellForeignValue += dateSellForeignValue;
           });
 
-          // Calculate grand totals
-          const grandBuyTotalLot = grandBuyTotalLotShares / 100;
-          const grandSellTotalLot = grandSellTotalLotShares / 100;
-          const grandBuyAvgPrice = (grandBuyTotalLotShares > 0 && grandBuyTotalValue > 0) ? grandBuyTotalValue / grandBuyTotalLotShares : 0;
-          const grandSellAvgPrice = (grandSellTotalLotShares > 0 && grandSellTotalValue > 0) ? grandSellTotalValue / grandSellTotalLotShares : 0;
+          // Grand totals across all dates
+          const grandBuyTotalShares = grandBuyTotalLotShares;
+          const grandSellTotalShares = grandSellTotalLotShares;
 
           // Use selectedDates for header when data is empty (to show table structure)
           // Use availableDates when data exists (to show only dates with data)
@@ -2979,7 +2968,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                             <th
                               key={date}
                               className={`text-center py-[1px] px-[7.4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`}
-                              colSpan={8}
+                              colSpan={4}
                               style={{
                                 textAlign: 'center',
                                 width: dateWidth ? `${dateWidth}px` : undefined,
@@ -2993,7 +2982,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                         })}
                         <th
                           className={`text-center py-[1px] px-[3.8px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}
-                          colSpan={8}
+                          colSpan={4}
                           style={{
                             textAlign: 'center',
                             width: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined,
@@ -3051,10 +3040,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
 
                           // Calculate consolidated values
                           const totalValue = dateTotals.buyTotalValue + dateTotals.sellTotalValue;
-                          const totalLotShares = dateTotals.buyTotalLot + dateTotals.sellTotalLot;
-                          const totalLot = totalLotShares / 100; // convert to lot
+                          const totalShares = dateTotals.buyTotalShares + dateTotals.sellTotalShares;
+                          const totalLot = totalShares / 100;
                           const foreignNetValue = dateTotals.buyForeignValue - dateTotals.sellForeignValue;
-                          const avgPrice = totalLotShares > 0 ? totalValue / totalLotShares : 0;
+                          const avgPrice = totalShares > 0 ? totalValue / totalShares : 0;
                           const foreignNetClass = foreignNetValue > 0 ? 'text-green-500' : foreignNetValue < 0 ? 'text-red-500' : 'text-white';
 
                           return (
@@ -3078,10 +3067,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                         {(() => {
                           // Calculate consolidated grand totals
                           const grandTotalValue = grandBuyTotalValue + grandSellTotalValue;
-                          const grandTotalLotShares = grandBuyTotalLot + grandSellTotalLot;
-                          const grandTotalLot = grandTotalLotShares / 100; // convert to lot
+                          const totalShares = grandBuyTotalShares + grandSellTotalShares;
+                          const grandTotalLot = totalShares / 100;
                           const grandForeignNetValue = grandBuyForeignValue - grandSellForeignValue;
-                          const grandAvgPrice = grandTotalLotShares > 0 ? grandTotalValue / grandTotalLotShares : 0;
+                          const grandAvgPrice = totalShares > 0 ? grandTotalValue / totalShares : 0;
                           const grandForeignNetClass = grandForeignNetValue > 0 ? 'text-green-500' : grandForeignNetValue < 0 ? 'text-red-500' : 'text-white';
                           const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
 
