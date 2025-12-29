@@ -2883,7 +2883,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                           <th className="text-center py-[1px] px-[5.4px] font-bold text-white" colSpan={3}></th>
 
                           {/* Summary Headers - 4 columns centered */}
-                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252]">#</th>
                           <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TVal</th>
                           <th className="text-center py-[1px] px-[5.4px] font-bold text-white">FNVal</th>
                           <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TLot</th>
@@ -2894,7 +2893,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                       {/* Total column headers */}
                       <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}></th>
                       <th className="text-center py-[1px] px-[4.5px] font-bold text-white" colSpan={3}></th>
-                      <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252]">#</th>
                       <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TVal</th>
                       <th className="text-center py-[1px] px-[4.5px] font-bold text-white">FNVal</th>
                       <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TLot</th>
@@ -2956,7 +2954,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                             <td className="text-center py-[2px] px-[5.4px] font-bold text-white" colSpan={3}></td>
 
                             {/* Summary Data - 4 columns centered */}
-                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white bg-[#3a4252]"></td>
                             <td className="text-center py-[2px] px-[5.4px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(totalValue)}</td>
                             <td className={`text-center py-[2px] px-[5.4px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(foreignNetValue)}</td>
                             <td className="text-center py-[2px] px-[5.4px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalLot)}</td>
@@ -3007,7 +3004,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                           <>
                             <td className={`text-center py-[2px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}></td>
                             <td className="text-center py-[2px] px-[4.5px] font-bold text-white" colSpan={3}></td>
-                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white bg-[#3a4252]"></td>
                             <td className="text-center py-[2px] px-[4.5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(grandTotalValue)}</td>
                             <td className={`text-center py-[2px] px-[4.5px] font-bold ${grandForeignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(grandForeignNetValue)}</td>
                             <td className="text-center py-[2px] px-[4.5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(grandTotalLot)}</td>
