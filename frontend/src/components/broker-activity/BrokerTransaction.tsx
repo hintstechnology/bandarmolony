@@ -4581,12 +4581,11 @@ export function BrokerTransaction() {
       // CRITICAL: Ensure rowIndices is never empty if tableMaxRows > 0
       const displayRows = Math.min(tableMaxRows, Math.max(visibleRowCount, MAX_DISPLAY_ROWS));
 
-      // ALWAYS use fallback if we have data - simpler and more reliable
-      // Ensure we show at least 21 rows as requested
-      const minNetRows = 21;
-      const effectiveVisibleCount = Math.max(visibleRowCount, minNetRows);
+      // Use visibleRowCount for lazy loading, but cap by actual data rows (tableMaxRows)
+      // This ensures only existing data rows are shown, satisfying user request
+      const effectiveVisibleCount = Math.min(tableMaxRows, visibleRowCount);
       const rowIndices = tableMaxRows > 0
-        ? Array.from({ length: Math.max(Math.min(tableMaxRows, effectiveVisibleCount), minNetRows) }, (_, i) => i)
+        ? Array.from({ length: effectiveVisibleCount }, (_, i) => i)
         : [];
 
       // Calculate total columns for "No Data Available" message (NET table)
