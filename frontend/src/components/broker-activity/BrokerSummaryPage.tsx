@@ -2877,36 +2877,22 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                       {/* Per-date headers (only shown when not showOnlyTotal) */}
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
                         <React.Fragment key={`summary-header-${date}`}>
-                          {/* Spacer for BY */}
-                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}></th>
+                          {/* Spacer columns for broker codes */}
+                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} colSpan={5}></th>
 
-                          {/* Buy Summary Headers */}
-                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TLot</th>
+                          {/* Summary Headers - 4 columns matching Total table */}
                           <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TVal</th>
-                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white">Avg</th>
-
-                          {/* Separator */}
-                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252]"></th>
-
-                          {/* Spacer for SL */}
-                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white"></th>
-
-                          {/* Sell Summary Headers */}
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white">FNVal</th>
                           <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TLot</th>
-                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TVal</th>
                           <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`}>Avg</th>
                         </React.Fragment>
                       ))}
 
                       {/* Total column headers */}
-                      <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}></th>
-                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TLot</th>
+                      <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={5}></th>
                       <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TVal</th>
-                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white">Avg</th>
-                      <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252]">#</th>
-                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white"></th>
+                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white">FNVal</th>
                       <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TLot</th>
-                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TVal</th>
                       <th className="text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white">Avg</th>
                     </tr>
 
@@ -2914,88 +2900,106 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                     <tr className="bg-background">
                       {/* Per-date summary columns (only shown when not showOnlyTotal) */}
                       {!showOnlyTotal && availableDates.map((date, dateIndex) => {
-                        // Calculate totals for this specific date
+                        // Calculate totals for this specific date using same logic as Total table
                         const dateData = summaryByDate.get(date) || [];
 
                         let dateBuyTotalValue = 0;
-                        let dateBuyTotalLot = 0;
+                        let dateBuyTotalLotShares = 0;
+                        let dateBuyForeignValue = 0;
                         let dateSellTotalValue = 0;
-                        let dateSellTotalLot = 0;
+                        let dateSellTotalLotShares = 0;
+                        let dateSellForeignValue = 0;
 
                         dateData.forEach(item => {
+                          // Filter by F/D
+                          if (!brokerFDScreen(item.broker)) return;
+
                           const buyVal = Number(item.buyValue) || 0;
                           const sellVal = Number(item.sellValue) || 0;
-                          const buyLot = Number(item.buyVol) || 0;
-                          const sellLot = Number(item.sellVol) || 0;
+                          const buyVol = Number(item.buyVol) || 0;
+                          const sellVol = Number(item.sellVol) || 0;
 
                           // Buy side totals
                           dateBuyTotalValue += buyVal;
-                          dateBuyTotalLot += buyLot;
+                          dateBuyTotalLotShares += buyVol;
 
                           // Sell side totals
                           dateSellTotalValue += sellVal;
-                          dateSellTotalLot += sellLot;
+                          dateSellTotalLotShares += sellVol;
+
+                          const brokerCode = (item.broker || '').toUpperCase();
+                          if (brokerCode && FOREIGN_BROKERS.includes(brokerCode)) {
+                            dateBuyForeignValue += buyVal;
+                            dateSellForeignValue += sellVal;
+                          }
                         });
 
-                        const dateBuyAvgPrice = dateBuyTotalLot > 0 ? dateBuyTotalValue / (dateBuyTotalLot * 100) : 0;
-                        const dateSellAvgPrice = dateSellTotalLot > 0 ? dateSellTotalValue / (dateSellTotalLot * 100) : 0;
+                        // Calculate consolidated values (same as Total table)
+                        const totalValue = dateBuyTotalValue + dateSellTotalValue;
+                        const totalShares = dateBuyTotalLotShares + dateSellTotalLotShares;
+                        const totalLot = totalShares / 100;
+                        const foreignNetValue = dateBuyForeignValue - dateSellForeignValue;
+                        const avgPrice = totalShares > 0 ? totalValue / totalShares : 0;
+                        const foreignNetClass = foreignNetValue > 0 ? 'text-green-500' : foreignNetValue < 0 ? 'text-red-500' : 'text-white';
 
                         return (
                           <React.Fragment key={`summary-${date}`}>
-                            {/* Spacer for BY */}
-                            <td className={`text-center py-[2px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}></td>
+                            {/* Spacer columns for broker codes */}
+                            <td className={`text-center py-[2px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} colSpan={5}></td>
 
-                            {/* Buy Summary: TLot, TVal, Avg */}
-                            <td className="text-right py-[2px] px-[5.4px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(dateBuyTotalLot / 100)}</td>
-                            <td className="text-right py-[2px] px-[5.4px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(dateBuyTotalValue)}</td>
-                            <td className="text-right py-[2px] px-[5.4px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(dateBuyAvgPrice)}</td>
-
-                            {/* Separator */}
-                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white bg-[#3a4252]"></td>
-
-                            {/* Spacer for SL */}
-                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white"></td>
-
-                            {/* Sell Summary: TLot, TVal, Avg */}
-                            <td className="text-right py-[2px] px-[5.4px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(dateSellTotalLot / 100)}</td>
-                            <td className="text-right py-[2px] px-[5.4px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(dateSellTotalValue)}</td>
-                            <td className={`text-right py-[2px] px-[5.4px] font-bold text-red-600 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(dateSellAvgPrice)}</td>
+                            {/* Summary Data - 4 columns matching Total table */}
+                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(totalValue)}</td>
+                            <td className={`text-center py-[2px] px-[5.4px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(foreignNetValue)}</td>
+                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalLot)}</td>
+                            <td className={`text-center py-[2px] px-[5.4px] font-bold text-white ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(avgPrice)}</td>
                           </React.Fragment>
                         );
                       })}
 
                       {/* Total column summary - using grand totals */}
                       {(() => {
-                        // Calculate grand totals across all dates
+                        // Calculate grand totals across all dates (same as Total table)
                         let grandBuyTotalValue = 0;
-                        let grandBuyTotalLot = 0;
+                        let grandBuyTotalLotShares = 0;
+                        let grandBuyForeignValue = 0;
                         let grandSellTotalValue = 0;
-                        let grandSellTotalLot = 0;
+                        let grandSellTotalLotShares = 0;
+                        let grandSellForeignValue = 0;
 
                         availableDates.forEach(date => {
                           const dateData = summaryByDate.get(date) || [];
                           dateData.forEach(item => {
+                            // Filter by F/D
+                            if (!brokerFDScreen(item.broker)) return;
+
                             grandBuyTotalValue += Number(item.buyValue) || 0;
-                            grandBuyTotalLot += Number(item.buyVol) || 0;
+                            grandBuyTotalLotShares += Number(item.buyVol) || 0;
                             grandSellTotalValue += Number(item.sellValue) || 0;
-                            grandSellTotalLot += Number(item.sellVol) || 0;
+                            grandSellTotalLotShares += Number(item.sellVol) || 0;
+
+                            const brokerCode = (item.broker || '').toUpperCase();
+                            if (brokerCode && FOREIGN_BROKERS.includes(brokerCode)) {
+                              grandBuyForeignValue += Number(item.buyValue) || 0;
+                              grandSellForeignValue += Number(item.sellValue) || 0;
+                            }
                           });
                         });
 
-                        const grandBuyAvgPrice = grandBuyTotalLot > 0 ? grandBuyTotalValue / (grandBuyTotalLot * 100) : 0;
-                        const grandSellAvgPrice = grandSellTotalLot > 0 ? grandSellTotalValue / (grandSellTotalLot * 100) : 0;
+                        // Calculate consolidated grand totals (same as Total table)
+                        const grandTotalValue = grandBuyTotalValue + grandSellTotalValue;
+                        const totalShares = grandBuyTotalLotShares + grandSellTotalLotShares;
+                        const grandTotalLot = totalShares / 100;
+                        const grandForeignNetValue = grandBuyForeignValue - grandSellForeignValue;
+                        const grandAvgPrice = totalShares > 0 ? grandTotalValue / totalShares : 0;
+                        const grandForeignNetClass = grandForeignNetValue > 0 ? 'text-green-500' : grandForeignNetValue < 0 ? 'text-red-500' : 'text-white';
 
                         return (
                           <>
-                            <td className={`text-center py-[2px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}></td>
-                            <td className="text-right py-[2px] px-[4.5px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(grandBuyTotalLot / 100)}</td>
-                            <td className="text-right py-[2px] px-[4.5px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(grandBuyTotalValue)}</td>
-                            <td className="text-right py-[2px] px-[4.5px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(grandBuyAvgPrice)}</td>
-                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white bg-[#3a4252]"></td>
-                            <td className="text-center py-[2px] px-[4.5px] font-bold text-white"></td>
-                            <td className="text-right py-[2px] px-[4.5px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(grandSellTotalLot / 100)}</td>
-                            <td className="text-right py-[2px] px-[4.5px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(grandSellTotalValue)}</td>
-                            <td className="text-right py-[2px] px-[6.3px] font-bold text-red-600 border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(grandSellAvgPrice)}</td>
+                            <td className={`text-center py-[2px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={5}></td>
+                            <td className="text-center py-[2px] px-[4.5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(grandTotalValue)}</td>
+                            <td className={`text-center py-[2px] px-[4.5px] font-bold ${grandForeignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(grandForeignNetValue)}</td>
+                            <td className="text-center py-[2px] px-[4.5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(grandTotalLot)}</td>
+                            <td className="text-center py-[2px] px-[6.3px] font-bold text-white border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(grandAvgPrice)}</td>
                           </>
                         );
                       })()}
