@@ -2877,26 +2877,27 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                       {/* Per-date headers (only shown when not showOnlyTotal) */}
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
                         <React.Fragment key={`summary-header-${date}`}>
-                          {/* Spacer for BY column */}
-                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}></th>
-                          {/* Spacer for BLot, BVal, BAvg */}
-                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white" colSpan={3}></th>
+                          {/* Spacer for BY, BLot, BVal, BAvg */}
+                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} colSpan={4}></th>
 
                           {/* Summary Headers - 4 columns centered */}
                           <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TVal</th>
                           <th className="text-center py-[1px] px-[5.4px] font-bold text-white">FNVal</th>
                           <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TLot</th>
-                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`}>Avg</th>
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white">Avg</th>
+
+                          {/* Spacer for SLot (last column) */}
+                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`}></th>
                         </React.Fragment>
                       ))}
 
                       {/* Total column headers */}
-                      <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}></th>
-                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white" colSpan={3}></th>
+                      <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={4}></th>
                       <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TVal</th>
                       <th className="text-center py-[1px] px-[4.5px] font-bold text-white">FNVal</th>
                       <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TLot</th>
-                      <th className="text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white">Avg</th>
+                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white">Avg</th>
+                      <th className="text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white"></th>
                     </tr>
 
                     {/* Summary Data Row */}
@@ -2948,16 +2949,17 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
 
                         return (
                           <React.Fragment key={`summary-${date}`}>
-                            {/* Spacer for BY column */}
-                            <td className={`text-center py-[2px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}></td>
-                            {/* Spacer for BLot, BVal, BAvg */}
-                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white" colSpan={3}></td>
+                            {/* Spacer for BY, BLot, BVal, BAvg */}
+                            <td className={`text-center py-[2px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} colSpan={4}></td>
 
                             {/* Summary Data - 4 columns centered */}
                             <td className="text-center py-[2px] px-[5.4px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(totalValue)}</td>
                             <td className={`text-center py-[2px] px-[5.4px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(foreignNetValue)}</td>
                             <td className="text-center py-[2px] px-[5.4px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalLot)}</td>
-                            <td className={`text-center py-[2px] px-[5.4px] font-bold text-white ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(avgPrice)}</td>
+                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(avgPrice)}</td>
+
+                            {/* Spacer for SLot (last column) */}
+                            <td className={`text-center py-[2px] px-[5.4px] font-bold text-white ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}></td>
                           </React.Fragment>
                         );
                       })}
@@ -3002,12 +3004,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
 
                         return (
                           <>
-                            <td className={`text-center py-[2px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}></td>
-                            <td className="text-center py-[2px] px-[4.5px] font-bold text-white" colSpan={3}></td>
+                            <td className={`text-center py-[2px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={4}></td>
                             <td className="text-center py-[2px] px-[4.5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(grandTotalValue)}</td>
                             <td className={`text-center py-[2px] px-[4.5px] font-bold ${grandForeignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(grandForeignNetValue)}</td>
                             <td className="text-center py-[2px] px-[4.5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(grandTotalLot)}</td>
-                            <td className="text-center py-[2px] px-[6.3px] font-bold text-white border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(grandAvgPrice)}</td>
+                            <td className="text-center py-[2px] px-[4.5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(grandAvgPrice)}</td>
+                            <td className="text-center py-[2px] px-[6.3px] font-bold text-white border-r-2 border-white"></td>
                           </>
                         );
                       })()}
