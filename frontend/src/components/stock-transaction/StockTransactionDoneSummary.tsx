@@ -1055,11 +1055,11 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                               )}
                               {/* BLot */}
                               <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {data ? formatNumberWithAbbreviation(data.bLot) : '-'}
+                                {data ? formatNumber(data.bLot) : '-'}
                               </td>
                               {/* SLot */}
                               <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {data ? formatNumberWithAbbreviation(data.sLot) : '-'}
+                                {data ? formatNumber(data.sLot) : '-'}
                               </td>
                               {/* SFreq */}
                               {showFrequency && (
@@ -1161,10 +1161,10 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                                 </td>
                               )}
                               <td className={`text-right py-[1px] px-[5px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumberWithAbbreviation(totalBLot)}
+                                {formatNumber(totalBLot)}
                               </td>
                               <td className={`text-right py-[1px] px-[5px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumberWithAbbreviation(totalSLot)}
+                                {formatNumber(totalSLot)}
                               </td>
                               {showFrequency && (
                                 <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(totalBFreq, totalSFreq, false)} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -1260,11 +1260,11 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                           )}
                           {/* BLot */}
                           <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumberWithAbbreviation(totals.bLot)}
+                            {formatNumber(totals.bLot)}
                           </td>
                           {/* SLot */}
                           <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumberWithAbbreviation(totals.sLot)}
+                            {formatNumber(totals.sLot)}
                           </td>
                           {/* SFreq */}
                           {showFrequency && (
@@ -1387,10 +1387,10 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                             </td>
                           )}
                           <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumberWithAbbreviation(grandTotalBLot)}
+                            {formatNumber(grandTotalBLot)}
                           </td>
                           <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumberWithAbbreviation(grandTotalSLot)}
+                            {formatNumber(grandTotalSLot)}
                           </td>
                           {showFrequency && (
                             <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotalBFreq, grandTotalSFreq, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
