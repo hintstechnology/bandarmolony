@@ -2171,7 +2171,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
             <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
               <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '490px' }}>
                 <table ref={valueTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : 'auto'), width: summaryByDate.size === 0 ? '100%' : undefined }}>
-                  <thead className="bg-[#3a4252]">
+                  <thead className="bg-[#3a4252] sticky top-0 z-10">
                     <tr className="border-t-2 border-white">
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
                         <th key={date} className={`text-center py-[1px] px-[7.4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9} style={{ textAlign: 'center' }}>
@@ -2410,7 +2410,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
             <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
               <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '530px' }}>
                 <table ref={netTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : 'auto'), width: summaryByDate.size === 0 ? '100%' : undefined }}>
-                  <thead className="bg-[#3a4252]">
+                  <thead className="bg-[#3a4252] sticky top-0 z-10">
                     <tr className="border-t-2 border-white">
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
                         <th key={date} className={`text-center py-[1px] px-[7.4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9} style={{ textAlign: 'center' }}>
@@ -2870,6 +2870,137 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                       });
                     })()}
                   </tbody>
+                  {/* Summary Section - Locked at bottom */}
+                  <tfoot className="sticky bottom-0 z-10">
+                    {/* Header Row for Summary */}
+                    <tr className="bg-[#3a4252] border-t-2 border-white">
+                      {/* Per-date headers (only shown when not showOnlyTotal) */}
+                      {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
+                        <React.Fragment key={`summary-header-${date}`}>
+                          {/* Spacer for BY */}
+                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}></th>
+
+                          {/* Buy Summary Headers */}
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TLot</th>
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TVal</th>
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white">Avg</th>
+
+                          {/* Separator */}
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252]"></th>
+
+                          {/* Spacer for SL */}
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white"></th>
+
+                          {/* Sell Summary Headers */}
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TLot</th>
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white">TVal</th>
+                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`}>Avg</th>
+                        </React.Fragment>
+                      ))}
+
+                      {/* Total column headers */}
+                      <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}></th>
+                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TLot</th>
+                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TVal</th>
+                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white">Avg</th>
+                      <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252]">#</th>
+                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white"></th>
+                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TLot</th>
+                      <th className="text-center py-[1px] px-[4.5px] font-bold text-white">TVal</th>
+                      <th className="text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white">Avg</th>
+                    </tr>
+
+                    {/* Summary Data Row */}
+                    <tr className="bg-background">
+                      {/* Per-date summary columns (only shown when not showOnlyTotal) */}
+                      {!showOnlyTotal && availableDates.map((date, dateIndex) => {
+                        // Calculate totals for this specific date
+                        const dateData = summaryByDate.get(date) || [];
+
+                        let dateBuyTotalValue = 0;
+                        let dateBuyTotalLot = 0;
+                        let dateSellTotalValue = 0;
+                        let dateSellTotalLot = 0;
+
+                        dateData.forEach(item => {
+                          const buyVal = Number(item.buyValue) || 0;
+                          const sellVal = Number(item.sellValue) || 0;
+                          const buyLot = Number(item.buyVol) || 0;
+                          const sellLot = Number(item.sellVol) || 0;
+
+                          // Buy side totals
+                          dateBuyTotalValue += buyVal;
+                          dateBuyTotalLot += buyLot;
+
+                          // Sell side totals
+                          dateSellTotalValue += sellVal;
+                          dateSellTotalLot += sellLot;
+                        });
+
+                        const dateBuyAvgPrice = dateBuyTotalLot > 0 ? dateBuyTotalValue / (dateBuyTotalLot * 100) : 0;
+                        const dateSellAvgPrice = dateSellTotalLot > 0 ? dateSellTotalValue / (dateSellTotalLot * 100) : 0;
+
+                        return (
+                          <React.Fragment key={`summary-${date}`}>
+                            {/* Spacer for BY */}
+                            <td className={`text-center py-[2px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}></td>
+
+                            {/* Buy Summary: TLot, TVal, Avg */}
+                            <td className="text-right py-[2px] px-[5.4px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(dateBuyTotalLot / 100)}</td>
+                            <td className="text-right py-[2px] px-[5.4px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(dateBuyTotalValue)}</td>
+                            <td className="text-right py-[2px] px-[5.4px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(dateBuyAvgPrice)}</td>
+
+                            {/* Separator */}
+                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white bg-[#3a4252]"></td>
+
+                            {/* Spacer for SL */}
+                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white"></td>
+
+                            {/* Sell Summary: TLot, TVal, Avg */}
+                            <td className="text-right py-[2px] px-[5.4px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(dateSellTotalLot / 100)}</td>
+                            <td className="text-right py-[2px] px-[5.4px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(dateSellTotalValue)}</td>
+                            <td className={`text-right py-[2px] px-[5.4px] font-bold text-red-600 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(dateSellAvgPrice)}</td>
+                          </React.Fragment>
+                        );
+                      })}
+
+                      {/* Total column summary - using grand totals */}
+                      {(() => {
+                        // Calculate grand totals across all dates
+                        let grandBuyTotalValue = 0;
+                        let grandBuyTotalLot = 0;
+                        let grandSellTotalValue = 0;
+                        let grandSellTotalLot = 0;
+
+                        availableDates.forEach(date => {
+                          const dateData = summaryByDate.get(date) || [];
+                          dateData.forEach(item => {
+                            grandBuyTotalValue += Number(item.buyValue) || 0;
+                            grandBuyTotalLot += Number(item.buyVol) || 0;
+                            grandSellTotalValue += Number(item.sellValue) || 0;
+                            grandSellTotalLot += Number(item.sellVol) || 0;
+                          });
+                        });
+
+                        const grandBuyAvgPrice = grandBuyTotalLot > 0 ? grandBuyTotalValue / (grandBuyTotalLot * 100) : 0;
+                        const grandSellAvgPrice = grandSellTotalLot > 0 ? grandSellTotalValue / (grandSellTotalLot * 100) : 0;
+
+                        return (
+                          <>
+                            <td className={`text-center py-[2px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}></td>
+                            <td className="text-right py-[2px] px-[4.5px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(grandBuyTotalLot / 100)}</td>
+                            <td className="text-right py-[2px] px-[4.5px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(grandBuyTotalValue)}</td>
+                            <td className="text-right py-[2px] px-[4.5px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(grandBuyAvgPrice)}</td>
+                            <td className="text-center py-[2px] px-[5.4px] font-bold text-white bg-[#3a4252]"></td>
+                            <td className="text-center py-[2px] px-[4.5px] font-bold text-white"></td>
+                            <td className="text-right py-[2px] px-[4.5px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(grandSellTotalLot / 100)}</td>
+                            <td className="text-right py-[2px] px-[4.5px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(grandSellTotalValue)}</td>
+                            <td className="text-right py-[2px] px-[6.3px] font-bold text-red-600 border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(grandSellAvgPrice)}</td>
+                          </>
+                        );
+                      })()}
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
