@@ -1038,6 +1038,7 @@ const InventoryChart = ({
   inventoryData: InventoryTimeSeries[],
   selectedBrokers: string[],
   displayBrokers?: string[],
+  className?: string,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -1270,7 +1271,7 @@ const InventoryChart = ({
   }, []);
 
   return (
-    <div className="h-80 w-full relative">
+    <div className={`w-full relative ${className || 'h-80'}`}>
       <style>{`
         #tv-attr-logo {
           display: none !important;
@@ -1425,6 +1426,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     return { top5buy: false, top5sell: false, custom: false };
   });
   const [tickerInput, setTickerInput] = useState<string>('');
+  const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
+  const [activeColumn, setActiveColumn] = useState<'stocks' | 'sectors'>('stocks');
   const [debouncedTickerInput, setDebouncedTickerInput] = useState<string>('');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [splitVisualization, setSplitVisualization] = useState(defaultSplitView);
@@ -3215,7 +3218,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     // 2. Broker summary data (for inventory chart and top brokers table)
     // Don't wait for inventory data loading since it's computed from brokerSummaryData
     const minimalDataReady = !isLoadingData && !isLoadingBrokerData &&
-      ohlcData.length > 0 && brokerSummaryData.length > 0 && selectedBrokers.length > 0;
+      ohlcData.length > 0;
 
     if (minimalDataReady && !isDataReady) {
       setIsDataReady(true);
@@ -3824,7 +3827,66 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
       filteredBrokers: allBrokers,
       totalOtherBrokersCount: sortedOthers.length,
     };
+    return {
+      recommendedBrokers: sortedRecommendedWithAll,
+      otherBrokers: sortedOthers,
+      filteredBrokers: allBrokers,
+      totalOtherBrokersCount: sortedOthers.length,
+    };
   }, [availableBrokersForStock, defaultBrokers, debouncedBrokerSearch, selectedBrokers, brokerNetStats, topBrokersData]);
+
+  // Calculate the currently highlighted stock value based on index
+  const highlightedStockValue = useMemo(() => {
+    if (highlightedStockIndex === -1) return null;
+
+    // Determine which list is currently active
+    let targetList: string[] = [];
+    if (activeColumn === 'stocks') {
+      targetList = tickerInput === '' ? allStocksList : filteredStocksList;
+    } else {
+      targetList = tickerInput === '' ? allSectorsList : filteredSectorsList;
+    }
+
+    // For windowed display logic (previously limited to 10 for flat list), 
+    // we now use the full list relative to the window, but let's stick to the visible items concept if needed on scrolling?
+    // Actually, for navigation we should probably allow navigating the whole filtered list
+    // But keeping it simple with the *visible* or *top* items as per previous implementation logic?
+    // The previous implementation used .slice(0, 10) which matched the dropdown suggestion limit if it was limited.
+    // However, the dropdown implementation seems to show 'visibleStocksList' which is windowed.
+    // Let's rely on the list that corresponds to 'visible...' but maybe we should allow scrolling?
+    // For now, let's map index directly to the source list (filtered or all)
+    // AND we must ensure scrolling follows index if we want perfect UX. 
+    // But for "highlight value", just grabbing from the correct list is enough.
+
+    // Note: Previous logic was: (tickerInput === '' ? availableStocks... : filteredStocks).slice(0, 10)
+    // This implies it only allowed navigating top 10.
+    // Let's allow navigating visible set (ITEMS_PER_PAGE).
+    // Or just the slice that is rendered.
+
+    const visibleList = targetList.slice(stockScrollOffset, stockScrollOffset + ITEMS_PER_PAGE);
+    // Be careful: highlightedStockIndex is the index *within the visible window*? 
+    // OR is it the index *in the total list*?
+    // The previous code used .slice(0, 10). So clearly it was designed for a short list.
+    // But the UI renders `visibleAllStocksList` which uses `stockScrollOffset`.
+    // If I press down 15 times, index becomes 14. 
+    // If we assume index is absolute, we need to ensure scroll follows.
+    // For this task, strict requirement is Left/Right navigation. 
+    // Let's assume index is relative to the currently rendered view or top X?
+
+    // Wait, the previous logic was:
+    // const suggestions = (...).slice(0, 10);
+    // return suggestions[highlightedStockIndex] || null;
+
+    // This means it ONLY supported 10 items.
+    // Let's stick to supporting the rendered items for now to be safe.
+
+    // Use the same list source as the render uses:
+    const listToUse = activeColumn === 'stocks'
+      ? (tickerInput === '' ? visibleAllStocksList : visibleStocksList)
+      : (tickerInput === '' ? visibleAllSectorsList : visibleSectorsList);
+
+    return listToUse[highlightedStockIndex] || null;
+  }, [highlightedStockIndex, tickerInput, activeColumn, allStocksList, filteredStocksList, allSectorsList, filteredSectorsList, visibleAllStocksList, visibleStocksList, visibleAllSectorsList, visibleSectorsList]);
 
   // Windowed recommended brokers list
   const visibleRecommendedBrokers = useMemo(() => {
@@ -3841,8 +3903,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
 
   return (
     <div className="min-h-screen overflow-x-hidden">
-      <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6">
-        <div className="space-y-6">
+      <div className={`w-full ${onlyShowInventoryChart ? 'p-0' : 'px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6'}`}>
+        <div className={onlyShowInventoryChart ? '' : 'space-y-6'}>
 
           {/* Controls */}
           {!hideControls && (
@@ -3858,26 +3920,59 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                         <input
                           type="text"
-                          value={tickerInput || (selectedTicker ? formatStockDisplayName(selectedTicker) : '')}
-                          onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                          value={isInputFocused ? tickerInput : (tickerInput || (selectedTicker ? formatStockDisplayName(selectedTicker) : ''))}
+                          onChange={(e) => {
+                            handleStockInputChange(e.target.value);
+                            setHighlightedStockIndex(0);
+                            setActiveColumn('stocks'); // Reset to stocks on input
+                          }}
                           onFocus={() => {
+                            setIsInputFocused(true);
                             setTickerInput('');
                             setShowStockSuggestions(true);
                             setHighlightedStockIndex(0);
+                            setActiveColumn('stocks'); // Reset to stocks on focus
                           }}
+                          onBlur={() => setIsInputFocused(false)}
                           onKeyDown={(e) => {
-                            const suggestions = (tickerInput === '' ? availableStocks.filter(s => selectedTicker !== s) : filteredStocks).slice(0, 10);
-                            if (!suggestions.length) return;
+                            // Define lists based on current state
+                            const currentStocksList = tickerInput === '' ? visibleAllStocksList : visibleStocksList;
+                            const currentSectorsList = tickerInput === '' ? visibleAllSectorsList : visibleSectorsList;
+
+                            const currentList = activeColumn === 'stocks' ? currentStocksList : currentSectorsList;
+                            const totalItems = currentList.length;
+
+                            if (currentStocksList.length === 0 && currentSectorsList.length === 0) return; // Fallback safety check
+
                             if (e.key === 'ArrowDown') {
                               e.preventDefault();
-                              setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
+                              if (totalItems > 0) {
+                                setHighlightedStockIndex((prev) => (prev + 1) % totalItems);
+                              }
                             } else if (e.key === 'ArrowUp') {
                               e.preventDefault();
-                              setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                              if (totalItems > 0) {
+                                setHighlightedStockIndex((prev) => (prev - 1 + totalItems) % totalItems);
+                              }
+                            } else if (e.key === 'ArrowRight') {
+                              // Switch to sectors if possible
+                              if (activeColumn === 'stocks' && currentSectorsList.length > 0) {
+                                e.preventDefault();
+                                setActiveColumn('sectors');
+                                // Reset index or clamp? Resetting to 0 is safer for UX usually
+                                setHighlightedStockIndex(0);
+                              }
+                            } else if (e.key === 'ArrowLeft') {
+                              // Switch to stocks if possible
+                              if (activeColumn === 'sectors') {
+                                e.preventDefault();
+                                setActiveColumn('stocks');
+                                setHighlightedStockIndex(0);
+                              }
                             } else if (e.key === 'Enter' && showStockSuggestions) {
                               e.preventDefault();
                               const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
-                              const choice = suggestions[idx];
+                              const choice = currentList[idx];
                               if (choice) handleStockSelect(choice);
                             } else if (e.key === 'Escape') {
                               setShowStockSuggestions(false);
@@ -3912,15 +4007,18 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                                       <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                         Stocks ({allStocksList.length})
                                       </div>
-                                      {visibleAllStocksList.map(stock => (
-                                        <div
-                                          key={stock}
-                                          onClick={() => handleStockSelect(stock)}
-                                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                                        >
-                                          {stock}
-                                        </div>
-                                      ))}
+                                      {visibleAllStocksList.map(stock => {
+                                        const isHighlighted = stock === highlightedStockValue;
+                                        return (
+                                          <div
+                                            key={stock}
+                                            onClick={() => handleStockSelect(stock)}
+                                            className={`px-3 py-[2.06px] cursor-pointer text-sm ${isHighlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
+                                          >
+                                            {stock}
+                                          </div>
+                                        );
+                                      })}
                                       {stockScrollOffset + ITEMS_PER_PAGE < allStocksList.length && (
                                         <div className="px-3 py-2 text-xs text-muted-foreground text-center">
                                           Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, allStocksList.length)} / {allStocksList.length})
@@ -3932,15 +4030,18 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                                       <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                         Stocks ({filteredStocksList.length})
                                       </div>
-                                      {visibleStocksList.map(stock => (
-                                        <div
-                                          key={stock}
-                                          onClick={() => handleStockSelect(stock)}
-                                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                                        >
-                                          {stock}
-                                        </div>
-                                      ))}
+                                      {visibleStocksList.map(stock => {
+                                        const isHighlighted = stock === highlightedStockValue;
+                                        return (
+                                          <div
+                                            key={stock}
+                                            onClick={() => handleStockSelect(stock)}
+                                            className={`px-3 py-[2.06px] cursor-pointer text-sm ${isHighlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
+                                          >
+                                            {stock}
+                                          </div>
+                                        );
+                                      })}
                                       {stockScrollOffset + ITEMS_PER_PAGE < filteredStocksList.length && (
                                         <div className="px-3 py-2 text-xs text-muted-foreground text-center">
                                           Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, filteredStocksList.length)} / {filteredStocksList.length})
@@ -3969,15 +4070,18 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                                       <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                         Sectors ({allSectorsList.length})
                                       </div>
-                                      {visibleAllSectorsList.map(stock => (
-                                        <div
-                                          key={stock}
-                                          onClick={() => handleStockSelect(stock)}
-                                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                                        >
-                                          {formatStockDisplayName(stock)}
-                                        </div>
-                                      ))}
+                                      {visibleAllSectorsList.map(stock => {
+                                        const isHighlighted = stock === highlightedStockValue;
+                                        return (
+                                          <div
+                                            key={stock}
+                                            onClick={() => handleStockSelect(stock)}
+                                            className={`px-3 py-[2.06px] cursor-pointer text-sm ${isHighlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
+                                          >
+                                            {formatStockDisplayName(stock)}
+                                          </div>
+                                        );
+                                      })}
                                       {sectorScrollOffset + ITEMS_PER_PAGE < allSectorsList.length && (
                                         <div className="px-3 py-2 text-xs text-muted-foreground text-center">
                                           Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, allSectorsList.length)} / {allSectorsList.length})
@@ -3989,15 +4093,18 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                                       <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                         Sectors ({filteredSectorsList.length})
                                       </div>
-                                      {visibleSectorsList.map(stock => (
-                                        <div
-                                          key={stock}
-                                          onClick={() => handleStockSelect(stock)}
-                                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                                        >
-                                          {formatStockDisplayName(stock)}
-                                        </div>
-                                      ))}
+                                      {visibleSectorsList.map(stock => {
+                                        const isHighlighted = stock === highlightedStockValue;
+                                        return (
+                                          <div
+                                            key={stock}
+                                            onClick={() => handleStockSelect(stock)}
+                                            className={`px-3 py-[2.06px] cursor-pointer text-sm ${isHighlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
+                                          >
+                                            {formatStockDisplayName(stock)}
+                                          </div>
+                                        );
+                                      })}
                                       {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
                                         <div className="px-3 py-2 text-xs text-muted-foreground text-center">
                                           Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
@@ -4634,6 +4741,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                           inventoryData={inventoryData}
                           selectedBrokers={selectedBrokers}
                           displayBrokers={visibleBrokers}
+                          className="h-[calc(100vh-140px)] min-h-[500px]"
                         />
                       )}
                       {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
