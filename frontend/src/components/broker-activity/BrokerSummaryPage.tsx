@@ -1699,62 +1699,40 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
     const netContainer = netTableContainerRef.current;
     const totalContainer = totalTableContainerRef.current;
 
-    if (!valueContainer || !netContainer || !totalContainer) return;
+    // CRITICAL FIX: Only require Value and Net containers to be present. Total is optional.
+    if (!valueContainer || !netContainer) return;
 
-    // Track which container is being scrolled to prevent circular updates
-    // Use a more robust flag system that resets immediately after sync
-    let isValueScrolling = false;
-    let isNetScrolling = false;
-    let isTotalScrolling = false;
+    // Synchronous scroll synchronization - no delay for real-time follow
+    const syncScroll = (source: HTMLElement, targets: (HTMLElement | null)[]) => {
+      const scrollLeft = source.scrollLeft;
 
-    // Handle Value table scroll - sync to Net and Total tables immediately
-    const handleValueScroll = () => {
-      // Only sync if other containers are not currently being scrolled
-      if (!isNetScrolling && !isTotalScrolling) {
-        isValueScrolling = true;
-        // Immediate synchronization - no delay for smooth scrolling
-        if (netContainer) netContainer.scrollLeft = valueContainer.scrollLeft;
-        if (totalContainer) totalContainer.scrollLeft = valueContainer.scrollLeft;
-        // Reset flag immediately to allow continuous smooth scrolling
-        isValueScrolling = false;
-      }
+      targets.forEach(target => {
+        // Only update if the value actually differs to prevent event loops
+        // Testing shows this is the most reliable way for real-time sync
+        if (target && target.scrollLeft !== scrollLeft) {
+          target.scrollLeft = scrollLeft;
+        }
+      });
     };
 
-    // Handle Net table scroll - sync to Value and Total tables immediately
-    const handleNetScroll = () => {
-      // Only sync if other containers are not currently being scrolled
-      if (!isValueScrolling && !isTotalScrolling) {
-        isNetScrolling = true;
-        // Immediate synchronization - no delay for smooth scrolling
-        if (valueContainer) valueContainer.scrollLeft = netContainer.scrollLeft;
-        if (totalContainer) totalContainer.scrollLeft = netContainer.scrollLeft;
-        // Reset flag immediately to allow continuous smooth scrolling
-        isNetScrolling = false;
-      }
-    };
-
-    // Handle Total table scroll - sync to Value and Net tables immediately
+    const handleValueScroll = () => syncScroll(valueContainer, [netContainer, totalContainer]);
+    const handleNetScroll = () => syncScroll(netContainer, [valueContainer, totalContainer]);
     const handleTotalScroll = () => {
-      // Only sync if other containers are not currently being scrolled
-      if (!isValueScrolling && !isNetScrolling) {
-        isTotalScrolling = true;
-        // Immediate synchronization - no delay for smooth scrolling
-        if (valueContainer) valueContainer.scrollLeft = totalContainer.scrollLeft;
-        if (netContainer) netContainer.scrollLeft = totalContainer.scrollLeft;
-        // Reset flag immediately to allow continuous smooth scrolling
-        isTotalScrolling = false;
-      }
+      if (totalContainer) syncScroll(totalContainer, [valueContainer, netContainer]);
     };
 
-    // Add event listeners with passive flag for better performance
     valueContainer.addEventListener('scroll', handleValueScroll, { passive: true });
     netContainer.addEventListener('scroll', handleNetScroll, { passive: true });
-    totalContainer.addEventListener('scroll', handleTotalScroll, { passive: true });
+    if (totalContainer) {
+      totalContainer.addEventListener('scroll', handleTotalScroll, { passive: true });
+    }
 
     return () => {
       valueContainer.removeEventListener('scroll', handleValueScroll);
       netContainer.removeEventListener('scroll', handleNetScroll);
-      totalContainer.removeEventListener('scroll', handleTotalScroll);
+      if (totalContainer) {
+        totalContainer.removeEventListener('scroll', handleTotalScroll);
+      }
     };
   }, [isLoading, isDataReady, summaryByDate]); // Re-setup when data changes
 
@@ -2169,8 +2147,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
               <h3 className="font-semibold text-sm">VALUE - {displayedTickers.map(t => formatStockDisplayName(t)).join(', ')} - {getMarketLabel(displayedMarket)}</h3>
             </div>
             <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
-              <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '460px' }}>
-                <table ref={valueTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : 'auto'), width: summaryByDate.size === 0 ? '100%' : undefined }}>
+              <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '460px', scrollBehavior: 'auto' }}>
+                <table ref={valueTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : (dateColumnWidthsRef.current.size > 0 ? 'fixed' : 'auto')), width: summaryByDate.size === 0 ? '100%' : undefined }}>
                   <thead className="bg-[#3a4252] sticky top-0 z-10">
                     <tr className="border-t-2 border-white">
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
@@ -2408,8 +2386,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
               <h3 className="font-semibold text-sm">NET - {displayedTickers.map(t => formatStockDisplayName(t)).join(', ')} - {getMarketLabel(displayedMarket)}</h3>
             </div>
             <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
-              <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '520px' }}>
-                <table ref={netTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : 'auto'), width: summaryByDate.size === 0 ? '100%' : undefined }}>
+              <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '520px', scrollBehavior: 'auto' }}>
+                <table ref={netTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : (dateColumnWidthsRef.current.size > 0 ? 'fixed' : 'auto')), width: summaryByDate.size === 0 ? '100%' : undefined }}>
                   <thead className="bg-[#3a4252] sticky top-0 z-10">
                     <tr className="border-t-2 border-white">
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (

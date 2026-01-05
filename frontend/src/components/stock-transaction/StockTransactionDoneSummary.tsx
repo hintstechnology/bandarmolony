@@ -124,7 +124,7 @@ const calculateTotals = (data: PriceData[]) => {
 
 // Helper function to get all unique prices across all dates (sorted from highest to lowest)
 // Returns prices sorted in descending order
-const getAllUniquePrices = (_stock: string, dates: string[], stockPriceDataByDate: { [date: string]: PriceData[] }): number[] => {
+const getAllUniquePrices = (_stock: string, dates: string[], stockPriceDataByDate: { [date: string]: PriceData[] }, ohlcData?: any[]): number[] => {
   const priceSet = new Set<number>();
 
   // Collect all unique prices from all dates
@@ -135,6 +135,20 @@ const getAllUniquePrices = (_stock: string, dates: string[], stockPriceDataByDat
         priceSet.add(item.price);
       }
     });
+
+    // Also include high/low prices from OHLC data if provided
+    if (ohlcData) {
+      const ohlc = ohlcData.find(row => {
+        const rowDate = new Date(row.time * 1000).toISOString().split('T')[0];
+        return rowDate === date;
+      });
+      if (ohlc) {
+        if (ohlc.high) priceSet.add(ohlc.high);
+        if (ohlc.low) priceSet.add(ohlc.low);
+        if (ohlc.open) priceSet.add(ohlc.open);
+        if (ohlc.close) priceSet.add(ohlc.close);
+      }
+    }
   });
 
   // Convert to array and sort from highest to lowest
@@ -382,6 +396,17 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
   const [shouldFetchData, setShouldFetchData] = useState<boolean>(false);
   const [isDataReady, setIsDataReady] = useState<boolean>(false);
 
+  // OHLC Data for coloring
+  interface OhlcRow {
+    time: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+  }
+  const [ohlcDataByStock, setOhlcDataByStock] = useState<{ [stock: string]: OhlcRow[] }>({});
+
   // UI states
   const [stockInput, setStockInput] = useState('');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
@@ -610,6 +635,43 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
 
     return () => clearTimeout(timeout);
   }, [selectedStocks, selectedBrokers, invFilter, boardFilter, showFrequency, showOrdColumns, startDate, endDate]);
+
+  // Fetch OHLC data when selectedStocks changes
+  useEffect(() => {
+    const fetchOhlcData = async () => {
+      const stocksToFetch = selectedStocks.filter(stock => !ohlcDataByStock[stock]);
+      if (stocksToFetch.length === 0) return;
+
+      const newOhlcData = { ...ohlcDataByStock };
+
+      await Promise.all(stocksToFetch.map(async (stock) => {
+        try {
+          const result = await api.getStockData(stock);
+          if (result.success && result.data?.data) {
+            const parsed: OhlcRow[] = result.data.data.map((row: any) => {
+              const dateStr = row.Date || row.date || '';
+              const time = new Date(dateStr).getTime() / 1000;
+              return {
+                time: Math.floor(time),
+                open: parseFloat(row.Open || row.open || 0),
+                high: parseFloat(row.High || row.high || 0),
+                low: parseFloat(row.Low || row.low || 0),
+                close: parseFloat(row.Close || row.close || 0),
+                volume: parseFloat(row.Volume || row.volume || 0)
+              };
+            }).filter((row: OhlcRow) => row.time > 0);
+            newOhlcData[stock] = parsed;
+          }
+        } catch (err) {
+          console.error(`Failed to fetch OHLC for ${stock}`, err);
+        }
+      }));
+
+      setOhlcDataByStock(newOhlcData);
+    };
+
+    fetchOhlcData();
+  }, [selectedStocks]);
 
   // Auto-load data from saved preferences on mount (after initial data is loaded)
   useEffect(() => {
@@ -875,7 +937,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
       stockPriceDataByDateKeys: Object.keys(stockPriceDataByDate)
     });
 
-    const allPrices = getAllUniquePrices(stock, selectedDates, stockPriceDataByDate);
+    const allPrices = getAllUniquePrices(stock, selectedDates, stockPriceDataByDate, ohlcDataByStock[stock]);
     console.log('All prices found:', allPrices);
 
     const maxValues = findMaxValuesHorizontal(stock, selectedDates, stockPriceDataByDate);
@@ -989,35 +1051,113 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                           const dateData = stockPriceDataByDate[date] || [];
                           const data = dateData.find(item => item.price === price) || null;
 
+                          // Calculate background color based on OHLC
+                          let bgClass = '';
+                          let textClass = 'text-white'; // Default text color
+
+                          const stockOhlc = ohlcDataByStock[stock] || [];
+                          // Find OHLC row matching the date
+                          // OHLC time is in seconds, convert to date string YYYY-MM-DD
+                          // We need to match date string from selectedDates (YYYY-MM-DD)
+                          // Note: selectedDates are in local time formatted YYYY-MM-DD
+                          // OHLC time from API is typically UTC midnight or market open
+                          // We need to be careful with timezone.
+                          // But typically api.getStockData returns daily candles.
+                          const ohlc = stockOhlc.find(row => {
+                            const rowDate = new Date(row.time * 1000).toISOString().split('T')[0];
+                            // Simple string comparison might fail if timezones differ significantly
+                            // But let's assume API dates align with selected dates
+                            return rowDate === date;
+                          });
+
+                          if (ohlc) {
+                            if (price === ohlc.high) {
+                              bgClass = 'bg-blue-500/30'; // High -> More visible Blue
+                            } else if (price === ohlc.low) {
+                              bgClass = 'bg-yellow-500/30'; // Low -> More visible Yellow
+                            } else if (ohlc.close >= ohlc.open && price >= ohlc.open && price <= ohlc.close) {
+                              bgClass = 'bg-green-500/20'; // Bullish Range
+                            } else if (ohlc.close < ohlc.open && price >= ohlc.close && price <= ohlc.open) {
+                              bgClass = 'bg-red-500/20'; // Bearish Range
+                            }
+                          }
+
+                          const isWick = ohlc && (
+                            (price >= ohlc.low && price < Math.min(ohlc.open, ohlc.close)) ||
+                            (price > Math.max(ohlc.open, ohlc.close) && price <= ohlc.high)
+                          );
+                          const wickBorderClassL = isWick ? 'border-l-2 border-gray-500' : '';
+                          const wickBorderClassR = isWick ? 'border-r-2 border-gray-500' : '';
+
+                          let ohlcBorderClass = '';
+                          let hasBottomOhlcBorder = false;
+                          let hasTopOhlcBorder = false;
+                          if (ohlc) {
+                            if (ohlc.close < ohlc.open) {
+                              // Bearish
+                              if (price === ohlc.open) {
+                                ohlcBorderClass = 'border-t-2 border-t-gray-500';
+                                hasTopOhlcBorder = true;
+                              } else if (price === ohlc.close) {
+                                ohlcBorderClass = 'border-b-2 border-b-gray-500';
+                                hasBottomOhlcBorder = true;
+                              }
+                            } else if (ohlc.close >= ohlc.open) {
+                              // Bullish
+                              if (price === ohlc.open) {
+                                ohlcBorderClass = 'border-b-2 border-b-gray-500';
+                                hasBottomOhlcBorder = true;
+                              } else if (price === ohlc.close) {
+                                ohlcBorderClass = 'border-t-2 border-t-gray-500';
+                                hasTopOhlcBorder = true;
+                              }
+                            }
+                          }
+
+                          // Helper to combine classes
+                          const cellClass = (align: string, border: string, textColor: string = 'text-white') => {
+                            // If we have an OHLC bottom border, and the caller is trying to add a white bottom border,
+                            // we prioritize the OHLC grey border by removing the white one.
+                            let finalBorder = border;
+                            if (hasBottomOhlcBorder) {
+                              finalBorder = finalBorder.replace('border-b-2 border-white', '');
+                            }
+                            if (hasTopOhlcBorder) {
+                              finalBorder = finalBorder.replace('border-t-2 border-white', '');
+                            }
+                            // ohlcBorderClass is put at the end to ensure it takes priority
+                            return `${align} py-[1px] px-[6px] font-bold ${bgClass} ${textColor} ${finalBorder} ${ohlcBorderClass}`;
+                          };
+
                           // If no data for this price in this date, show empty cells
                           if (!data) {
                             return (
                               <React.Fragment key={date}>
-                                <td className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  -
+                                <td className={`text-center py-[1px] px-[6px] font-bold ${bgClass} text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${priceIndex === allPrices.length - 1 && !hasBottomOhlcBorder ? 'border-b-2 border-white' : ''} ${ohlcBorderClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  {ohlc && (price < ohlc.low || price > ohlc.high) ? '-' : formatNumber(price)}
                                 </td>
                                 {showOrdColumns && (
                                   <>
-                                    <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
-                                    <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                                    <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>
+                                    <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>
                                   </>
                                 )}
-                                {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>}
-                                {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>}
-                                <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
-                                <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
-                                {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>}
-                                {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>}
+                                {showFrequency && <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>}
+                                {showFrequency && <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>}
+                                <td className={cellClass('text-right', `${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''} ${wickBorderClassR}`)}>-</td>
+                                <td className={cellClass('text-right', `${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''} ${wickBorderClassL}`)}>-</td>
+                                {showFrequency && <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>}
+                                {showFrequency && <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>}
                                 {showOrdColumns && (
                                   <>
-                                    <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
-                                    <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                                    <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>
+                                    <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>
                                   </>
                                 )}
-                                {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>}
-                                <td className={`text-right py-[1px] px-[6px] font-bold text-white ${!showOrdColumns && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                                {showFrequency && <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>}
+                                <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
                                 {showOrdColumns && (
-                                  <td className={`text-right py-[1px] px-[6px] font-bold text-white ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                                  <td className={cellClass('text-right', `${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
                                 )}
                               </React.Fragment>
                             );
@@ -1026,78 +1166,78 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                           return (
                             <React.Fragment key={date}>
                               {/* Price */}
-                              <td className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumber(price)}
+                              <td className={`text-center py-[1px] px-[6px] font-bold ${bgClass} text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${priceIndex === allPrices.length - 1 && !hasBottomOhlcBorder ? 'border-b-2 border-white' : ''} ${ohlcBorderClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                {ohlc && (price < ohlc.low || price > ohlc.high) ? '-' : formatNumber(price)}
                               </td>
                               {/* BLot/BOr */}
                               {showOrdColumns && (
                                 <>
-                                  <td className={`text-right py-[1px] px-[6px] font-bold ${data && data.bOrd > 0 && data.sOrd > 0 ? getComparisonColor(data.bLot / data.bOrd, data.sLot / data.sOrd, true) : 'text-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data && data.bOrd > 0 && data.sOrd > 0 ? getComparisonColor(data.bLot / data.bOrd, data.sLot / data.sOrd, true) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {data ? formatRatio(data.bLot, data.bOrd) : '-'}
                                   </td>
                                   {/* BOr */}
-                                  <td className={`text-right py-[1px] px-[6px] font-bold ${data ? getComparisonColor(data.bOrd, data.sOrd, true) : 'text-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data ? getComparisonColor(data.bOrd, data.sOrd, true) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {data ? formatNumberWithAbbreviation(data.bOrd) : '-'}
                                   </td>
                                 </>
                               )}
                               {/* BLot/Freq */}
                               {showFrequency && (
-                                <td className={`text-right py-[1px] px-[6px] font-bold ${data && data.bFreq > 0 && data.sFreq > 0 ? getComparisonColor(data.bLot / data.bFreq, data.sLot / data.sFreq, true) : 'text-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data && data.bFreq > 0 && data.sFreq > 0 ? getComparisonColor(data.bLot / data.bFreq, data.sLot / data.sFreq, true) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {data ? formatRatio(data.bLot, data.bFreq) : '-'}
                                 </td>
                               )}
                               {/* BFreq */}
                               {showFrequency && (
-                                <td className={`text-right py-[1px] px-[6px] font-bold ${data ? getComparisonColor(data.bFreq, data.sFreq, true) : 'text-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data ? getComparisonColor(data.bFreq, data.sFreq, true) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {data ? formatNumberWithAbbreviation(data.bFreq) : '-'}
                                 </td>
                               )}
                               {/* BLot */}
-                              <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className={cellClass('text-right', `${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''} ${wickBorderClassR}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {data ? formatNumber(data.bLot) : '-'}
                               </td>
                               {/* SLot */}
-                              <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className={cellClass('text-right', `${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''} ${wickBorderClassL}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {data ? formatNumber(data.sLot) : '-'}
                               </td>
                               {/* SFreq */}
                               {showFrequency && (
-                                <td className={`text-right py-[1px] px-[6px] font-bold ${data ? getComparisonColor(data.bFreq, data.sFreq, false) : 'text-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data ? getComparisonColor(data.bFreq, data.sFreq, false) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {data ? formatNumberWithAbbreviation(data.sFreq) : '-'}
                                 </td>
                               )}
                               {/* SLot/Freq */}
                               {showFrequency && (
-                                <td className={`text-right py-[1px] px-[6px] font-bold ${data && data.bFreq > 0 && data.sFreq > 0 ? getComparisonColor(data.bLot / data.bFreq, data.sLot / data.sFreq, false) : 'text-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data && data.bFreq > 0 && data.sFreq > 0 ? getComparisonColor(data.bLot / data.bFreq, data.sLot / data.sFreq, false) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {data ? formatRatio(data.sLot, data.sFreq) : '-'}
                                 </td>
                               )}
                               {/* SOr */}
                               {showOrdColumns && (
                                 <>
-                                  <td className={`text-right py-[1px] px-[6px] font-bold ${data ? getComparisonColor(data.bOrd, data.sOrd, false) : 'text-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data ? getComparisonColor(data.bOrd, data.sOrd, false) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {data ? formatNumberWithAbbreviation(data.sOrd) : '-'}
                                   </td>
                                   {/* SLot/SOr */}
-                                  <td className={`text-right py-[1px] px-[6px] font-bold ${data && data.bOrd > 0 && data.sOrd > 0 ? getComparisonColor(data.bLot / data.bOrd, data.sLot / data.sOrd, false) : 'text-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data && data.bOrd > 0 && data.sOrd > 0 ? getComparisonColor(data.bLot / data.bOrd, data.sLot / data.sOrd, false) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {data ? formatRatio(data.sLot, data.sOrd) : '-'}
                                   </td>
                                 </>
                               )}
                               {/* TFreq */}
                               {showFrequency && (
-                                <td className={`text-right py-[1px] px-[6px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {data ? formatNumberWithAbbreviation(data.tFreq) : '-'}
                                 </td>
                               )}
                               {/* TLot */}
-                              <td className={`text-right py-[1px] px-[6px] font-bold text-white ${!showOrdColumns && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {data ? formatNumberWithAbbreviation(data.tLot) : '-'}
                               </td>
                               {/* TOr */}
                               {showOrdColumns && (
-                                <td className={`text-right py-[1px] px-[6px] font-bold text-white ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={cellClass('text-right', `${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {data ? formatNumberWithAbbreviation(data.tOrd) : '-'}
                                 </td>
                               )}
