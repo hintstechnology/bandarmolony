@@ -295,7 +295,7 @@ const COLUMN_WIDTHS = {
   ORD: '45px',
   LOT_O: '55px',
   SEP: '30px',
-  ROW_HEIGHT: '24px' // Configurable row height
+  ROW_HEIGHT: '0px' // Configurable row height
 };
 
 export function BrokerTransaction() {
