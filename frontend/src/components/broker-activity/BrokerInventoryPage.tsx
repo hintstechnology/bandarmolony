@@ -5179,12 +5179,12 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm border-collapse">
+                        <table className="text-sm border-collapse">
                           <thead>
                             <tr className="border-b border-border bg-muted/50">
-                              <th className="text-left py-2 px-3 font-medium">Rank</th>
+                              <th className="text-left py-2 px-1 font-medium">Rank</th>
                               {topBrokersData.map((dateData) => (
-                                <th key={dateData.date} className="text-center py-2 px-2 font-medium">
+                                <th key={dateData.date} className="text-center py-2 px-1 font-medium">
                                   {formatDisplayDate(dateData.date)}
                                 </th>
                               ))}
@@ -5195,7 +5195,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                               length: topBrokersCount === 'all' ? (topBrokersData[0]?.topBrokers?.length || 0) : Math.min(topBrokersCount, topBrokersData[0]?.topBrokers?.length || 0)
                             }, (_, rank) => (
                               <tr key={rank} className="border-b border-border/50 hover:bg-accent/50">
-                                <td className="py-2 px-3 font-medium text-center">
+                                <td className="py-2 px-1 font-medium text-center">
                                   {rank + 1}
                                 </td>
                                 {topBrokersData.map((dateData) => {
@@ -5204,7 +5204,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                                   return (
                                     <td
                                       key={`${dateData.date}-${rank}`}
-                                      className="text-center py-2 px-3 relative"
+                                      className="text-center py-2 px-1 relative"
                                       style={brokerData ? { backgroundColor: brokerData.color } : {}}
                                     >
                                       <div className="relative w-full h-8 flex items-center justify-center">
