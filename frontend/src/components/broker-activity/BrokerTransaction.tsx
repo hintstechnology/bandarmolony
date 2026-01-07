@@ -4966,29 +4966,17 @@ export function BrokerTransaction() {
                             const netLot = buyLot - sellLot;
                             const netVol = buyVol - sellVol;
 
-                            // Calculate Net Avg: Net Value / Net Vol (if Net Vol > 0)
-                            const netAvg = netVol !== 0 ? netValue / netVol : 0;
+                            // Calculate Net Avg: Net Value / (Net Lot * 100)
+                            // FIXED: Use Math.abs(netLot) * 100 to ensure correctness for Avg Price
+                            const netAvg = Math.abs(netLot * 100) !== 0 ? Math.abs(netValue) / Math.abs(netLot * 100) : 0;
 
                             // Net Freq and OrdNum: use the larger value (or difference if needed)
                             const netFreq = buyFreq - sellFreq;
                             const netOrdNum = buyOrdNum - sellOrdNum;
 
-                            // Lot/F and Lot/ON: weighted average based on frequency/ordnum
-                            let netLotPerFreq = 0;
-                            if (buyFreq > 0 || sellFreq > 0) {
-                              const totalFreq = Math.abs(buyFreq) + Math.abs(sellFreq);
-                              if (totalFreq > 0) {
-                                netLotPerFreq = ((buyLotPerFreq * Math.abs(buyFreq)) + (sellLotPerFreq * Math.abs(sellFreq))) / totalFreq;
-                              }
-                            }
-
-                            let netLotPerOrdNum = 0;
-                            if (buyOrdNum !== 0 || sellOrdNum !== 0) {
-                              const totalOrdNum = Math.abs(buyOrdNum) + Math.abs(sellOrdNum);
-                              if (totalOrdNum > 0) {
-                                netLotPerOrdNum = ((buyLotPerOrdNum * Math.abs(buyOrdNum)) + (sellLotPerOrdNum * Math.abs(sellOrdNum))) / totalOrdNum;
-                              }
-                            }
+                            // Lot/F and Lot/ON: Use values from B/S table (passed through)
+                            // User request: "disamakan dengan nilai yang ada di tabel B/S sesuai emitennya"
+                            // We will use specific Buy/Sell values in the render section
 
                             return {
                               stock,
@@ -4998,8 +4986,10 @@ export function BrokerTransaction() {
                               netAvg,
                               netFreq,
                               netOrdNum,
-                              netLotPerFreq,
-                              netLotPerOrdNum,
+                              buyLotPerFreq,
+                              buyLotPerOrdNum,
+                              sellLotPerFreq,
+                              sellLotPerOrdNum,
                               buyValue,
                               sellValue
                             };
@@ -5035,8 +5025,9 @@ export function BrokerTransaction() {
                           const buyNetAvg = buyStockData?.netAvg || 0;
                           const buyNetFreq = buyStockData?.netFreq || 0;
                           const buyNetOrdNum = buyStockData?.netOrdNum || 0;
-                          const buyNetLotPerFreq = buyStockData?.netLotPerFreq || 0;
-                          const buyNetLotPerOrdNum = buyStockData?.netLotPerOrdNum || 0;
+                          // FIXED: Use Buy Lot/F and Buy Lot/Or from B/S data
+                          const buyNetLotPerFreq = buyStockData?.buyLotPerFreq || 0;
+                          const buyNetLotPerOrdNum = buyStockData?.buyLotPerOrdNum || 0;
 
                           // Prepare Sell side data
                           const sellStockCode = sellStockData?.stock || '';
@@ -5045,8 +5036,9 @@ export function BrokerTransaction() {
                           const sellNetAvg = sellStockData?.netAvg || 0;
                           const sellNetFreq = sellStockData?.netFreq || 0;
                           const sellNetOrdNum = sellStockData?.netOrdNum || 0;
-                          const sellNetLotPerFreq = sellStockData?.netLotPerFreq || 0;
-                          const sellNetLotPerOrdNum = sellStockData?.netLotPerOrdNum || 0;
+                          // FIXED: Use Sell Lot/F and Sell Lot/Or from B/S data
+                          const sellNetLotPerFreq = sellStockData?.sellLotPerFreq || 0;
+                          const sellNetLotPerOrdNum = sellStockData?.sellLotPerOrdNum || 0;
 
                           // Get color classes for codes based on pivot type
                           // For Stock pivot: NBCode/NSCode are broker codes, use getBrokerColorClass
