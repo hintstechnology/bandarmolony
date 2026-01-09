@@ -278,7 +278,8 @@ const TradingViewChart = ({
   displayBrokers,
   title: _title,
   volumeData,
-  ticker
+  ticker,
+  className
 }: {
   candlestickData: any[],
   inventoryData: InventoryTimeSeries[],
@@ -286,7 +287,8 @@ const TradingViewChart = ({
   displayBrokers?: string[],
   title: string,
   volumeData?: any[],
-  ticker?: string
+  ticker?: string,
+  className?: string
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -640,10 +642,10 @@ const TradingViewChart = ({
     const ro = new ResizeObserver((entries) => {
       const cr = entries[0]?.contentRect;
       if (!cr || !chartRef.current) return;
-      chartRef.current.applyOptions({
-        width: Math.max(1, Math.floor(cr.width)),
-        height: Math.max(1, Math.floor(cr.height)),
-      });
+      chartRef.current.resize(
+        Math.max(1, Math.floor(cr.width)),
+        Math.max(1, Math.floor(cr.height))
+      );
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -660,7 +662,7 @@ const TradingViewChart = ({
   }, []);
 
   return (
-    <div className="h-[600px] w-full relative">
+    <div className={className || "h-[600px] w-full relative"}>
       <style>{`
         #tv-attr-logo {
           display: none !important;
@@ -687,7 +689,7 @@ const TradingViewChart = ({
       {/* Axis Labels */}
       {/* Price label di kiri (untuk candlestick yang menggunakan left price scale) */}
       <div
-        className="absolute top-1/2 -left-22 text-sm text-muted-foreground font-bold whitespace-nowrap"
+        className="absolute top-1/2 -left-6 text-sm text-muted-foreground font-bold whitespace-nowrap"
         style={{
           transform: 'translateY(-50%) rotate(-90deg)',
           transformOrigin: 'center',
@@ -1034,6 +1036,7 @@ const InventoryChart = ({
   inventoryData,
   selectedBrokers,
   displayBrokers,
+  className,
 }: {
   inventoryData: InventoryTimeSeries[],
   selectedBrokers: string[],
@@ -1286,7 +1289,7 @@ const InventoryChart = ({
 
       {/* Inventory Label */}
       <div
-        className="absolute top-1/2 -left-22 text-sm text-muted-foreground font-bold whitespace-nowrap"
+        className="absolute top-1/2 -left-6 text-sm text-muted-foreground font-bold whitespace-nowrap"
         style={{
           transform: 'translateY(-50%) rotate(-90deg)',
           transformOrigin: 'center',
@@ -1582,7 +1585,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     const updateSpacerHeight = () => {
       if (controlMenuRef.current) {
         const height = controlMenuRef.current.offsetHeight;
-        setControlSpacerHeight(Math.max(height + 16, 48));
+        setControlSpacerHeight(Math.max(height, 48));
       }
     };
 
@@ -3233,6 +3236,43 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     // Don't set isDataReady to false during loading to prevent flicker - keep showing old data until new data is ready
   }, [isLoadingData, isLoadingBrokerData, ohlcData.length, brokerSummaryData.length, selectedBrokers.length, isDataReady, getActualTicker, displayedTicker]);
 
+  // Auto-refresh chart data when window size changes (debounced) - as requested by user
+  // "maksudnya ketika ukuran layar berubah pastikan langsung di klik show lagi"
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+
+    const handleResize = () => {
+      // Clear existing timeout
+      if (timeoutId) clearTimeout(timeoutId);
+
+      // Only attempt refresh if we have valid data conditions (similar to Show button disabled state)
+      // and if we are not currently loading
+      if (isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !selectedTicker) {
+        return;
+      }
+
+      // 500ms debounce
+      timeoutId = setTimeout(() => {
+        console.log('🔄 Window resized, triggering auto-refresh (simulating Show click)...');
+        // Trigger fetch logic identical to Show button
+        setDisplayedFdFilter(fdFilter);
+        setDisplayedMarket(marketFilter);
+        setShouldFetchData(true);
+        setIsDataReady(false);
+        setIsLoadingData(true);
+        setIsLoadingBrokerData(true);
+        setIsLoadingInventoryData(true);
+      }, 500);
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [isLoadingData, isLoadingBrokerData, selectedBrokers.length, startDate, endDate, selectedTicker, fdFilter, marketFilter]);
+
   // Convert broker summary data to time series format for chart (same as BrokerSummaryPage NET table)
   // Uses NetBuyVol and NetSellVol from brokerSummaryData (same data source as NET table)
   // OPTIMIZED: Use Map-based lookup instead of nested loops for O(1) performance
@@ -3902,1346 +3942,1342 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   }, [otherBrokers, brokerScrollOffset]);
 
   return (
-    <div className="min-h-screen overflow-x-hidden">
-      <div className={`w-full ${onlyShowInventoryChart ? 'p-0' : 'px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6'}`}>
-        <div className={onlyShowInventoryChart ? '' : 'space-y-6'}>
+    <div className={onlyShowInventoryChart ? '' : 'space-y-0'}>
 
-          {/* Controls */}
-          {!hideControls && (
-            <>
-              {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
-              <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
-                <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
-                  {/* Ticker Selection */}
-                  {!disableTickerSelection && (
-                    <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-                      <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-                      <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
-                        <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                        <input
-                          type="text"
-                          value={isInputFocused ? tickerInput : (tickerInput || (selectedTicker ? formatStockDisplayName(selectedTicker) : ''))}
-                          onChange={(e) => {
-                            handleStockInputChange(e.target.value);
+      {/* Controls */}
+      {!hideControls && (
+        <>
+          {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
+          <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+            <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+              {/* Ticker Selection */}
+              {!disableTickerSelection && (
+                <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                  <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
+                  <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
+                    <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                    <input
+                      type="text"
+                      value={isInputFocused ? tickerInput : (tickerInput || (selectedTicker ? formatStockDisplayName(selectedTicker) : ''))}
+                      onChange={(e) => {
+                        handleStockInputChange(e.target.value);
+                        setHighlightedStockIndex(0);
+                        setActiveColumn('stocks'); // Reset to stocks on input
+                      }}
+                      onFocus={() => {
+                        setIsInputFocused(true);
+                        setTickerInput('');
+                        setShowStockSuggestions(true);
+                        setHighlightedStockIndex(0);
+                        setActiveColumn('stocks'); // Reset to stocks on focus
+                      }}
+                      onBlur={() => setIsInputFocused(false)}
+                      onKeyDown={(e) => {
+                        // Define lists based on current state
+                        const currentStocksList = tickerInput === '' ? visibleAllStocksList : visibleStocksList;
+                        const currentSectorsList = tickerInput === '' ? visibleAllSectorsList : visibleSectorsList;
+
+                        const currentList = activeColumn === 'stocks' ? currentStocksList : currentSectorsList;
+                        const totalItems = currentList.length;
+
+                        if (currentStocksList.length === 0 && currentSectorsList.length === 0) return; // Fallback safety check
+
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault();
+                          if (totalItems > 0) {
+                            setHighlightedStockIndex((prev) => (prev + 1) % totalItems);
+                          }
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          if (totalItems > 0) {
+                            setHighlightedStockIndex((prev) => (prev - 1 + totalItems) % totalItems);
+                          }
+                        } else if (e.key === 'ArrowRight') {
+                          // Switch to sectors if possible
+                          if (activeColumn === 'stocks' && currentSectorsList.length > 0) {
+                            e.preventDefault();
+                            setActiveColumn('sectors');
+                            // Reset index or clamp? Resetting to 0 is safer for UX usually
                             setHighlightedStockIndex(0);
-                            setActiveColumn('stocks'); // Reset to stocks on input
-                          }}
-                          onFocus={() => {
-                            setIsInputFocused(true);
-                            setTickerInput('');
-                            setShowStockSuggestions(true);
+                          }
+                        } else if (e.key === 'ArrowLeft') {
+                          // Switch to stocks if possible
+                          if (activeColumn === 'sectors') {
+                            e.preventDefault();
+                            setActiveColumn('stocks');
                             setHighlightedStockIndex(0);
-                            setActiveColumn('stocks'); // Reset to stocks on focus
-                          }}
-                          onBlur={() => setIsInputFocused(false)}
-                          onKeyDown={(e) => {
-                            // Define lists based on current state
-                            const currentStocksList = tickerInput === '' ? visibleAllStocksList : visibleStocksList;
-                            const currentSectorsList = tickerInput === '' ? visibleAllSectorsList : visibleSectorsList;
+                          }
+                        } else if (e.key === 'Enter' && showStockSuggestions) {
+                          e.preventDefault();
+                          const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                          const choice = currentList[idx];
+                          if (choice) handleStockSelect(choice);
+                        } else if (e.key === 'Escape') {
+                          setShowStockSuggestions(false);
+                          setHighlightedStockIndex(-1);
+                        }
+                      }}
+                      placeholder={selectedTicker ? formatStockDisplayName(selectedTicker) : "Select ticker"}
+                      className={`w-full sm:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedTicker ? 'placeholder:text-white' : ''}`}
+                    />
+                    {showStockSuggestions && (
+                      <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]">
+                        {availableStocks.length === 0 ? (
+                          <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            Loading stocks...
+                          </div>
+                        ) : (
+                          <div className="flex flex-row h-full max-h-96 overflow-hidden">
+                            {/* Left column: Stocks */}
+                            <div
+                              className="flex-1 border-r border-[#3a4252] overflow-y-auto"
+                              onScroll={(e) => {
+                                const target = e.target as HTMLElement;
+                                const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                                if (scrollBottom < 100 && stockScrollOffset + ITEMS_PER_PAGE < (tickerInput === '' ? allStocksList.length : filteredStocksList.length)) {
+                                  setStockScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                                }
+                              }}
+                            >
+                              {tickerInput === '' ? (
+                                <>
+                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                    Stocks ({allStocksList.length})
+                                  </div>
+                                  {visibleAllStocksList.map(stock => {
+                                    const isHighlighted = stock === highlightedStockValue;
+                                    return (
+                                      <div
+                                        key={stock}
+                                        onClick={() => handleStockSelect(stock)}
+                                        className={`px-3 py-[2.06px] cursor-pointer text-sm ${isHighlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
+                                      >
+                                        {stock}
+                                      </div>
+                                    );
+                                  })}
+                                  {stockScrollOffset + ITEMS_PER_PAGE < allStocksList.length && (
+                                    <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                      Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, allStocksList.length)} / {allStocksList.length})
+                                    </div>
+                                  )}
+                                </>
+                              ) : filteredStocksList.length > 0 ? (
+                                <>
+                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                    Stocks ({filteredStocksList.length})
+                                  </div>
+                                  {visibleStocksList.map(stock => {
+                                    const isHighlighted = stock === highlightedStockValue;
+                                    return (
+                                      <div
+                                        key={stock}
+                                        onClick={() => handleStockSelect(stock)}
+                                        className={`px-3 py-[2.06px] cursor-pointer text-sm ${isHighlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
+                                      >
+                                        {stock}
+                                      </div>
+                                    );
+                                  })}
+                                  {stockScrollOffset + ITEMS_PER_PAGE < filteredStocksList.length && (
+                                    <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                      Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, filteredStocksList.length)} / {filteredStocksList.length})
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                  Stocks (0)
+                                </div>
+                              )}
+                            </div>
+                            {/* Right column: Sectors */}
+                            <div
+                              className="flex-1 overflow-y-auto"
+                              onScroll={(e) => {
+                                const target = e.target as HTMLElement;
+                                const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                                if (scrollBottom < 100 && sectorScrollOffset + ITEMS_PER_PAGE < (tickerInput === '' ? allSectorsList.length : filteredSectorsList.length)) {
+                                  setSectorScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                                }
+                              }}
+                            >
+                              {tickerInput === '' ? (
+                                <>
+                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                    Sectors ({allSectorsList.length})
+                                  </div>
+                                  {visibleAllSectorsList.map(stock => {
+                                    const isHighlighted = stock === highlightedStockValue;
+                                    return (
+                                      <div
+                                        key={stock}
+                                        onClick={() => handleStockSelect(stock)}
+                                        className={`px-3 py-[2.06px] cursor-pointer text-sm ${isHighlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
+                                      >
+                                        {formatStockDisplayName(stock)}
+                                      </div>
+                                    );
+                                  })}
+                                  {sectorScrollOffset + ITEMS_PER_PAGE < allSectorsList.length && (
+                                    <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                      Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, allSectorsList.length)} / {allSectorsList.length})
+                                    </div>
+                                  )}
+                                </>
+                              ) : filteredSectorsList.length > 0 ? (
+                                <>
+                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                    Sectors ({filteredSectorsList.length})
+                                  </div>
+                                  {visibleSectorsList.map(stock => {
+                                    const isHighlighted = stock === highlightedStockValue;
+                                    return (
+                                      <div
+                                        key={stock}
+                                        onClick={() => handleStockSelect(stock)}
+                                        className={`px-3 py-[2.06px] cursor-pointer text-sm ${isHighlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
+                                      >
+                                        {formatStockDisplayName(stock)}
+                                      </div>
+                                    );
+                                  })}
+                                  {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
+                                    <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                      Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                  Sectors (0)
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* Broker Selection - Multi-select with chips */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
+                <div className="relative flex-1 sm:flex-none w-full sm:w-auto">
+                  <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                  <input
+                    type="text"
+                    placeholder={(() => {
+                      if (isLoadingBrokersForStock) return "Loading...";
+                      if (!getActualTicker) return "Select ticker first...";
 
-                            const currentList = activeColumn === 'stocks' ? currentStocksList : currentSectorsList;
-                            const totalItems = currentList.length;
+                      // Get quick select labels that are active
+                      const quickSelectLabels: string[] = [];
+                      if (brokerSelectionMode.top5buy) {
+                        quickSelectLabels.push('Top 5 Buy');
+                      }
+                      if (brokerSelectionMode.top5sell) {
+                        quickSelectLabels.push('Top 5 Sell');
+                      }
 
-                            if (currentStocksList.length === 0 && currentSectorsList.length === 0) return; // Fallback safety check
+                      // If quick select is active, show quick select labels
+                      if (quickSelectLabels.length > 0) {
+                        return quickSelectLabels.join(' | ');
+                      }
 
-                            if (e.key === 'ArrowDown') {
-                              e.preventDefault();
-                              if (totalItems > 0) {
-                                setHighlightedStockIndex((prev) => (prev + 1) % totalItems);
+                      // Otherwise show selected brokers
+                      if (selectedBrokers.length > 0) {
+                        return selectedBrokers.length === 1 ? selectedBrokers[0] : selectedBrokers.join(' | ');
+                      }
+
+                      return `Broker for ${getActualTicker}...`;
+                    })()}
+                    value={brokerSearch}
+                    disabled={!getActualTicker || isLoadingBrokersForStock}
+                    onChange={(e) => { handleBrokerSearchChange(e); }}
+                    onFocus={handleBrokerFocus}
+                    onKeyDown={handleBrokerKeyDown}
+                    className={`w-full sm:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${(brokerSelectionMode.top5buy || brokerSelectionMode.top5sell || selectedBrokers.length > 0) ? 'placeholder:text-white' : ''}`}
+                    role="combobox"
+                    aria-expanded={showBrokerSuggestions}
+                    aria-controls="broker-suggestions"
+                    aria-autocomplete="list"
+                  />
+                  {showBrokerSuggestions && getActualTicker && !isLoadingBrokersForStock && (
+                    <div id="broker-suggestions" role="listbox" className="broker-dropdown-container absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-[100] max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]" onMouseDown={(e) => e.stopPropagation()}>
+                      {availableBrokersForStock.length === 0 ? (
+                        <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
+                          {isLoadingBrokersForStock ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                              Loading brokers...
+                            </>
+                          ) : (
+                            'No brokers available'
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex flex-row h-full max-h-96 overflow-hidden">
+                          {/* Left column: Brokers */}
+                          <div
+                            className="flex-1 border-r border-[#3a4252] overflow-y-auto"
+                            onScroll={(e) => {
+                              const target = e.target as HTMLElement;
+                              const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                              if (scrollBottom < 100 && brokerScrollOffset + ITEMS_PER_PAGE < otherBrokers.length) {
+                                setBrokerScrollOffset(prev => prev + ITEMS_PER_PAGE);
                               }
-                            } else if (e.key === 'ArrowUp') {
-                              e.preventDefault();
-                              if (totalItems > 0) {
-                                setHighlightedStockIndex((prev) => (prev - 1 + totalItems) % totalItems);
-                              }
-                            } else if (e.key === 'ArrowRight') {
-                              // Switch to sectors if possible
-                              if (activeColumn === 'stocks' && currentSectorsList.length > 0) {
-                                e.preventDefault();
-                                setActiveColumn('sectors');
-                                // Reset index or clamp? Resetting to 0 is safer for UX usually
-                                setHighlightedStockIndex(0);
-                              }
-                            } else if (e.key === 'ArrowLeft') {
-                              // Switch to stocks if possible
-                              if (activeColumn === 'sectors') {
-                                e.preventDefault();
-                                setActiveColumn('stocks');
-                                setHighlightedStockIndex(0);
-                              }
-                            } else if (e.key === 'Enter' && showStockSuggestions) {
-                              e.preventDefault();
-                              const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
-                              const choice = currentList[idx];
-                              if (choice) handleStockSelect(choice);
-                            } else if (e.key === 'Escape') {
-                              setShowStockSuggestions(false);
-                              setHighlightedStockIndex(-1);
-                            }
-                          }}
-                          placeholder={selectedTicker ? formatStockDisplayName(selectedTicker) : "Select ticker"}
-                          className={`w-full sm:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${selectedTicker ? 'placeholder:text-white' : ''}`}
-                        />
-                        {showStockSuggestions && (
-                          <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]">
-                            {availableStocks.length === 0 ? (
-                              <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
-                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                                Loading stocks...
+                            }}
+                          >
+                            {filteredBrokers.length === 0 ? (
+                              <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
+                                {debouncedBrokerSearch !== '' ? `No brokers found matching "${debouncedBrokerSearch}"` : `No brokers available for ${getActualTicker || 'selected ticker'}`}
                               </div>
                             ) : (
-                              <div className="flex flex-row h-full max-h-96 overflow-hidden">
-                                {/* Left column: Stocks */}
+                              <>
+                                {visibleRecommendedBrokers.length > 0 && (
+                                  <>
+                                    <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                      Recommended ({recommendedBrokers.length})
+                                    </div>
+                                    {visibleRecommendedBrokers.map((broker, index) => {
+                                      const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
+                                      const quickSelectCount = hasQuickSelect ? 2 : 0;
+                                      const globalIndex = quickSelectCount + index;
+                                      return (
+                                        <div
+                                          key={`recommended-${broker}`}
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            // Only handle click if not clicking directly on checkbox
+                                            const target = e.target as HTMLElement;
+                                            if (target.tagName !== 'INPUT' && !target.closest('input')) {
+                                              // Allow selecting individual brokers even after quick select
+                                              if (selectedBrokers.includes(broker)) {
+                                                // If already selected, remove it
+                                                removeBroker(broker);
+                                              } else {
+                                                // If not selected, add it
+                                                handleBrokerSelect(broker);
+                                              }
+                                              // Keep suggestions open to allow multiple selections
+                                            }
+                                          }}
+                                          onMouseDown={(e) => {
+                                            // Prevent mousedown from closing dropdown
+                                            e.stopPropagation();
+                                          }}
+                                          className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${globalIndex === highlightedBrokerIndex ? 'bg-accent' : ''} ${selectedBrokers.includes(broker) ? 'bg-accent/50' : ''}`}
+                                          onMouseEnter={() => handleBrokerMouseEnter(globalIndex)}
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            <input
+                                              type="checkbox"
+                                              checked={selectedBrokers.includes(broker)}
+                                              onChange={(e) => {
+                                                e.stopPropagation();
+                                                if (e.target.checked) {
+                                                  if (!selectedBrokers.includes(broker)) {
+                                                    handleBrokerSelect(broker);
+                                                  }
+                                                } else {
+                                                  removeBroker(broker);
+                                                }
+                                              }}
+                                              onClick={(e) => e.stopPropagation()}
+                                              onMouseDown={(e) => e.stopPropagation()}
+                                              className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
+                                            />
+                                            <span className={getBrokerColorClass(broker).className} style={{ color: getBrokerColorClass(broker).color }}>{broker}</span>
+                                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 py-0.5">
+                                              Default
+                                            </span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </>
+                                )}
+                                {otherBrokers.length > 0 && (
+                                  <>
+                                    <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
+                                      {recommendedBrokers.length > 0 ? 'All Brokers' : `Brokers (${totalOtherBrokersCount})`}
+                                    </div>
+                                    {visibleOtherBrokers.map((broker, index) => {
+                                      const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && debouncedBrokerSearch === '';
+                                      const quickSelectCount = hasQuickSelect ? 2 : 0;
+                                      const globalIndex = quickSelectCount + recommendedBrokers.length + index;
+                                      return (
+                                        <div
+                                          key={`option-${broker}`}
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            // Only handle click if not clicking directly on checkbox
+                                            const target = e.target as HTMLElement;
+                                            if (target.tagName !== 'INPUT' && !target.closest('input')) {
+                                              // Allow selecting individual brokers even after quick select
+                                              if (selectedBrokers.includes(broker)) {
+                                                // If already selected, remove it
+                                                removeBroker(broker);
+                                              } else {
+                                                // If not selected, add it
+                                                handleBrokerSelect(broker);
+                                              }
+                                              // Keep suggestions open to allow multiple selections
+                                            }
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              if (selectedBrokers.includes(broker)) {
+                                                removeBroker(broker);
+                                              } else {
+                                                handleBrokerSelect(broker);
+                                              }
+                                            }
+                                          }}
+                                          onMouseDown={(e) => {
+                                            // Prevent mousedown from closing dropdown
+                                            e.stopPropagation();
+                                          }}
+                                          tabIndex={0}
+                                          role="option"
+                                          aria-selected={selectedBrokers.includes(broker)}
+                                          className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${globalIndex === highlightedBrokerIndex ? 'bg-accent' : ''} ${selectedBrokers.includes(broker) ? 'bg-accent/50' : ''}`}
+                                          onMouseEnter={() => handleBrokerMouseEnter(globalIndex)}
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            <input
+                                              type="checkbox"
+                                              checked={selectedBrokers.includes(broker)}
+                                              onChange={(e) => {
+                                                e.stopPropagation();
+                                                if (e.target.checked) {
+                                                  if (!selectedBrokers.includes(broker)) {
+                                                    handleBrokerSelect(broker);
+                                                  }
+                                                } else {
+                                                  removeBroker(broker);
+                                                }
+                                              }}
+                                              onClick={(e) => e.stopPropagation()}
+                                              onMouseDown={(e) => e.stopPropagation()}
+                                              className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
+                                            />
+                                            <span className={getBrokerColorClass(broker).className} style={{ color: getBrokerColorClass(broker).color }}>{broker}</span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                    {brokerScrollOffset + ITEMS_PER_PAGE < otherBrokers.length && (
+                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                        Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, otherBrokers.length)} / {otherBrokers.length})
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </>
+                            )}
+                          </div>
+                          {/* Right column: Quick Select - Always visible */}
+                          <div className="flex-1 overflow-y-auto">
+                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                              Quick Select
+                            </div>
+                            {brokerSearch === '' && (
+                              <>
                                 <div
-                                  className="flex-1 border-r border-[#3a4252] overflow-y-auto"
-                                  onScroll={(e) => {
-                                    const target = e.target as HTMLElement;
-                                    const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-                                    if (scrollBottom < 100 && stockScrollOffset + ITEMS_PER_PAGE < (tickerInput === '' ? allStocksList.length : filteredStocksList.length)) {
-                                      setStockScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                                  onClick={() => {
+                                    // Only allow action if data is loaded
+                                    if (brokerNetStats.topBuyers.length === 0) {
+                                      return;
+                                    }
+                                    // Toggle top5buy mode and add/remove top 5 buyers
+                                    const top5Buy = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
+                                    const isCurrentlyActive = brokerSelectionMode.top5buy;
+
+                                    if (isCurrentlyActive) {
+                                      // Remove top 5 buyers from selection
+                                      setSelectedBrokers(prev => prev.filter(b => !top5Buy.includes(b)));
+                                      setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
+                                    } else {
+                                      // Add top 5 buyers to selection (merge with existing)
+                                      setSelectedBrokers(prev => {
+                                        const newSet = new Set([...prev, ...top5Buy]);
+                                        return Array.from(newSet);
+                                      });
+                                      setBrokerSelectionMode(prev => ({ ...prev, top5buy: true }));
+                                    }
+                                    setHasUserSelectedBrokers(false);
+                                    setBrokerSearch('');
+                                    // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                    setShouldFetchData(false);
+                                    console.log(`✅ Top 5 Buy ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
+                                      top5Buy,
+                                      count: top5Buy.length,
+                                      willAppearInLegend: !isCurrentlyActive
+                                    });
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      if (brokerNetStats.topBuyers.length === 0) {
+                                        return;
+                                      }
+                                      const top5Buy = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
+                                      const isCurrentlyActive = brokerSelectionMode.top5buy;
+
+                                      if (isCurrentlyActive) {
+                                        setSelectedBrokers(prev => prev.filter(b => !top5Buy.includes(b)));
+                                        setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
+                                      } else {
+                                        setSelectedBrokers(prev => {
+                                          const newSet = new Set([...prev, ...top5Buy]);
+                                          return Array.from(newSet);
+                                        });
+                                        setBrokerSelectionMode(prev => ({ ...prev, top5buy: true }));
+                                      }
+                                      setHasUserSelectedBrokers(false);
+                                      setBrokerSearch('');
+                                      // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                      setShouldFetchData(false);
                                     }
                                   }}
+                                  tabIndex={brokerNetStats.topBuyers.length > 0 ? 0 : -1}
+                                  role="option"
+                                  aria-selected={brokerSelectionMode.top5buy}
+                                  aria-disabled={brokerNetStats.topBuyers.length === 0}
+                                  className={`px-3 py-[2.06px] text-sm font-medium ${brokerNetStats.topBuyers.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted cursor-pointer'} ${highlightedBrokerIndex === 0 ? 'bg-accent' : ''} ${brokerSelectionMode.top5buy ? 'bg-primary/20' : ''}`}
                                 >
-                                  {tickerInput === '' ? (
-                                    <>
-                                      <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                        Stocks ({allStocksList.length})
-                                      </div>
-                                      {visibleAllStocksList.map(stock => {
-                                        const isHighlighted = stock === highlightedStockValue;
-                                        return (
-                                          <div
-                                            key={stock}
-                                            onClick={() => handleStockSelect(stock)}
-                                            className={`px-3 py-[2.06px] cursor-pointer text-sm ${isHighlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
-                                          >
-                                            {stock}
-                                          </div>
-                                        );
-                                      })}
-                                      {stockScrollOffset + ITEMS_PER_PAGE < allStocksList.length && (
-                                        <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                          Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, allStocksList.length)} / {allStocksList.length})
-                                        </div>
-                                      )}
-                                    </>
-                                  ) : filteredStocksList.length > 0 ? (
-                                    <>
-                                      <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                        Stocks ({filteredStocksList.length})
-                                      </div>
-                                      {visibleStocksList.map(stock => {
-                                        const isHighlighted = stock === highlightedStockValue;
-                                        return (
-                                          <div
-                                            key={stock}
-                                            onClick={() => handleStockSelect(stock)}
-                                            className={`px-3 py-[2.06px] cursor-pointer text-sm ${isHighlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
-                                          >
-                                            {stock}
-                                          </div>
-                                        );
-                                      })}
-                                      {stockScrollOffset + ITEMS_PER_PAGE < filteredStocksList.length && (
-                                        <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                          Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, filteredStocksList.length)} / {filteredStocksList.length})
-                                        </div>
-                                      )}
-                                    </>
-                                  ) : (
-                                    <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                      Stocks (0)
-                                    </div>
-                                  )}
+                                  📈 Top 5 Buy {brokerSelectionMode.top5buy ? '✓' : ''} {brokerNetStats.topBuyers.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
                                 </div>
-                                {/* Right column: Sectors */}
                                 <div
-                                  className="flex-1 overflow-y-auto"
-                                  onScroll={(e) => {
-                                    const target = e.target as HTMLElement;
-                                    const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-                                    if (scrollBottom < 100 && sectorScrollOffset + ITEMS_PER_PAGE < (tickerInput === '' ? allSectorsList.length : filteredSectorsList.length)) {
-                                      setSectorScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                                  onClick={() => {
+                                    // Only allow action if data is loaded
+                                    if (brokerNetStats.topSellers.length === 0) {
+                                      return;
+                                    }
+                                    // Toggle top5sell mode and add/remove top 5 sellers
+                                    const top5Sell = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
+                                    const isCurrentlyActive = brokerSelectionMode.top5sell;
+
+                                    if (isCurrentlyActive) {
+                                      // Remove top 5 sellers from selection
+                                      setSelectedBrokers(prev => prev.filter(b => !top5Sell.includes(b)));
+                                      setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
+                                    } else {
+                                      // Add top 5 sellers to selection (merge with existing)
+                                      setSelectedBrokers(prev => {
+                                        const newSet = new Set([...prev, ...top5Sell]);
+                                        return Array.from(newSet);
+                                      });
+                                      setBrokerSelectionMode(prev => ({ ...prev, top5sell: true }));
+                                    }
+                                    setHasUserSelectedBrokers(false);
+                                    setBrokerSearch('');
+                                    // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                    setShouldFetchData(false);
+                                    console.log(`✅ Top 5 Sell ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
+                                      top5Sell,
+                                      count: top5Sell.length,
+                                      willAppearInLegend: !isCurrentlyActive
+                                    });
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      if (brokerNetStats.topSellers.length === 0) {
+                                        return;
+                                      }
+                                      const top5Sell = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
+                                      const isCurrentlyActive = brokerSelectionMode.top5sell;
+
+                                      if (isCurrentlyActive) {
+                                        setSelectedBrokers(prev => prev.filter(b => !top5Sell.includes(b)));
+                                        setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
+                                      } else {
+                                        setSelectedBrokers(prev => {
+                                          const newSet = new Set([...prev, ...top5Sell]);
+                                          return Array.from(newSet);
+                                        });
+                                        setBrokerSelectionMode(prev => ({ ...prev, top5sell: true }));
+                                      }
+                                      setHasUserSelectedBrokers(false);
+                                      setBrokerSearch('');
+                                      // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                      setShouldFetchData(false);
                                     }
                                   }}
+                                  tabIndex={brokerNetStats.topSellers.length > 0 ? 0 : -1}
+                                  role="option"
+                                  aria-selected={brokerSelectionMode.top5sell}
+                                  aria-disabled={brokerNetStats.topSellers.length === 0}
+                                  className={`px-3 py-[2.06px] text-sm font-medium ${brokerNetStats.topSellers.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted cursor-pointer'} ${highlightedBrokerIndex === 1 ? 'bg-accent' : ''} ${brokerSelectionMode.top5sell ? 'bg-primary/20' : ''}`}
                                 >
-                                  {tickerInput === '' ? (
-                                    <>
-                                      <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                        Sectors ({allSectorsList.length})
-                                      </div>
-                                      {visibleAllSectorsList.map(stock => {
-                                        const isHighlighted = stock === highlightedStockValue;
-                                        return (
-                                          <div
-                                            key={stock}
-                                            onClick={() => handleStockSelect(stock)}
-                                            className={`px-3 py-[2.06px] cursor-pointer text-sm ${isHighlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
-                                          >
-                                            {formatStockDisplayName(stock)}
-                                          </div>
-                                        );
-                                      })}
-                                      {sectorScrollOffset + ITEMS_PER_PAGE < allSectorsList.length && (
-                                        <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                          Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, allSectorsList.length)} / {allSectorsList.length})
-                                        </div>
-                                      )}
-                                    </>
-                                  ) : filteredSectorsList.length > 0 ? (
-                                    <>
-                                      <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                        Sectors ({filteredSectorsList.length})
-                                      </div>
-                                      {visibleSectorsList.map(stock => {
-                                        const isHighlighted = stock === highlightedStockValue;
-                                        return (
-                                          <div
-                                            key={stock}
-                                            onClick={() => handleStockSelect(stock)}
-                                            className={`px-3 py-[2.06px] cursor-pointer text-sm ${isHighlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
-                                          >
-                                            {formatStockDisplayName(stock)}
-                                          </div>
-                                        );
-                                      })}
-                                      {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
-                                        <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                          Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
-                                        </div>
-                                      )}
-                                    </>
-                                  ) : (
-                                    <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                      Sectors (0)
-                                    </div>
-                                  )}
+                                  📉 Top 5 Sell {brokerSelectionMode.top5sell ? '✓' : ''} {brokerNetStats.topSellers.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
                                 </div>
+                              </>
+                            )}
+                            {brokerSearch !== '' && (
+                              <div className="px-3 py-[2.06px] text-xs text-muted-foreground">
+                                Quick Select unavailable while searching
                               </div>
                             )}
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {/* Broker Selection - Multi-select with chips */}
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
-                    <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
-                    <div className="relative flex-1 sm:flex-none w-full sm:w-auto">
-                      <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                      <input
-                        type="text"
-                        placeholder={(() => {
-                          if (isLoadingBrokersForStock) return "Loading...";
-                          if (!getActualTicker) return "Select ticker first...";
-
-                          // Get quick select labels that are active
-                          const quickSelectLabels: string[] = [];
-                          if (brokerSelectionMode.top5buy) {
-                            quickSelectLabels.push('Top 5 Buy');
-                          }
-                          if (brokerSelectionMode.top5sell) {
-                            quickSelectLabels.push('Top 5 Sell');
-                          }
-
-                          // If quick select is active, show quick select labels
-                          if (quickSelectLabels.length > 0) {
-                            return quickSelectLabels.join(' | ');
-                          }
-
-                          // Otherwise show selected brokers
-                          if (selectedBrokers.length > 0) {
-                            return selectedBrokers.length === 1 ? selectedBrokers[0] : selectedBrokers.join(' | ');
-                          }
-
-                          return `Broker for ${getActualTicker}...`;
-                        })()}
-                        value={brokerSearch}
-                        disabled={!getActualTicker || isLoadingBrokersForStock}
-                        onChange={(e) => { handleBrokerSearchChange(e); }}
-                        onFocus={handleBrokerFocus}
-                        onKeyDown={handleBrokerKeyDown}
-                        className={`w-full sm:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${(brokerSelectionMode.top5buy || brokerSelectionMode.top5sell || selectedBrokers.length > 0) ? 'placeholder:text-white' : ''}`}
-                        role="combobox"
-                        aria-expanded={showBrokerSuggestions}
-                        aria-controls="broker-suggestions"
-                        aria-autocomplete="list"
-                      />
-                      {showBrokerSuggestions && getActualTicker && !isLoadingBrokersForStock && (
-                        <div id="broker-suggestions" role="listbox" className="broker-dropdown-container absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-[100] max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]" onMouseDown={(e) => e.stopPropagation()}>
-                          {availableBrokersForStock.length === 0 ? (
-                            <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
-                              {isLoadingBrokersForStock ? (
-                                <>
-                                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                                  Loading brokers...
-                                </>
-                              ) : (
-                                'No brokers available'
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex flex-row h-full max-h-96 overflow-hidden">
-                              {/* Left column: Brokers */}
-                              <div
-                                className="flex-1 border-r border-[#3a4252] overflow-y-auto"
-                                onScroll={(e) => {
-                                  const target = e.target as HTMLElement;
-                                  const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-                                  if (scrollBottom < 100 && brokerScrollOffset + ITEMS_PER_PAGE < otherBrokers.length) {
-                                    setBrokerScrollOffset(prev => prev + ITEMS_PER_PAGE);
-                                  }
-                                }}
-                              >
-                                {filteredBrokers.length === 0 ? (
-                                  <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                                    {debouncedBrokerSearch !== '' ? `No brokers found matching "${debouncedBrokerSearch}"` : `No brokers available for ${getActualTicker || 'selected ticker'}`}
-                                  </div>
-                                ) : (
-                                  <>
-                                    {visibleRecommendedBrokers.length > 0 && (
-                                      <>
-                                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                          Recommended ({recommendedBrokers.length})
-                                        </div>
-                                        {visibleRecommendedBrokers.map((broker, index) => {
-                                          const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
-                                          const quickSelectCount = hasQuickSelect ? 2 : 0;
-                                          const globalIndex = quickSelectCount + index;
-                                          return (
-                                            <div
-                                              key={`recommended-${broker}`}
-                                              onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                // Only handle click if not clicking directly on checkbox
-                                                const target = e.target as HTMLElement;
-                                                if (target.tagName !== 'INPUT' && !target.closest('input')) {
-                                                  // Allow selecting individual brokers even after quick select
-                                                  if (selectedBrokers.includes(broker)) {
-                                                    // If already selected, remove it
-                                                    removeBroker(broker);
-                                                  } else {
-                                                    // If not selected, add it
-                                                    handleBrokerSelect(broker);
-                                                  }
-                                                  // Keep suggestions open to allow multiple selections
-                                                }
-                                              }}
-                                              onMouseDown={(e) => {
-                                                // Prevent mousedown from closing dropdown
-                                                e.stopPropagation();
-                                              }}
-                                              className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${globalIndex === highlightedBrokerIndex ? 'bg-accent' : ''} ${selectedBrokers.includes(broker) ? 'bg-accent/50' : ''}`}
-                                              onMouseEnter={() => handleBrokerMouseEnter(globalIndex)}
-                                            >
-                                              <div className="flex items-center gap-2">
-                                                <input
-                                                  type="checkbox"
-                                                  checked={selectedBrokers.includes(broker)}
-                                                  onChange={(e) => {
-                                                    e.stopPropagation();
-                                                    if (e.target.checked) {
-                                                      if (!selectedBrokers.includes(broker)) {
-                                                        handleBrokerSelect(broker);
-                                                      }
-                                                    } else {
-                                                      removeBroker(broker);
-                                                    }
-                                                  }}
-                                                  onClick={(e) => e.stopPropagation()}
-                                                  onMouseDown={(e) => e.stopPropagation()}
-                                                  className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
-                                                />
-                                                <span className={getBrokerColorClass(broker).className} style={{ color: getBrokerColorClass(broker).color }}>{broker}</span>
-                                                <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 py-0.5">
-                                                  Default
-                                                </span>
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
-                                      </>
-                                    )}
-                                    {otherBrokers.length > 0 && (
-                                      <>
-                                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                                          {recommendedBrokers.length > 0 ? 'All Brokers' : `Brokers (${totalOtherBrokersCount})`}
-                                        </div>
-                                        {visibleOtherBrokers.map((broker, index) => {
-                                          const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && debouncedBrokerSearch === '';
-                                          const quickSelectCount = hasQuickSelect ? 2 : 0;
-                                          const globalIndex = quickSelectCount + recommendedBrokers.length + index;
-                                          return (
-                                            <div
-                                              key={`option-${broker}`}
-                                              onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                // Only handle click if not clicking directly on checkbox
-                                                const target = e.target as HTMLElement;
-                                                if (target.tagName !== 'INPUT' && !target.closest('input')) {
-                                                  // Allow selecting individual brokers even after quick select
-                                                  if (selectedBrokers.includes(broker)) {
-                                                    // If already selected, remove it
-                                                    removeBroker(broker);
-                                                  } else {
-                                                    // If not selected, add it
-                                                    handleBrokerSelect(broker);
-                                                  }
-                                                  // Keep suggestions open to allow multiple selections
-                                                }
-                                              }}
-                                              onKeyDown={(e) => {
-                                                if (e.key === 'Enter' || e.key === ' ') {
-                                                  e.preventDefault();
-                                                  e.stopPropagation();
-                                                  if (selectedBrokers.includes(broker)) {
-                                                    removeBroker(broker);
-                                                  } else {
-                                                    handleBrokerSelect(broker);
-                                                  }
-                                                }
-                                              }}
-                                              onMouseDown={(e) => {
-                                                // Prevent mousedown from closing dropdown
-                                                e.stopPropagation();
-                                              }}
-                                              tabIndex={0}
-                                              role="option"
-                                              aria-selected={selectedBrokers.includes(broker)}
-                                              className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${globalIndex === highlightedBrokerIndex ? 'bg-accent' : ''} ${selectedBrokers.includes(broker) ? 'bg-accent/50' : ''}`}
-                                              onMouseEnter={() => handleBrokerMouseEnter(globalIndex)}
-                                            >
-                                              <div className="flex items-center gap-2">
-                                                <input
-                                                  type="checkbox"
-                                                  checked={selectedBrokers.includes(broker)}
-                                                  onChange={(e) => {
-                                                    e.stopPropagation();
-                                                    if (e.target.checked) {
-                                                      if (!selectedBrokers.includes(broker)) {
-                                                        handleBrokerSelect(broker);
-                                                      }
-                                                    } else {
-                                                      removeBroker(broker);
-                                                    }
-                                                  }}
-                                                  onClick={(e) => e.stopPropagation()}
-                                                  onMouseDown={(e) => e.stopPropagation()}
-                                                  className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
-                                                />
-                                                <span className={getBrokerColorClass(broker).className} style={{ color: getBrokerColorClass(broker).color }}>{broker}</span>
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
-                                        {brokerScrollOffset + ITEMS_PER_PAGE < otherBrokers.length && (
-                                          <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                                            Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, otherBrokers.length)} / {otherBrokers.length})
-                                          </div>
-                                        )}
-                                      </>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                              {/* Right column: Quick Select - Always visible */}
-                              <div className="flex-1 overflow-y-auto">
-                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                  Quick Select
-                                </div>
-                                {brokerSearch === '' && (
-                                  <>
-                                    <div
-                                      onClick={() => {
-                                        // Only allow action if data is loaded
-                                        if (brokerNetStats.topBuyers.length === 0) {
-                                          return;
-                                        }
-                                        // Toggle top5buy mode and add/remove top 5 buyers
-                                        const top5Buy = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
-                                        const isCurrentlyActive = brokerSelectionMode.top5buy;
-
-                                        if (isCurrentlyActive) {
-                                          // Remove top 5 buyers from selection
-                                          setSelectedBrokers(prev => prev.filter(b => !top5Buy.includes(b)));
-                                          setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
-                                        } else {
-                                          // Add top 5 buyers to selection (merge with existing)
-                                          setSelectedBrokers(prev => {
-                                            const newSet = new Set([...prev, ...top5Buy]);
-                                            return Array.from(newSet);
-                                          });
-                                          setBrokerSelectionMode(prev => ({ ...prev, top5buy: true }));
-                                        }
-                                        setHasUserSelectedBrokers(false);
-                                        setBrokerSearch('');
-                                        // Reset shouldFetchData to prevent auto-reload until Show is clicked
-                                        setShouldFetchData(false);
-                                        console.log(`✅ Top 5 Buy ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
-                                          top5Buy,
-                                          count: top5Buy.length,
-                                          willAppearInLegend: !isCurrentlyActive
-                                        });
-                                      }}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter' || e.key === ' ') {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          if (brokerNetStats.topBuyers.length === 0) {
-                                            return;
-                                          }
-                                          const top5Buy = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
-                                          const isCurrentlyActive = brokerSelectionMode.top5buy;
-
-                                          if (isCurrentlyActive) {
-                                            setSelectedBrokers(prev => prev.filter(b => !top5Buy.includes(b)));
-                                            setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
-                                          } else {
-                                            setSelectedBrokers(prev => {
-                                              const newSet = new Set([...prev, ...top5Buy]);
-                                              return Array.from(newSet);
-                                            });
-                                            setBrokerSelectionMode(prev => ({ ...prev, top5buy: true }));
-                                          }
-                                          setHasUserSelectedBrokers(false);
-                                          setBrokerSearch('');
-                                          // Reset shouldFetchData to prevent auto-reload until Show is clicked
-                                          setShouldFetchData(false);
-                                        }
-                                      }}
-                                      tabIndex={brokerNetStats.topBuyers.length > 0 ? 0 : -1}
-                                      role="option"
-                                      aria-selected={brokerSelectionMode.top5buy}
-                                      aria-disabled={brokerNetStats.topBuyers.length === 0}
-                                      className={`px-3 py-[2.06px] text-sm font-medium ${brokerNetStats.topBuyers.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted cursor-pointer'} ${highlightedBrokerIndex === 0 ? 'bg-accent' : ''} ${brokerSelectionMode.top5buy ? 'bg-primary/20' : ''}`}
-                                    >
-                                      📈 Top 5 Buy {brokerSelectionMode.top5buy ? '✓' : ''} {brokerNetStats.topBuyers.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
-                                    </div>
-                                    <div
-                                      onClick={() => {
-                                        // Only allow action if data is loaded
-                                        if (brokerNetStats.topSellers.length === 0) {
-                                          return;
-                                        }
-                                        // Toggle top5sell mode and add/remove top 5 sellers
-                                        const top5Sell = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
-                                        const isCurrentlyActive = brokerSelectionMode.top5sell;
-
-                                        if (isCurrentlyActive) {
-                                          // Remove top 5 sellers from selection
-                                          setSelectedBrokers(prev => prev.filter(b => !top5Sell.includes(b)));
-                                          setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
-                                        } else {
-                                          // Add top 5 sellers to selection (merge with existing)
-                                          setSelectedBrokers(prev => {
-                                            const newSet = new Set([...prev, ...top5Sell]);
-                                            return Array.from(newSet);
-                                          });
-                                          setBrokerSelectionMode(prev => ({ ...prev, top5sell: true }));
-                                        }
-                                        setHasUserSelectedBrokers(false);
-                                        setBrokerSearch('');
-                                        // Reset shouldFetchData to prevent auto-reload until Show is clicked
-                                        setShouldFetchData(false);
-                                        console.log(`✅ Top 5 Sell ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
-                                          top5Sell,
-                                          count: top5Sell.length,
-                                          willAppearInLegend: !isCurrentlyActive
-                                        });
-                                      }}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter' || e.key === ' ') {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          if (brokerNetStats.topSellers.length === 0) {
-                                            return;
-                                          }
-                                          const top5Sell = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
-                                          const isCurrentlyActive = brokerSelectionMode.top5sell;
-
-                                          if (isCurrentlyActive) {
-                                            setSelectedBrokers(prev => prev.filter(b => !top5Sell.includes(b)));
-                                            setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
-                                          } else {
-                                            setSelectedBrokers(prev => {
-                                              const newSet = new Set([...prev, ...top5Sell]);
-                                              return Array.from(newSet);
-                                            });
-                                            setBrokerSelectionMode(prev => ({ ...prev, top5sell: true }));
-                                          }
-                                          setHasUserSelectedBrokers(false);
-                                          setBrokerSearch('');
-                                          // Reset shouldFetchData to prevent auto-reload until Show is clicked
-                                          setShouldFetchData(false);
-                                        }
-                                      }}
-                                      tabIndex={brokerNetStats.topSellers.length > 0 ? 0 : -1}
-                                      role="option"
-                                      aria-selected={brokerSelectionMode.top5sell}
-                                      aria-disabled={brokerNetStats.topSellers.length === 0}
-                                      className={`px-3 py-[2.06px] text-sm font-medium ${brokerNetStats.topSellers.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted cursor-pointer'} ${highlightedBrokerIndex === 1 ? 'bg-accent' : ''} ${brokerSelectionMode.top5sell ? 'bg-primary/20' : ''}`}
-                                    >
-                                      📉 Top 5 Sell {brokerSelectionMode.top5sell ? '✓' : ''} {brokerNetStats.topSellers.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
-                                    </div>
-                                  </>
-                                )}
-                                {brokerSearch !== '' && (
-                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground">
-                                    Quick Select unavailable while searching
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>
-                  </div>
+                  )}
+                </div>
+              </div>
 
-                  {/* Date Range */}
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
-                    <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                      <div
-                        className="relative h-9 flex-1 sm:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
-                        onClick={() => triggerDatePicker(startDateRef)}
-                      >
-                        <input
-                          ref={startDateRef}
-                          type="date"
-                          value={formatDateForInput(startDate)}
-                          onChange={(e) => {
-                            const selectedDate = e.target.value;
-
-                            // Validate minimum date (19/09/2025)
-                            if (selectedDate < MIN_DATE) {
-                              showToast({
-                                type: 'error',
-                                title: 'Tanggal Tidak Valid',
-                                message: `Tanggal minimum yang bisa dipilih adalah ${new Date(MIN_DATE).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
-                              });
-                              if (startDateRef.current) {
-                                startDateRef.current.value = formatDateForInput(startDate);
-                              }
-                              return;
-                            }
-
-                            // Validate maximum date (latest data date)
-                            if (latestDataDate && selectedDate > latestDataDate) {
-                              showToast({
-                                type: 'error',
-                                title: 'Tanggal Tidak Valid',
-                                message: `Tanggal maksimum yang tersedia adalah ${new Date(latestDataDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
-                              });
-                              if (startDateRef.current) {
-                                startDateRef.current.value = formatDateForInput(startDate);
-                              }
-                              return;
-                            }
-                            setStartDate(selectedDate);
-                            if (!endDate || new Date(selectedDate) > new Date(endDate)) {
-                              setEndDate(selectedDate);
-                            }
-                          }}
-                          max={latestDataDate ? formatDateForInput(latestDataDate) : (endDate ? formatDateForInput(endDate) : new Date().toISOString().split('T')[0] || '')}
-                          min={MIN_DATE}
-                          onKeyDown={(e) => e.preventDefault()}
-                          onPaste={(e) => e.preventDefault()}
-                          onInput={(e) => e.preventDefault()}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                          style={{ caretColor: 'transparent' }}
-                        />
-                        <div className="flex items-center gap-2 h-full px-3">
-                          <Calendar className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-sm text-foreground">
-                            {startDate ? new Date(startDate).toLocaleDateString('en-GB', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: 'numeric'
-                            }) : 'DD/MM/YYYY'}
-                          </span>
-                        </div>
-                      </div>
-                      <span className="text-sm text-muted-foreground whitespace-nowrap hidden sm:inline">to</span>
-                      <div
-                        className="relative h-9 flex-1 sm:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
-                        onClick={() => triggerDatePicker(endDateRef)}
-                      >
-                        <input
-                          ref={endDateRef}
-                          type="date"
-                          value={formatDateForInput(endDate)}
-                          onChange={(e) => {
-                            const selectedDate = e.target.value;
-
-                            if (selectedDate < MIN_DATE) {
-                              showToast({
-                                type: 'error',
-                                title: 'Tanggal Tidak Valid',
-                                message: `Tanggal minimum yang bisa dipilih adalah ${new Date(MIN_DATE).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
-                              });
-                              if (endDateRef.current) {
-                                endDateRef.current.value = formatDateForInput(endDate);
-                              }
-                              return;
-                            }
-
-                            if (latestDataDate && selectedDate > latestDataDate) {
-                              showToast({
-                                type: 'error',
-                                title: 'Tanggal Tidak Valid',
-                                message: `Tanggal maksimum yang tersedia adalah ${new Date(latestDataDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
-                              });
-                              if (endDateRef.current) {
-                                endDateRef.current.value = formatDateForInput(endDate);
-                              }
-                              return;
-                            }
-                            setEndDate(selectedDate);
-                          }}
-                          min={formatDateForInput(startDate || MIN_DATE)}
-                          max={latestDataDate ? formatDateForInput(latestDataDate) : new Date().toISOString().split('T')[0]}
-                          onKeyDown={(e) => e.preventDefault()}
-                          onPaste={(e) => e.preventDefault()}
-                          onInput={(e) => e.preventDefault()}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                          style={{ caretColor: 'transparent' }}
-                        />
-                        <div className="flex items-center gap-2 h-full px-3">
-                          <Calendar className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-sm text-foreground">
-                            {endDate ? new Date(endDate).toLocaleDateString('en-GB', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: 'numeric'
-                            }) : 'DD/MM/YYYY'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* F/D Filter */}
-                  <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-                    <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
-                    <select
-                      value={fdFilter}
-                      onChange={(e) => {
-                        setFdFilter(e.target.value as 'All' | 'Foreign' | 'Domestic');
-                        // CRITICAL: Keep existing data visible - no auto-fetch, no hide charts
-                        // User must click Show button to fetch new data
-                      }}
-                      className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
-                    >
-                      <option value="All">All</option>
-                      <option value="Foreign">Foreign</option>
-                      <option value="Domestic">Domestic</option>
-                    </select>
-                  </div>
-
-                  {/* Board Filter */}
-                  <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-                    <label className="text-sm font-medium whitespace-nowrap">Board:</label>
-                    <select
-                      value={marketFilter}
-                      onChange={(e) => {
-                        setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '');
-                        // CRITICAL: Keep existing data visible - no auto-fetch, no hide charts
-                        // User must click Show button to fetch new data
-                      }}
-                      className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
-                    >
-                      <option value="">All</option>
-                      <option value="RG">RG</option>
-                      <option value="TN">TN</option>
-                      <option value="NG">NG</option>
-                    </select>
-                  </div>
-
-                  {/* Show Button */}
-                  <button
-                    onClick={() => {
-                      // Update displayed filters when Show button is clicked
-                      setDisplayedFdFilter(fdFilter);
-                      setDisplayedMarket(marketFilter);
-                      // Set shouldFetchData to true to trigger data fetch
-                      setShouldFetchData(true);
-                      setIsDataReady(false);
-                      // Set loading states immediately to show loading spinner right away
-                      setIsLoadingData(true);
-                      setIsLoadingBrokerData(true);
-                      setIsLoadingInventoryData(true);
-                    }}
-                    disabled={isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !selectedTicker}
-                    className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
+              {/* Date Range */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <div
+                    className="relative h-9 flex-1 sm:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => triggerDatePicker(startDateRef)}
                   >
-                    Show
-                  </button>
-                </div>
-              </div>
-              {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-              <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
-            </>
-          )}
+                    <input
+                      ref={startDateRef}
+                      type="date"
+                      value={formatDateForInput(startDate)}
+                      onChange={(e) => {
+                        const selectedDate = e.target.value;
 
+                        // Validate minimum date (19/09/2025)
+                        if (selectedDate < MIN_DATE) {
+                          showToast({
+                            type: 'error',
+                            title: 'Tanggal Tidak Valid',
+                            message: `Tanggal minimum yang bisa dipilih adalah ${new Date(MIN_DATE).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+                          });
+                          if (startDateRef.current) {
+                            startDateRef.current.value = formatDateForInput(startDate);
+                          }
+                          return;
+                        }
 
-          {/* Loading State - Show when data is loading but not ready yet */}
-          {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
-            <div className="flex items-center justify-center py-16">
-              <div className="flex flex-col items-center gap-3">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                <div className="text-sm text-muted-foreground">
-                  Loading ticker and broker data...
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Chart Rendering - Only show when data is ready */}
-          {isDataReady ? (
-            onlyShowInventoryChart ? (
-              // Only show Broker Inventory Chart
-              <Card>
-                <CardHeader>
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                    <div>
-                      <CardTitle>Broker Cumulative Net Flow</CardTitle>
-                      <p className="text-sm text-muted-foreground">
-                        Broker inventory accumulation starting from 0
-                      </p>
+                        // Validate maximum date (latest data date)
+                        if (latestDataDate && selectedDate > latestDataDate) {
+                          showToast({
+                            type: 'error',
+                            title: 'Tanggal Tidak Valid',
+                            message: `Tanggal maksimum yang tersedia adalah ${new Date(latestDataDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+                          });
+                          if (startDateRef.current) {
+                            startDateRef.current.value = formatDateForInput(startDate);
+                          }
+                          return;
+                        }
+                        setStartDate(selectedDate);
+                        if (!endDate || new Date(selectedDate) > new Date(endDate)) {
+                          setEndDate(selectedDate);
+                        }
+                      }}
+                      max={latestDataDate ? formatDateForInput(latestDataDate) : (endDate ? formatDateForInput(endDate) : new Date().toISOString().split('T')[0] || '')}
+                      min={MIN_DATE}
+                      onKeyDown={(e) => e.preventDefault()}
+                      onPaste={(e) => e.preventDefault()}
+                      onInput={(e) => e.preventDefault()}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      style={{ caretColor: 'transparent' }}
+                    />
+                    <div className="flex items-center gap-2 h-full px-3">
+                      <Calendar className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm text-foreground">
+                        {startDate ? new Date(startDate).toLocaleDateString('en-GB', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric'
+                        }) : 'DD/MM/YYYY'}
+                      </span>
                     </div>
                   </div>
-                </CardHeader>
-                <CardContent className="relative">
-                  {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
-                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
-                      <div className="flex flex-col items-center gap-2">
-                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                        <div className="text-xs text-muted-foreground">
-                          Loading ticker and broker data...
-                        </div>
+                  <span className="text-sm text-muted-foreground whitespace-nowrap hidden sm:inline">to</span>
+                  <div
+                    className="relative h-9 flex-1 sm:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => triggerDatePicker(endDateRef)}
+                  >
+                    <input
+                      ref={endDateRef}
+                      type="date"
+                      value={formatDateForInput(endDate)}
+                      onChange={(e) => {
+                        const selectedDate = e.target.value;
+
+                        if (selectedDate < MIN_DATE) {
+                          showToast({
+                            type: 'error',
+                            title: 'Tanggal Tidak Valid',
+                            message: `Tanggal minimum yang bisa dipilih adalah ${new Date(MIN_DATE).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+                          });
+                          if (endDateRef.current) {
+                            endDateRef.current.value = formatDateForInput(endDate);
+                          }
+                          return;
+                        }
+
+                        if (latestDataDate && selectedDate > latestDataDate) {
+                          showToast({
+                            type: 'error',
+                            title: 'Tanggal Tidak Valid',
+                            message: `Tanggal maksimum yang tersedia adalah ${new Date(latestDataDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+                          });
+                          if (endDateRef.current) {
+                            endDateRef.current.value = formatDateForInput(endDate);
+                          }
+                          return;
+                        }
+                        setEndDate(selectedDate);
+                      }}
+                      min={formatDateForInput(startDate || MIN_DATE)}
+                      max={latestDataDate ? formatDateForInput(latestDataDate) : new Date().toISOString().split('T')[0]}
+                      onKeyDown={(e) => e.preventDefault()}
+                      onPaste={(e) => e.preventDefault()}
+                      onInput={(e) => e.preventDefault()}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      style={{ caretColor: 'transparent' }}
+                    />
+                    <div className="flex items-center gap-2 h-full px-3">
+                      <Calendar className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm text-foreground">
+                        {endDate ? new Date(endDate).toLocaleDateString('en-GB', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric'
+                        }) : 'DD/MM/YYYY'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* F/D Filter */}
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
+                <select
+                  value={fdFilter}
+                  onChange={(e) => {
+                    setFdFilter(e.target.value as 'All' | 'Foreign' | 'Domestic');
+                    // CRITICAL: Keep existing data visible - no auto-fetch, no hide charts
+                    // User must click Show button to fetch new data
+                  }}
+                  className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+                >
+                  <option value="All">All</option>
+                  <option value="Foreign">Foreign</option>
+                  <option value="Domestic">Domestic</option>
+                </select>
+              </div>
+
+              {/* Board Filter */}
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                <label className="text-sm font-medium whitespace-nowrap">Board:</label>
+                <select
+                  value={marketFilter}
+                  onChange={(e) => {
+                    setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '');
+                    // CRITICAL: Keep existing data visible - no auto-fetch, no hide charts
+                    // User must click Show button to fetch new data
+                  }}
+                  className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+                >
+                  <option value="">All</option>
+                  <option value="RG">RG</option>
+                  <option value="TN">TN</option>
+                  <option value="NG">NG</option>
+                </select>
+              </div>
+
+              {/* Show Button */}
+              <button
+                onClick={() => {
+                  // Update displayed filters when Show button is clicked
+                  setDisplayedFdFilter(fdFilter);
+                  setDisplayedMarket(marketFilter);
+                  // Set shouldFetchData to true to trigger data fetch
+                  setShouldFetchData(true);
+                  setIsDataReady(false);
+                  // Set loading states immediately to show loading spinner right away
+                  setIsLoadingData(true);
+                  setIsLoadingBrokerData(true);
+                  setIsLoadingInventoryData(true);
+                }}
+                disabled={isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !selectedTicker}
+                className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
+              >
+                Show
+              </button>
+            </div>
+          </div>
+          {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+          <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
+        </>
+      )}
+
+
+      {/* Loading State - Show when data is loading but not ready yet */}
+      {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+        <div className="flex items-center justify-center py-16">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <div className="text-sm text-muted-foreground">
+              Loading ticker and broker data...
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Chart Rendering - Only show when data is ready */}
+      {isDataReady ? (
+        onlyShowInventoryChart ? (
+          // Only show Broker Inventory Chart
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <div>
+                  <CardTitle>Broker Cumulative Net Flow</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Broker inventory accumulation starting from 0
+                  </p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="relative">
+              {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                    <div className="text-xs text-muted-foreground">
+                      Loading ticker and broker data...
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-col lg:flex-row gap-4">
+                <div className="flex-1 relative">
+                  {selectedBrokers.length === 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && (
+                    <div className="flex items-center justify-center h-80 text-muted-foreground">
+                      <div className="text-center">
+                        <p>No brokers selected</p>
+                        <p className="text-xs mt-2">Select brokers above to view cumulative net flow</p>
                       </div>
                     </div>
                   )}
-                  <div className="flex flex-col lg:flex-row gap-4">
-                    <div className="flex-1 relative">
-                      {selectedBrokers.length === 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && (
-                        <div className="flex items-center justify-center h-80 text-muted-foreground">
-                          <div className="text-center">
-                            <p>No brokers selected</p>
-                            <p className="text-xs mt-2">Select brokers above to view cumulative net flow</p>
-                          </div>
-                        </div>
-                      )}
-                      {isDataReady && selectedBrokers.length > 0 && inventoryData.length > 0 && visibleBrokers.length > 0 && (
-                        <InventoryChart
-                          key={`inventory-${visibleBrokers.join('-')}`}
-                          inventoryData={inventoryData}
-                          selectedBrokers={selectedBrokers}
-                          displayBrokers={visibleBrokers}
-                          className="h-[calc(100vh-140px)] min-h-[500px]"
-                        />
-                      )}
-                      {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
-                        <div className="flex items-center justify-center h-80 text-muted-foreground">
-                          <div className="text-center">
-                            <p>No visible brokers</p>
-                            <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
-                          </div>
-                        </div>
-                      )}
-                      {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && inventoryData.length === 0 && isDataReady && (
-                        <div className="flex items-center justify-center h-80 text-muted-foreground">
-                          <div className="text-center">
-                            <p>No inventory data available for selected brokers</p>
-                            <p className="text-xs mt-2">Data may not be available for the selected date range</p>
-                          </div>
-                        </div>
-                      )}
-                      {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && !isDataReady && (
-                        <div className="flex items-center justify-center h-80 text-muted-foreground">
-                          <div className="text-center">
-                            <p>No data loaded</p>
-                            <p className="text-xs mt-2">Click Show button to load data</p>
-                          </div>
-                        </div>
-                      )}
+                  {isDataReady && selectedBrokers.length > 0 && inventoryData.length > 0 && visibleBrokers.length > 0 && (
+                    <InventoryChart
+                      key={`inventory-${visibleBrokers.join('-')}`}
+                      inventoryData={inventoryData}
+                      selectedBrokers={selectedBrokers}
+                      displayBrokers={visibleBrokers}
+                      className="h-[calc(100vh-140px)] min-h-[500px]"
+                    />
+                  )}
+                  {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
+                    <div className="flex items-center justify-center h-80 text-muted-foreground">
+                      <div className="text-center">
+                        <p>No visible brokers</p>
+                        <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
+                      </div>
                     </div>
-                    <div className="w-full lg:w-64 flex flex-col gap-4">
-                      {brokerSelectionMode.top5buy && top5BuyBrokers.length > 0 && (
-                        <BrokerLegend
-                          title="Top 5 Buyers"
-                          brokers={top5BuyBrokers}
-                          colorReferenceBrokers={selectedBrokers}
-                          brokerVisibility={brokerVisibility}
-                          onToggleVisibility={handleToggleBrokerVisibility}
-                          onRemoveBroker={removeBroker}
-                          onRemoveAll={removeAllTop5Buy}
-                        />
-                      )}
-                      {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
-                        <BrokerLegend
-                          title="Top 5 Sellers"
-                          brokers={top5SellBrokers}
-                          colorReferenceBrokers={selectedBrokers}
-                          brokerVisibility={brokerVisibility}
-                          onToggleVisibility={handleToggleBrokerVisibility}
-                          onRemoveBroker={removeBroker}
-                          onRemoveAll={removeAllTop5Sell}
-                        />
-                      )}
-                      {brokerSelectionMode.custom && customBrokers.length > 0 && (
-                        <BrokerLegend
-                          title="Selected Brokers"
-                          brokers={customBrokers}
-                          colorReferenceBrokers={selectedBrokers}
-                          brokerVisibility={brokerVisibility}
-                          onToggleVisibility={handleToggleBrokerVisibility}
-                          onRemoveBroker={removeBroker}
-                          onRemoveAll={removeAllCustom}
-                        />
-                      )}
+                  )}
+                  {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && inventoryData.length === 0 && isDataReady && (
+                    <div className="flex items-center justify-center h-80 text-muted-foreground">
+                      <div className="text-center">
+                        <p>No inventory data available for selected brokers</p>
+                        <p className="text-xs mt-2">Data may not be available for the selected date range</p>
+                      </div>
+                    </div>
+                  )}
+                  {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && !isDataReady && (
+                    <div className="flex items-center justify-center h-80 text-muted-foreground">
+                      <div className="text-center">
+                        <p>No data loaded</p>
+                        <p className="text-xs mt-2">Click Show button to load data</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="w-full lg:w-64 flex flex-col gap-4">
+                  {brokerSelectionMode.top5buy && top5BuyBrokers.length > 0 && (
+                    <BrokerLegend
+                      title="Top 5 Buyers"
+                      brokers={top5BuyBrokers}
+                      colorReferenceBrokers={selectedBrokers}
+                      brokerVisibility={brokerVisibility}
+                      onToggleVisibility={handleToggleBrokerVisibility}
+                      onRemoveBroker={removeBroker}
+                      onRemoveAll={removeAllTop5Buy}
+                    />
+                  )}
+                  {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
+                    <BrokerLegend
+                      title="Top 5 Sellers"
+                      brokers={top5SellBrokers}
+                      colorReferenceBrokers={selectedBrokers}
+                      brokerVisibility={brokerVisibility}
+                      onToggleVisibility={handleToggleBrokerVisibility}
+                      onRemoveBroker={removeBroker}
+                      onRemoveAll={removeAllTop5Sell}
+                    />
+                  )}
+                  {brokerSelectionMode.custom && customBrokers.length > 0 && (
+                    <BrokerLegend
+                      title="Selected Brokers"
+                      brokers={customBrokers}
+                      colorReferenceBrokers={selectedBrokers}
+                      brokerVisibility={brokerVisibility}
+                      onToggleVisibility={handleToggleBrokerVisibility}
+                      onRemoveBroker={removeBroker}
+                      onRemoveAll={removeAllCustom}
+                    />
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : splitVisualization ? (
+          // Split View - Separate Charts
+          <>
+            {/* Price Chart */}
+            <Card className="mb-6">
+              <CardHeader>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex-1 min-w-[200px]">
+                    <CardTitle>{displayedTicker} Price Action</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Candlestick chart showing price movements
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">View:</span>
+                    <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+                      <Button
+                        variant={!splitVisualization ? "default" : "ghost"}
+                        onClick={() => setSplitVisualization(false)}
+                        size="sm"
+                        className="px-2 py-1 h-7 text-xs"
+                      >
+                        Combined
+                      </Button>
+                      <Button
+                        variant={splitVisualization ? "default" : "ghost"}
+                        onClick={() => setSplitVisualization(true)}
+                        size="sm"
+                        className="px-2 py-1 h-7 text-xs"
+                      >
+                        Split
+                      </Button>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            ) : splitVisualization ? (
-              // Split View - Separate Charts
-              <>
-                {/* Price Chart */}
-                <Card>
-                  <CardHeader>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="flex-1 min-w-[200px]">
-                        <CardTitle>{displayedTicker} Price Action</CardTitle>
-                        <p className="text-sm text-muted-foreground">
-                          Candlestick chart showing price movements
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">View:</span>
-                        <div className="flex items-center gap-1 border border-border rounded-lg p-1">
-                          <Button
-                            variant={!splitVisualization ? "default" : "ghost"}
-                            onClick={() => setSplitVisualization(false)}
-                            size="sm"
-                            className="px-2 py-1 h-7 text-xs"
-                          >
-                            Combined
-                          </Button>
-                          <Button
-                            variant={splitVisualization ? "default" : "ghost"}
-                            onClick={() => setSplitVisualization(true)}
-                            size="sm"
-                            className="px-2 py-1 h-7 text-xs"
-                          >
-                            Split
-                          </Button>
-                        </div>
+                </div>
+              </CardHeader>
+              <CardContent className="relative">
+                {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      <div className="text-xs text-muted-foreground">
+                        Loading ticker and broker data...
                       </div>
                     </div>
-                  </CardHeader>
-                  <CardContent className="relative">
-                    {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
-                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
-                        <div className="flex flex-col items-center gap-2">
-                          <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                          <div className="text-xs text-muted-foreground">
-                            Loading ticker and broker data...
-                          </div>
-                        </div>
+                  </div>
+                )}
+                {isDataReady && candlestickData.length > 0 && (
+                  <PriceChart candlestickData={candlestickData} />
+                )}
+                {!isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && candlestickData.length === 0 && (
+                  <div className="flex items-center justify-center h-80 text-muted-foreground">
+                    <div className="text-center">
+                      <p>No price data available</p>
+                      <p className="text-xs mt-2">Click Show button to load data</p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Broker Inventory Chart */}
+            <Card className="mb-6">
+              <CardHeader>
+                <div>
+                  <CardTitle>Broker Cumulative Net Flow</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Broker inventory accumulation starting from 0
+                  </p>
+                </div>
+              </CardHeader>
+              <CardContent className="relative">
+                {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                  <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      <div className="text-xs text-muted-foreground">
+                        Loading ticker and broker data...
                       </div>
+                    </div>
+                  </div>
+                )}
+                <div className="flex flex-col lg:flex-row gap-4">
+                  <div className="flex-1 relative">
+                    {isDataReady && selectedBrokers.length > 0 && inventoryData.length > 0 && visibleBrokers.length > 0 && (
+                      <InventoryChart
+                        key={`inventory-split-${visibleBrokers.join('-')}`}
+                        inventoryData={inventoryData}
+                        selectedBrokers={selectedBrokers}
+                        displayBrokers={visibleBrokers}
+                      />
                     )}
-                    {isDataReady && candlestickData.length > 0 && (
-                      <PriceChart candlestickData={candlestickData} />
-                    )}
-                    {!isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && candlestickData.length === 0 && (
+                    {selectedBrokers.length > 0 && !isLoadingData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
                       <div className="flex items-center justify-center h-80 text-muted-foreground">
                         <div className="text-center">
-                          <p>No price data available</p>
-                          <p className="text-xs mt-2">Click Show button to load data</p>
+                          <p>No visible brokers</p>
+                          <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
                         </div>
                       </div>
                     )}
-                  </CardContent>
-                </Card>
-
-                {/* Broker Inventory Chart */}
-                <Card>
-                  <CardHeader>
-                    <div>
-                      <CardTitle>Broker Cumulative Net Flow</CardTitle>
-                      <p className="text-sm text-muted-foreground">
-                        Broker inventory accumulation starting from 0
-                      </p>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="relative">
-                    {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
-                      <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
-                        <div className="flex flex-col items-center gap-2">
-                          <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                          <div className="text-xs text-muted-foreground">
-                            Loading ticker and broker data...
-                          </div>
+                    {selectedBrokers.length > 0 && !isLoadingData && !isLoadingInventoryData && inventoryData.length === 0 && isDataReady && (
+                      <div className="flex items-center justify-center h-80 text-muted-foreground">
+                        <div className="text-center">
+                          <p>No inventory data available for selected brokers</p>
+                          <p className="text-xs mt-2">Data may not be available for the selected date range</p>
                         </div>
                       </div>
                     )}
-                    <div className="flex flex-col lg:flex-row gap-4">
-                      <div className="flex-1 relative">
-                        {isDataReady && selectedBrokers.length > 0 && inventoryData.length > 0 && visibleBrokers.length > 0 && (
-                          <InventoryChart
-                            key={`inventory-split-${visibleBrokers.join('-')}`}
-                            inventoryData={inventoryData}
-                            selectedBrokers={selectedBrokers}
-                            displayBrokers={visibleBrokers}
-                          />
-                        )}
-                        {selectedBrokers.length > 0 && !isLoadingData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
-                          <div className="flex items-center justify-center h-80 text-muted-foreground">
-                            <div className="text-center">
-                              <p>No visible brokers</p>
-                              <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
-                            </div>
-                          </div>
-                        )}
-                        {selectedBrokers.length > 0 && !isLoadingData && !isLoadingInventoryData && inventoryData.length === 0 && isDataReady && (
-                          <div className="flex items-center justify-center h-80 text-muted-foreground">
-                            <div className="text-center">
-                              <p>No inventory data available for selected brokers</p>
-                              <p className="text-xs mt-2">Data may not be available for the selected date range</p>
-                            </div>
-                          </div>
-                        )}
-                        {selectedBrokers.length === 0 && (
-                          <div className="flex items-center justify-center h-80 text-muted-foreground">
-                            <div className="text-center">
-                              <p>No brokers selected</p>
-                              <p className="text-xs mt-2">Select brokers above to view cumulative net flow</p>
-                            </div>
-                          </div>
-                        )}
+                    {selectedBrokers.length === 0 && (
+                      <div className="flex items-center justify-center h-80 text-muted-foreground">
+                        <div className="text-center">
+                          <p>No brokers selected</p>
+                          <p className="text-xs mt-2">Select brokers above to view cumulative net flow</p>
+                        </div>
                       </div>
-                      <div className="w-full lg:w-64 flex flex-col gap-4">
-                        {brokerSelectionMode.top5buy && top5BuyBrokers.length > 0 && (
-                          <BrokerLegend
-                            title="Top 5 Buyers"
-                            brokers={top5BuyBrokers}
-                            colorReferenceBrokers={selectedBrokers}
-                            brokerVisibility={brokerVisibility}
-                            onToggleVisibility={handleToggleBrokerVisibility}
-                            onRemoveBroker={removeBroker}
-                            onRemoveAll={removeAllTop5Buy}
-                          />
-                        )}
-                        {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
-                          <BrokerLegend
-                            title="Top 5 Sellers"
-                            brokers={top5SellBrokers}
-                            colorReferenceBrokers={selectedBrokers}
-                            brokerVisibility={brokerVisibility}
-                            onToggleVisibility={handleToggleBrokerVisibility}
-                            onRemoveBroker={removeBroker}
-                            onRemoveAll={removeAllTop5Sell}
-                          />
-                        )}
-                        {brokerSelectionMode.custom && customBrokers.length > 0 && (
-                          <BrokerLegend
-                            title="Selected Brokers"
-                            brokers={customBrokers}
-                            colorReferenceBrokers={selectedBrokers}
-                            brokerVisibility={brokerVisibility}
-                            onToggleVisibility={handleToggleBrokerVisibility}
-                            onRemoveBroker={removeBroker}
-                            onRemoveAll={removeAllCustom}
-                          />
-                        )}
+                    )}
+                  </div>
+                  <div className="w-full lg:w-64 flex flex-col gap-4">
+                    {brokerSelectionMode.top5buy && top5BuyBrokers.length > 0 && (
+                      <BrokerLegend
+                        title="Top 5 Buyers"
+                        brokers={top5BuyBrokers}
+                        colorReferenceBrokers={selectedBrokers}
+                        brokerVisibility={brokerVisibility}
+                        onToggleVisibility={handleToggleBrokerVisibility}
+                        onRemoveBroker={removeBroker}
+                        onRemoveAll={removeAllTop5Buy}
+                      />
+                    )}
+                    {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
+                      <BrokerLegend
+                        title="Top 5 Sellers"
+                        brokers={top5SellBrokers}
+                        colorReferenceBrokers={selectedBrokers}
+                        brokerVisibility={brokerVisibility}
+                        onToggleVisibility={handleToggleBrokerVisibility}
+                        onRemoveBroker={removeBroker}
+                        onRemoveAll={removeAllTop5Sell}
+                      />
+                    )}
+                    {brokerSelectionMode.custom && customBrokers.length > 0 && (
+                      <BrokerLegend
+                        title="Selected Brokers"
+                        brokers={customBrokers}
+                        colorReferenceBrokers={selectedBrokers}
+                        brokerVisibility={brokerVisibility}
+                        onToggleVisibility={handleToggleBrokerVisibility}
+                        onRemoveBroker={removeBroker}
+                        onRemoveAll={removeAllCustom}
+                      />
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Volume Chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Volume</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Trading volume for {displayedTicker}
+                </p>
+              </CardHeader>
+              <CardContent className="relative">
+                {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      <div className="text-xs text-muted-foreground">
+                        Loading ticker and broker data...
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-
-                {/* Volume Chart */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Volume</CardTitle>
+                  </div>
+                )}
+                {isDataReady && volumeDataForCharts.length > 0 && (
+                  <VolumeChart volumeData={volumeDataForCharts} candlestickData={candlestickData} showLabel={true} />
+                )}
+                {!isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && volumeDataForCharts.length === 0 && (
+                  <div className="flex items-center justify-center h-80 text-muted-foreground">
+                    <div className="text-center">
+                      <p>No volume data available</p>
+                      <p className="text-xs mt-2">Click Show button to load data</p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        ) : (
+          // Combined View - Original Layout (only render when isDataReady is true)
+          <>
+            {/* Main TradingView Chart */}
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex-1 min-w-[200px]">
+                    <CardTitle>Inventory Analysis</CardTitle>
                     <p className="text-sm text-muted-foreground">
-                      Trading volume for {displayedTicker}
+                      Price action (right Y-axis) with broker cumulative net flow (left Y-axis, starting from 0)
                     </p>
-                  </CardHeader>
-                  <CardContent className="relative">
-                    {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
-                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
-                        <div className="flex flex-col items-center gap-2">
-                          <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                          <div className="text-xs text-muted-foreground">
-                            Loading ticker and broker data...
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {isDataReady && volumeDataForCharts.length > 0 && (
-                      <VolumeChart volumeData={volumeDataForCharts} candlestickData={candlestickData} showLabel={true} />
-                    )}
-                    {!isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && volumeDataForCharts.length === 0 && (
-                      <div className="flex items-center justify-center h-80 text-muted-foreground">
-                        <div className="text-center">
-                          <p>No volume data available</p>
-                          <p className="text-xs mt-2">Click Show button to load data</p>
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </>
-            ) : (
-              // Combined View - Original Layout (only render when isDataReady is true)
-              <>
-                {/* Main TradingView Chart */}
-                <Card>
-                  <CardHeader>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="flex-1 min-w-[200px]">
-                        <CardTitle>Inventory Analysis</CardTitle>
-                        <p className="text-sm text-muted-foreground">
-                          Price action (right Y-axis) with broker cumulative net flow (left Y-axis, starting from 0)
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">View:</span>
-                        <div className="flex items-center gap-1 border border-border rounded-lg p-1">
-                          <Button
-                            variant={!splitVisualization ? "default" : "ghost"}
-                            onClick={() => setSplitVisualization(false)}
-                            size="sm"
-                            className="px-2 py-1 h-7 text-xs"
-                          >
-                            Combined
-                          </Button>
-                          <Button
-                            variant={splitVisualization ? "default" : "ghost"}
-                            onClick={() => setSplitVisualization(true)}
-                            size="sm"
-                            className="px-2 py-1 h-7 text-xs"
-                          >
-                            Split
-                          </Button>
-                        </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">View:</span>
+                    <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+                      <Button
+                        variant={!splitVisualization ? "default" : "ghost"}
+                        onClick={() => setSplitVisualization(false)}
+                        size="sm"
+                        className="px-2 py-1 h-7 text-xs"
+                      >
+                        Combined
+                      </Button>
+                      <Button
+                        variant={splitVisualization ? "default" : "ghost"}
+                        onClick={() => setSplitVisualization(true)}
+                        size="sm"
+                        className="px-2 py-1 h-7 text-xs"
+                      >
+                        Split
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="relative">
+                {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                    <div className="flex flex-col items-center gap-3">
+                      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                      <div className="text-sm text-muted-foreground">
+                        Loading ticker and broker data...
                       </div>
                     </div>
-                  </CardHeader>
-                  <CardContent className="relative">
-                    {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                  </div>
+                )}
+                <div className="flex flex-col lg:flex-row gap-4">
+                  <div className="flex-1 relative">
+
+                    {(dataError || brokerDataError) && !isLoadingData && !isLoadingBrokerData && (
                       <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
-                        <div className="flex flex-col items-center gap-3">
-                          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                        <div className="flex flex-col items-center gap-3 text-center p-6 max-w-md">
+                          <div className="text-4xl">⚠️</div>
                           <div className="text-sm text-muted-foreground">
-                            Loading ticker and broker data...
+                            {dataError || brokerDataError}
                           </div>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Tip: Try adjusting the date range. Data may not be available for all selected dates.
+                          </p>
+                          <Button
+                            onClick={() => window.location.reload()}
+                            variant="outline"
+                            size="sm"
+                          >
+                            Retry
+                          </Button>
                         </div>
                       </div>
                     )}
-                    <div className="flex flex-col lg:flex-row gap-4">
-                      <div className="flex-1 relative">
 
-                        {(dataError || brokerDataError) && !isLoadingData && !isLoadingBrokerData && (
-                          <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
-                            <div className="flex flex-col items-center gap-3 text-center p-6 max-w-md">
-                              <div className="text-4xl">⚠️</div>
-                              <div className="text-sm text-muted-foreground">
-                                {dataError || brokerDataError}
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-2">
-                                Tip: Try adjusting the date range. Data may not be available for all selected dates.
-                              </p>
-                              <Button
-                                onClick={() => window.location.reload()}
-                                variant="outline"
-                                size="sm"
-                              >
-                                Retry
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-
-                        {isDataReady && selectedBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
-                          <div className="flex items-center justify-center h-[600px] text-muted-foreground">
-                            <div className="text-center">
-                              <p>No brokers selected</p>
-                              <p className="text-xs mt-2">Select brokers above to view chart</p>
-                            </div>
-                          </div>
-                        )}
-
-                        {isDataReady && selectedBrokers.length > 0 && visibleBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
-                          <div className="flex items-center justify-center h-[600px] text-muted-foreground">
-                            <div className="text-center">
-                              <p>No visible brokers</p>
-                              <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
-                            </div>
-                          </div>
-                        )}
-
-                        {isDataReady && selectedBrokers.length > 0 && visibleBrokers.length > 0 && (
-                          <TradingViewChart
-                            key={`brokers-${visibleBrokers.join('-')}`}
-                            candlestickData={candlestickData}
-                            inventoryData={inventoryData}
-                            selectedBrokers={selectedBrokers}
-                            displayBrokers={visibleBrokers}
-                            title="Inventory Analysis"
-                            volumeData={volumeDataForCharts}
-                            ticker={displayedTicker}
-                          />
-                        )}
-                      </div>
-                      <div className="w-full lg:w-64 flex flex-col gap-4">
-                        {brokerSelectionMode.top5buy && top5BuyBrokers.length > 0 && (
-                          <BrokerLegend
-                            title="Top 5 Buyers"
-                            brokers={top5BuyBrokers}
-                            colorReferenceBrokers={selectedBrokers}
-                            brokerVisibility={brokerVisibility}
-                            onToggleVisibility={handleToggleBrokerVisibility}
-                            onRemoveBroker={removeBroker}
-                            onRemoveAll={removeAllTop5Buy}
-                          />
-                        )}
-                        {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
-                          <BrokerLegend
-                            title="Top 5 Sellers"
-                            brokers={top5SellBrokers}
-                            colorReferenceBrokers={selectedBrokers}
-                            brokerVisibility={brokerVisibility}
-                            onToggleVisibility={handleToggleBrokerVisibility}
-                            onRemoveBroker={removeBroker}
-                            onRemoveAll={removeAllTop5Sell}
-                          />
-                        )}
-                        {brokerSelectionMode.custom && customBrokers.length > 0 && (
-                          <BrokerLegend
-                            title="Selected Brokers"
-                            brokers={customBrokers}
-                            colorReferenceBrokers={selectedBrokers}
-                            brokerVisibility={brokerVisibility}
-                            onToggleVisibility={handleToggleBrokerVisibility}
-                            onRemoveBroker={removeBroker}
-                            onRemoveAll={removeAllCustom}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Top Brokers Table - Only show when data is ready */}
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle>Top Brokers by Date</CardTitle>
-                        <p className="text-sm text-muted-foreground">
-                          Top brokers by net transaction (nblot) across selected dates for {selectedTicker}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-sm font-medium">Show:</label>
-                        <select
-                          value={topBrokersCount}
-                          onChange={(e) => setTopBrokersCount(e.target.value as 5 | 10 | 15 | 20 | 'all')}
-                          className="px-3 py-1 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
-                        >
-                          <option value={5}>Top 5</option>
-                          <option value={10}>Top 10</option>
-                          <option value={15}>Top 15</option>
-                          <option value={20}>Top 20</option>
-                          <option value="all">All</option>
-                        </select>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {isLoadingBrokerData ? (
-                      <div className="text-center py-8">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-2"></div>
-                        <p className="text-sm text-muted-foreground">Loading ticker and broker data...</p>
-                      </div>
-                    ) : brokerDataError ? (
-                      <div className="text-center py-8">
-                        <p className="text-sm text-muted-foreground">{brokerDataError}</p>
-                      </div>
-                    ) : topBrokersData.length === 0 ? (
-                      <div className="text-center py-8">
-                        <p className="text-sm text-muted-foreground">No broker data available</p>
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="text-sm border-collapse">
-                          <thead>
-                            <tr className="border-b border-border bg-muted/50">
-                              <th className="text-left py-2 px-1 font-medium">Rank</th>
-                              {topBrokersData.map((dateData) => (
-                                <th key={dateData.date} className="text-center py-2 px-1 font-medium">
-                                  {formatDisplayDate(dateData.date)}
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {topBrokersData.length > 0 && Array.from({
-                              length: topBrokersCount === 'all' ? (topBrokersData[0]?.topBrokers?.length || 0) : Math.min(topBrokersCount, topBrokersData[0]?.topBrokers?.length || 0)
-                            }, (_, rank) => (
-                              <tr key={rank} className="border-b border-border/50 hover:bg-accent/50">
-                                <td className="py-2 px-1 font-medium text-center">
-                                  {rank + 1}
-                                </td>
-                                {topBrokersData.map((dateData) => {
-                                  const brokerData = dateData.topBrokers[rank];
-
-                                  return (
-                                    <td
-                                      key={`${dateData.date}-${rank}`}
-                                      className="text-center py-2 px-1 relative"
-                                      style={brokerData ? { backgroundColor: brokerData.color } : {}}
-                                    >
-                                      <div className="relative w-full h-8 flex items-center justify-center">
-                                        {/* Broker code and volume overlay */}
-                                        <div className="relative z-10 flex items-center gap-2">
-                                          {brokerData ? (
-                                            <>
-                                              <span className="font-medium text-xs text-white">
-                                                {brokerData.broker}
-                                              </span>
-                                              <span className="text-xs font-semibold text-white">
-                                                {formatLotNumber(brokerData.netFlow)}
-                                              </span>
-                                            </>
-                                          ) : (
-                                            <span className="text-muted-foreground">-</span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                    {isDataReady && selectedBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
+                      <div className="flex items-center justify-center h-[600px] text-muted-foreground">
+                        <div className="text-center">
+                          <p>No brokers selected</p>
+                          <p className="text-xs mt-2">Select brokers above to view chart</p>
+                        </div>
                       </div>
                     )}
-                  </CardContent>
-                </Card>
-              </>
-            )
-          ) : null}
 
-        </div>
-      </div>
+                    {isDataReady && selectedBrokers.length > 0 && visibleBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
+                      <div className="flex items-center justify-center h-[600px] text-muted-foreground">
+                        <div className="text-center">
+                          <p>No visible brokers</p>
+                          <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {isDataReady && selectedBrokers.length > 0 && visibleBrokers.length > 0 && (
+                      <TradingViewChart
+                        key={`brokers-${visibleBrokers.join('-')}`}
+                        candlestickData={candlestickData}
+                        inventoryData={inventoryData}
+                        selectedBrokers={selectedBrokers}
+                        displayBrokers={visibleBrokers}
+                        title="Inventory Analysis"
+                        volumeData={volumeDataForCharts}
+                        ticker={displayedTicker}
+                        className="h-[calc(100vh-250px)] min-h-[600px] w-full relative"
+                      />
+                    )}
+                  </div>
+                  <div className="w-full lg:w-64 flex flex-col gap-4">
+                    {brokerSelectionMode.top5buy && top5BuyBrokers.length > 0 && (
+                      <BrokerLegend
+                        title="Top 5 Buyers"
+                        brokers={top5BuyBrokers}
+                        colorReferenceBrokers={selectedBrokers}
+                        brokerVisibility={brokerVisibility}
+                        onToggleVisibility={handleToggleBrokerVisibility}
+                        onRemoveBroker={removeBroker}
+                        onRemoveAll={removeAllTop5Buy}
+                      />
+                    )}
+                    {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
+                      <BrokerLegend
+                        title="Top 5 Sellers"
+                        brokers={top5SellBrokers}
+                        colorReferenceBrokers={selectedBrokers}
+                        brokerVisibility={brokerVisibility}
+                        onToggleVisibility={handleToggleBrokerVisibility}
+                        onRemoveBroker={removeBroker}
+                        onRemoveAll={removeAllTop5Sell}
+                      />
+                    )}
+                    {brokerSelectionMode.custom && customBrokers.length > 0 && (
+                      <BrokerLegend
+                        title="Selected Brokers"
+                        brokers={customBrokers}
+                        colorReferenceBrokers={selectedBrokers}
+                        brokerVisibility={brokerVisibility}
+                        onToggleVisibility={handleToggleBrokerVisibility}
+                        onRemoveBroker={removeBroker}
+                        onRemoveAll={removeAllCustom}
+                      />
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Top Brokers Table - Only show when data is ready */}
+            <Card className="mt-6">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Top Brokers by Date</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Top brokers by net transaction (nblot) across selected dates for {selectedTicker}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium">Show:</label>
+                    <select
+                      value={topBrokersCount}
+                      onChange={(e) => setTopBrokersCount(e.target.value as 5 | 10 | 15 | 20 | 'all')}
+                      className="px-3 py-1 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                    >
+                      <option value={5}>Top 5</option>
+                      <option value={10}>Top 10</option>
+                      <option value={15}>Top 15</option>
+                      <option value={20}>Top 20</option>
+                      <option value="all">All</option>
+                    </select>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {isLoadingBrokerData ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-2"></div>
+                    <p className="text-sm text-muted-foreground">Loading ticker and broker data...</p>
+                  </div>
+                ) : brokerDataError ? (
+                  <div className="text-center py-8">
+                    <p className="text-sm text-muted-foreground">{brokerDataError}</p>
+                  </div>
+                ) : topBrokersData.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-sm text-muted-foreground">No broker data available</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/50">
+                          <th className="text-left py-2 px-1 font-medium">Rank</th>
+                          {topBrokersData.map((dateData) => (
+                            <th key={dateData.date} className="text-center py-2 px-1 font-medium">
+                              {formatDisplayDate(dateData.date)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {topBrokersData.length > 0 && Array.from({
+                          length: topBrokersCount === 'all' ? (topBrokersData[0]?.topBrokers?.length || 0) : Math.min(topBrokersCount, topBrokersData[0]?.topBrokers?.length || 0)
+                        }, (_, rank) => (
+                          <tr key={rank} className="border-b border-border/50 hover:bg-accent/50">
+                            <td className="py-2 px-1 font-medium text-center">
+                              {rank + 1}
+                            </td>
+                            {topBrokersData.map((dateData) => {
+                              const brokerData = dateData.topBrokers[rank];
+
+                              return (
+                                <td
+                                  key={`${dateData.date}-${rank}`}
+                                  className="text-center py-2 px-1 relative"
+                                  style={brokerData ? { backgroundColor: brokerData.color } : {}}
+                                >
+                                  <div className="relative w-full h-8 flex items-center justify-center">
+                                    {/* Broker code and volume overlay */}
+                                    <div className="relative z-10 flex items-center gap-2">
+                                      {brokerData ? (
+                                        <>
+                                          <span className="font-medium text-xs text-white">
+                                            {brokerData.broker}
+                                          </span>
+                                          <span className="text-xs font-semibold text-white">
+                                            {formatLotNumber(brokerData.netFlow)}
+                                          </span>
+                                        </>
+                                      ) : (
+                                        <span className="text-muted-foreground">-</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )
+      ) : null}
+
     </div>
   );
 });
-
