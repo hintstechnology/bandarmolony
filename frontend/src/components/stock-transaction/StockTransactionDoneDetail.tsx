@@ -265,6 +265,15 @@ export function StockTransactionDoneDetail() {
     };
   });
 
+  // Global Filters State
+  const [selectedBoard, setSelectedBoard] = useState<string>('All');
+  const [selectedInvType, setSelectedInvType] = useState<string>('All');
+  const [selectedSession, setSelectedSession] = useState<string>('All');
+  const [selectedBroker, setSelectedBroker] = useState<string>('');
+  const [brokerInput, setBrokerInput] = useState<string>('');
+  const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
+  const [highlightedBrokerIndex, setHighlightedBrokerIndex] = useState<number>(-1);
+
   // Filter search states
   const [filterSearchTerms, setFilterSearchTerms] = useState<{ [key: string]: string }>(() => {
     // Load from preferences if available
@@ -292,7 +301,6 @@ export function StockTransactionDoneDetail() {
 
   // Available fields for pivot
   const availableFields = [
-    { id: 'STK_CODE', label: 'Stock Code', type: 'dimension' },
     { id: 'BRK_COD1', label: 'Buyer Broker', type: 'dimension' },
     { id: 'BRK_COD2', label: 'Seller Broker', type: 'dimension' },
     { id: 'TRX_TIME', label: 'Transaction Time', type: 'dimension' },
@@ -300,8 +308,9 @@ export function StockTransactionDoneDetail() {
     { id: 'INV_TYP1', label: 'Buyer Investor Type', type: 'dimension' },
     { id: 'INV_TYP2', label: 'Seller Investor Type', type: 'dimension' },
     { id: 'TYP', label: 'Transaction Type', type: 'dimension' },
-    { id: 'TRX_SESS', label: 'Session', type: 'dimension' },
     { id: 'HAKA_HAKI', label: 'HAKA/HAKI', type: 'dimension' },
+    { id: 'ACTION', label: 'Action (Buy/Sell)', type: 'dimension' }, // Calculated when Broker Filter is active
+    { id: 'COUNTERPARTY', label: 'Counterparty', type: 'dimension' }, // Calculated when Broker Filter is active
     { id: 'STK_VOLM', label: 'Volume', type: 'measure' },
   ];
 
@@ -594,8 +603,65 @@ export function StockTransactionDoneDetail() {
       // Get all data
       const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
 
+      // Calculate enriched data (Action/Counterparty) if Broker Filter is active
+      // We map the data to include these new fields
+      const enrichedData: DoneDetailData[] = allData.map(item => {
+        let action = '';
+        let counterparty = '';
+
+        if (selectedBroker) {
+          if (item.BRK_COD1 === selectedBroker) {
+            action = 'Buy';
+            counterparty = item.BRK_COD2;
+          } else if (item.BRK_COD2 === selectedBroker) {
+            action = 'Sell';
+            counterparty = item.BRK_COD1;
+          }
+        }
+
+        return {
+          ...item,
+          ACTION: action,
+          COUNTERPARTY: counterparty
+        };
+      });
+
       // Apply filters
-      let filteredData = allData;
+      let filteredData = enrichedData;
+
+      // Apply Global Broker Filter
+      if (selectedBroker) {
+        filteredData = filteredData.filter(item =>
+          item.BRK_COD1 === selectedBroker || item.BRK_COD2 === selectedBroker
+        );
+      }
+
+      // Apply Global Filters first
+      if (selectedBoard !== 'All') {
+        // Assuming TYP maps to board or allows filtering
+        // If exact mapping is unknown, we filter by TYP if it matches, otherwise we might need board logic
+        // For now, assume TYP holds board info (RG, TN, NG)
+        filteredData = filteredData.filter(item => item.TYP === selectedBoard);
+      }
+
+      if (selectedSession !== 'All') {
+        filteredData = filteredData.filter(item => String(item.TRX_SESS) === selectedSession);
+      }
+
+      if (selectedInvType !== 'All') {
+        filteredData = filteredData.filter(item => {
+          if (selectedInvType === 'Foreign') {
+            // Foreign: Shows any transaction where Foreign is involved (Buyer or Seller)
+            return item.INV_TYP1 === 'F' || item.INV_TYP2 === 'F';
+          }
+          if (selectedInvType === 'Domestic') {
+            // Domestic: Shows only Pure Domestic transactions (Domestic to Domestic)
+            return item.INV_TYP1 === 'D' && item.INV_TYP2 === 'D';
+          }
+          return true;
+        });
+      }
+
       pivotConfig.filters.forEach(filterConfig => {
         if (filterConfig.filterType === 'timeRange' && filterConfig.timeRange) {
           // Filter by time range
@@ -826,7 +892,7 @@ export function StockTransactionDoneDetail() {
       generateCustomPivot();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pivotConfig, pivotMode, isDataReady, selectedDates]);
+  }, [pivotConfig, pivotMode, isDataReady, selectedDates, selectedBoard, selectedInvType, selectedSession, selectedBroker]);
 
   // Helper function to get element at touch point
   const getElementAtPoint = (x: number, y: number): Element | null => {
@@ -2015,6 +2081,155 @@ export function StockTransactionDoneDetail() {
             </div>
           </div>
 
+          {/* Board Filter */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Board:</label>
+            <select
+              value={selectedBoard}
+              onChange={(e) => setSelectedBoard(e.target.value)}
+              className="h-9 min-h-[36px] max-h-[36px] px-2 text-sm border border-input rounded-md bg-background text-foreground box-border leading-none"
+              style={{ height: '36px' }}
+            >
+              <option value="All">All</option>
+              <option value="RG">RG</option>
+              <option value="TN">TN</option>
+              <option value="NG">NG</option>
+            </select>
+          </div>
+
+          {/* Session Filter */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Session:</label>
+            <select
+              value={selectedSession}
+              onChange={(e) => setSelectedSession(e.target.value)}
+              className="h-9 min-h-[36px] max-h-[36px] px-2 text-sm border border-input rounded-md bg-background text-foreground box-border leading-none"
+              style={{ height: '36px' }}
+            >
+              <option value="All">All</option>
+              <option value="1">Session 1</option>
+              <option value="2">Session 2</option>
+            </select>
+          </div>
+
+          {/* Inv Type Filter */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
+            <select
+              value={selectedInvType}
+              onChange={(e) => setSelectedInvType(e.target.value)}
+              className="h-9 min-h-[36px] max-h-[36px] px-2 text-sm border border-input rounded-md bg-background text-foreground box-border leading-none"
+              style={{ height: '36px' }}
+            >
+              <option value="All">All</option>
+              <option value="Foreign">Foreign</option>
+              <option value="Domestic">Domestic</option>
+            </select>
+          </div>
+
+
+
+
+          {/* Broker Filter */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
+            <div className="relative flex-1 md:flex-none">
+              <input
+                type="text"
+                value={brokerInput}
+                onChange={(e) => {
+                  setBrokerInput(e.target.value.toUpperCase());
+                  setSelectedBroker(e.target.value.toUpperCase());
+                  setHighlightedBrokerIndex(0);
+                  setShowBrokerSuggestions(true);
+                }}
+                onFocus={() => { setShowBrokerSuggestions(true); setHighlightedBrokerIndex(0); }}
+                onBlur={() => {
+                  // Delay hiding suggestions to allow click
+                  setTimeout(() => setShowBrokerSuggestions(false), 200);
+                }}
+                onKeyDown={(e) => {
+                  // Get unique brokers from current data
+                  const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
+                  const brokers = Array.from(new Set(allData.flatMap(d => [d.BRK_COD1, d.BRK_COD2]))).sort();
+                  const suggestions = brokers.filter(b => b.includes(brokerInput)).slice(0, 10);
+
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setHighlightedBrokerIndex((prev) => (prev + 1) % suggestions.length);
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setHighlightedBrokerIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                  } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const idx = highlightedBrokerIndex >= 0 ? highlightedBrokerIndex : 0;
+                    const choice = suggestions[idx];
+                    if (choice) {
+                      setBrokerInput(choice);
+                      setSelectedBroker(choice);
+                      setShowBrokerSuggestions(false);
+                    }
+                  } else if (e.key === 'Escape') {
+                    setShowBrokerSuggestions(false);
+                    setHighlightedBrokerIndex(-1);
+                  }
+                }}
+                placeholder="All Brokers"
+                className={`w-full md:w-24 h-9 min-h-[36px] max-h-[36px] px-2 text-sm border border-input rounded-md bg-background text-foreground box-border leading-none uppercase ${selectedBroker ? 'placeholder:text-white' : ''}`}
+                style={{ height: '36px', lineHeight: '36px' }}
+              />
+              {showBrokerSuggestions && (
+                <div className="absolute top-full left-0 mt-1 w-32 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                  {(() => {
+                    const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
+                    const brokers = Array.from(new Set(allData.flatMap(d => [d.BRK_COD1, d.BRK_COD2]))).sort();
+                    const filtered = brokers.filter(b => b.includes(brokerInput));
+
+                    if (filtered.length === 0) return <div className="px-2 py-1 text-xs text-muted-foreground">No brokers found</div>;
+
+                    return filtered.slice(0, 20).map((broker, idx) => (
+                      <div
+                        key={broker}
+                        className={`px-2 py-1 text-sm cursor-pointer hover:bg-accent/50 ${idx === highlightedBrokerIndex ? 'bg-accent' : ''}`}
+                        onMouseDown={() => {
+                          setBrokerInput(broker);
+                          setSelectedBroker(broker);
+                          setShowBrokerSuggestions(false);
+                        }}
+                      >
+                        {broker}
+                      </div>
+                    ));
+                  })()}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Broker View Logic Button (Preset) */}
+          <button
+            onClick={() => {
+              if (!selectedBroker) {
+                showToast({ type: 'warning', title: 'Warning', message: 'Please select a broker first' });
+                return;
+              }
+              // Preset: Rows=COUNTERPARTY, Columns=ACTION, Values=Volume
+              setPivotConfig({
+                rows: ['COUNTERPARTY'],
+                columns: ['ACTION'],
+                valueField: 'STK_VOLM',
+                aggregations: ['SUM', 'AVG', 'COUNT'],
+                filters: []
+              });
+              setPivotMode('custom');
+            }}
+            className="h-9 min-h-[36px] max-h-[36px] px-3 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/90 transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center box-border leading-none"
+            style={{ height: '36px' }}
+            title="View consolidated Buy/Sell for selected broker"
+          >
+            Broker View
+          </button>
+
           {/* Customize Field Button - Toggle Side Panel */}
           <button
             onClick={() => {
@@ -2084,31 +2299,36 @@ export function StockTransactionDoneDetail() {
             Show
           </button>
         </div>
-      </div>
+      </div >
 
       {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-      <div className="h-0 lg:h-[38px]"></div>
+      < div className="h-0 lg:h-[38px]" ></div >
 
       {/* Main Content Area with Table and Side Panel */}
-      <div className="flex flex-row relative">
+      < div className="flex flex-row relative" >
         {/* Table Container - will shrink when side panel is open */}
-        <div className={`flex-1 transition-all duration-300 ease-in-out ${isPivotBuilderOpen ? 'mr-[400px] md:mr-[450px]' : 'mr-0'}`}>
+        < div className={`flex-1 transition-all duration-300 ease-in-out ${isPivotBuilderOpen ? 'mr-[400px] md:mr-[450px]' : 'mr-0'}`
+        }>
           {/* Loading State */}
-          {isLoading && (
-            <div className="flex items-center justify-center py-16 pt-4">
-              <div className="flex flex-col items-center gap-3">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                <span className="text-sm text-muted-foreground">Loading transaction data...</span>
+          {
+            isLoading && (
+              <div className="flex items-center justify-center py-16 pt-4">
+                <div className="flex flex-col items-center gap-3">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                  <span className="text-sm text-muted-foreground">Loading transaction data...</span>
+                </div>
               </div>
-            </div>
-          )}
+            )
+          }
 
           {/* Error State */}
-          {error && !isLoading && (
-            <div className="flex items-center justify-center py-8 pt-4">
-              <div className="text-sm text-destructive">{error}</div>
-            </div>
-          )}
+          {
+            error && !isLoading && (
+              <div className="flex items-center justify-center py-8 pt-4">
+                <div className="text-sm text-destructive">{error}</div>
+              </div>
+            )
+          }
 
           {/* Main Data Display */}
           <div className="pt-2">
@@ -2159,15 +2379,15 @@ export function StockTransactionDoneDetail() {
               </>
             )}
           </div>
-        </div>
+        </div >
 
         {/* Side Panel - Fixed position on the right, but part of layout flow */}
-        <div
+        < div
           className={`fixed top-14 right-0 h-[calc(100vh-3.5rem)] w-full sm:w-[400px] md:w-[450px] bg-background border-l border-border shadow-2xl z-40 transition-transform duration-300 ease-in-out flex flex-col ${isPivotBuilderOpen ? 'translate-x-0' : 'translate-x-full'
             }`}
         >
           {/* Header */}
-          <div className="flex-shrink-0 bg-background border-b px-4 py-3 flex items-center justify-between">
+          < div className="flex-shrink-0 bg-background border-b px-4 py-3 flex items-center justify-between" >
             <div className="flex items-center gap-2">
               <h2 className="text-base font-semibold">Customize Pivot Table Fields</h2>
               <div className="relative group">
@@ -2190,10 +2410,10 @@ export function StockTransactionDoneDetail() {
             >
               <X className="w-5 h-5" />
             </button>
-          </div>
+          </div >
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto min-h-0">
+          < div className="flex-1 overflow-y-auto min-h-0" >
             <div className="py-3">
               {/* Drag and Drop Pivot Builder Section */}
               <div className="px-3 py-2 border-b border-[#3a4252] bg-[#0a0f20]">
@@ -2917,9 +3137,9 @@ export function StockTransactionDoneDetail() {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
+          </div >
+        </div >
+      </div >
+    </div >
   );
 }
