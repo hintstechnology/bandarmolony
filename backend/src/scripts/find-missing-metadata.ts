@@ -51,12 +51,14 @@ async function checkMissingMetadata() {
     const sectorMap = new Map<string, string>();
     const sectorLines = sectorMappingCsv.split('\n');
     for (let i = 1; i < sectorLines.length; i++) {
-        const line = sectorLines[i].trim();
+        const rawLine = sectorLines[i];
+        if (!rawLine) continue;
+        const line = rawLine.trim();
         if (!line) continue;
         const parts = line.split(',');
         if (parts.length >= 2) {
-            const sector = parts[0].trim();
-            const ticker = parts[1].trim().toUpperCase();
+            const sector = parts[0]?.trim();
+            const ticker = parts[1]?.trim().toUpperCase();
             if (sector && ticker) {
                 sectorMap.set(ticker, sector);
             }
@@ -74,7 +76,9 @@ async function checkMissingMetadata() {
     console.log(`📝 Header for emiten_detail_list.csv: ${headerLine}`);
 
     for (let i = 1; i < detailLines.length; i++) {
-        const line = detailLines[i].trim();
+        const rawLine = detailLines[i];
+        if (!rawLine) continue;
+        const line = rawLine.trim();
         if (!line) continue;
 
         // Handle CSV with possible quoted values
@@ -83,8 +87,8 @@ async function checkMissingMetadata() {
         // Based on previous check: 1,AALI,Astra Agro Les
         // Code is likely column 2 (index 1) and Name is column 3 (index 2)
         if (parts.length >= 3) {
-            const code = parts[1].trim().replace(/^"|"$/g, '').toUpperCase();
-            const name = parts[2].trim().replace(/^"|"$/g, '');
+            const code = parts[1]?.trim().replace(/^"|"$/g, '').toUpperCase();
+            const name = parts[2]?.trim().replace(/^"|"$/g, '');
             if (code && name) {
                 companyMap.set(code, name);
             }
