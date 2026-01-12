@@ -127,6 +127,7 @@ interface UserPreferences {
   brokerSelectionMode: {
     top5buy: boolean;
     top5sell: boolean;
+    top5tektok: boolean;
     custom: boolean;
   };
   startDate?: string;
@@ -1419,14 +1420,21 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const [brokerSelectionMode, setBrokerSelectionMode] = useState<{
     top5buy: boolean;
     top5sell: boolean;
+    top5tektok: boolean;
     custom: boolean;
   }>(() => {
     // Try to load from preferences first
     if (savedPrefs?.brokerSelectionMode) {
-      return savedPrefs.brokerSelectionMode;
+      // Ensure backward compatibility if top5tektok is missing in prefs
+      return {
+        top5buy: savedPrefs.brokerSelectionMode.top5buy,
+        top5sell: savedPrefs.brokerSelectionMode.top5sell,
+        top5tektok: (savedPrefs.brokerSelectionMode as any).top5tektok || false,
+        custom: savedPrefs.brokerSelectionMode.custom
+      };
     }
     // Fallback to default
-    return { top5buy: false, top5sell: false, custom: false };
+    return { top5buy: false, top5sell: false, top5tektok: false, custom: false };
   });
   const [tickerInput, setTickerInput] = useState<string>('');
   const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
@@ -2552,9 +2560,18 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
         }
       }
 
+      // If removed broker was from top 5 tektok, check if all top 5 tektok brokers are gone
+      const top5TekTokSet = new Set(brokerNetStats.topTekToks.slice(0, 5).map(item => item.broker));
+      if (top5TekTokSet.has(broker)) {
+        const remainingTop5TekTok = newSelectedBrokers.filter(b => top5TekTokSet.has(b));
+        if (remainingTop5TekTok.length === 0) {
+          setBrokerSelectionMode(prev => ({ ...prev, top5tektok: false }));
+        }
+      }
+
       // If removed broker was custom, check if all custom brokers are gone
-      if (!top5BuySet.has(broker) && !top5SellSet.has(broker)) {
-        const remainingCustom = newSelectedBrokers.filter(b => !top5BuySet.has(b) && !top5SellSet.has(b));
+      if (!top5BuySet.has(broker) && !top5SellSet.has(broker) && !top5TekTokSet.has(broker)) {
+        const remainingCustom = newSelectedBrokers.filter(b => !top5BuySet.has(b) && !top5SellSet.has(b) && !top5TekTokSet.has(b));
         if (remainingCustom.length === 0) {
           setBrokerSelectionMode(prev => ({ ...prev, custom: false }));
         }
@@ -2611,13 +2628,35 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     }
   };
 
+  const removeAllTop5TekTok = () => {
+    const top5TekTokSet = new Set(brokerNetStats.topTekToks.slice(0, 5).map(item => item.broker));
+    const brokersToRemove = selectedBrokers.filter(b => top5TekTokSet.has(b));
+
+    if (brokersToRemove.length > 0) {
+      const newSelectedBrokers = selectedBrokers.filter(b => !top5TekTokSet.has(b));
+      setSelectedBrokers(newSelectedBrokers);
+      setHasUserSelectedBrokers(true);
+      setBrokerSelectionMode(prev => ({ ...prev, top5tektok: false }));
+      // Reset shouldFetchData to prevent auto-reload until Show is clicked
+      setShouldFetchData(false);
+
+      setBrokerVisibility((prev) => {
+        const updated = { ...prev };
+        brokersToRemove.forEach(broker => delete updated[broker]);
+        return updated;
+      });
+      console.log(`📊 Removed all Top 5 TekTok brokers - series will be updated automatically`);
+    }
+  };
+
   const removeAllCustom = () => {
     const top5BuySet = new Set(brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker));
     const top5SellSet = new Set(brokerNetStats.topSellers.slice(0, 5).map(item => item.broker));
-    const brokersToRemove = selectedBrokers.filter(b => !top5BuySet.has(b) && !top5SellSet.has(b));
+    const top5TekTokSet = new Set(brokerNetStats.topTekToks.slice(0, 5).map(item => item.broker));
+    const brokersToRemove = selectedBrokers.filter(b => !top5BuySet.has(b) && !top5SellSet.has(b) && !top5TekTokSet.has(b));
 
     if (brokersToRemove.length > 0) {
-      const newSelectedBrokers = selectedBrokers.filter(b => top5BuySet.has(b) || top5SellSet.has(b));
+      const newSelectedBrokers = selectedBrokers.filter(b => top5BuySet.has(b) || top5SellSet.has(b) || top5TekTokSet.has(b));
       setSelectedBrokers(newSelectedBrokers);
       setHasUserSelectedBrokers(true);
       setBrokerSelectionMode(prev => ({ ...prev, custom: false }));
@@ -2636,9 +2675,9 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const handleBrokerKeyDown = (e: React.KeyboardEvent) => {
     if (!showBrokerSuggestions) return;
 
-    // Calculate total items including "Top 5 Buy" and "Top 5 Sell" if they are visible
+    // Calculate total items including "Top 5 Buy", "Top 5 Sell", and "Top 5 TekTok" if they are visible
     const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
-    const quickSelectCount = hasQuickSelect ? 2 : 0; // "Top 5 Buy" and "Top 5 Sell"
+    const quickSelectCount = hasQuickSelect ? 3 : 0; // "Top 5 Buy", "Top 5 Sell", "Top 5 TekTok"
     const totalItems = quickSelectCount + filteredBrokers.length;
 
     if (totalItems === 0) return;
@@ -2704,6 +2743,31 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                 count: top5Sell.length,
                 willAppearInLegend: true,
                 mode: 'top5sell'
+              });
+              return;
+            } else if (highlightedBrokerIndex === 2) {
+              // Top 5 TekTok
+              const top5TekTok = brokerNetStats.topTekToks.slice(0, 5).map(item => item.broker);
+              const isCurrentlyActive = brokerSelectionMode.top5tektok;
+              if (isCurrentlyActive) {
+                setSelectedBrokers(prev => prev.filter(b => !top5TekTok.includes(b)));
+                setBrokerSelectionMode(prev => ({ ...prev, top5tektok: false }));
+              } else {
+                setSelectedBrokers(prev => {
+                  const newSet = new Set([...prev, ...top5TekTok]);
+                  return Array.from(newSet);
+                });
+                setBrokerSelectionMode(prev => ({ ...prev, top5tektok: true }));
+              }
+              setHasUserSelectedBrokers(false);
+              setBrokerSearch('');
+              // Reset shouldFetchData to prevent auto-reload until Show is clicked
+              setShouldFetchData(false);
+              console.log(`✅ Top 5 TekTok selected via keyboard:`, {
+                top5TekTok,
+                count: top5TekTok.length,
+                willAppearInLegend: true,
+                mode: 'top5tektok'
               });
               return;
             }
@@ -3366,14 +3430,17 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
         sellVolByBroker: new Map<string, number>(),
         topBuyers: [] as Array<{ broker: string; buy: number }>,
         topSellers: [] as Array<{ broker: string; sell: number }>,
+        topTekToks: [] as Array<{ broker: string; vol: number }>,
         topBuyerSet: new Set<string>(),
         topSellerSet: new Set<string>(),
+        topTekTokSet: new Set<string>(),
       };
     }
 
     const netByBroker = new Map<string, number>();
     const buyVolByBroker = new Map<string, number>();
     const sellVolByBroker = new Map<string, number>();
+    const tektokByBroker = new Map<string, number>();
 
     // Aggregate NetBuy and NetSell per broker (same logic as BrokerSummaryPage NET table)
     const brokerNetBuyTotals: { [broker: string]: { nblot: number; nbval: number } } = {};
@@ -3402,6 +3469,10 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
       netByBroker.set(broker, (netByBroker.get(broker) || 0) + netValue);
       buyVolByBroker.set(broker, (buyVolByBroker.get(broker) || 0) + buyValue);
       sellVolByBroker.set(broker, (sellVolByBroker.get(broker) || 0) + sellValue);
+
+      // TekTok calculation: min(BuyVol, SellVol) - represents volume matched within same broker
+      const tektokVol = Math.min(buyValue, sellValue);
+      tektokByBroker.set(broker, (tektokByBroker.get(broker) || 0) + tektokVol);
 
       // Aggregate NetBuy totals per broker (same as BrokerSummaryPage NET table)
       if (netBuyValue > 0 || netValue > 0) {
@@ -3494,14 +3565,21 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
       .slice(0, 5)
       .map(({ broker, nbval, nblot }) => ({ broker, sell: nbval, lot: nblot }));
 
+    const topTekToks = Array.from(tektokByBroker.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([broker, vol]) => ({ broker, vol }));
+
     return {
       netByBroker,
       buyVolByBroker,
       sellVolByBroker,
       topBuyers,
       topSellers,
+      topTekToks,
       topBuyerSet: new Set(topBuyers.map(item => item.broker)),
       topSellerSet: new Set(topSellers.map(item => item.broker)),
+      topTekTokSet: new Set(topTekToks.map(item => item.broker)),
     };
   }, [brokerSummaryData]);
 
@@ -3518,12 +3596,18 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     return brokerNetStats.topSellers.slice(0, 5).map(item => item.broker).filter(broker => selectedBrokers.includes(broker));
   }, [brokerSelectionMode.top5sell, brokerNetStats.topSellers, selectedBrokers]);
 
+  const top5TekTokBrokers = useMemo(() => {
+    if (!brokerSelectionMode.top5tektok) return [];
+    return brokerNetStats.topTekToks.slice(0, 5).map(item => item.broker).filter(broker => selectedBrokers.includes(broker));
+  }, [brokerSelectionMode.top5tektok, brokerNetStats.topTekToks, selectedBrokers]);
+
   const customBrokers = useMemo(() => {
-    // Brokers that are not in top 5 buy or top 5 sell
+    // Brokers that are not in top 5 buy, top 5 sell, or top 5 tektok
     const top5BuySet = new Set(brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker));
     const top5SellSet = new Set(brokerNetStats.topSellers.slice(0, 5).map(item => item.broker));
-    return selectedBrokers.filter(broker => !top5BuySet.has(broker) && !top5SellSet.has(broker));
-  }, [selectedBrokers, brokerNetStats.topBuyers, brokerNetStats.topSellers]);
+    const top5TekTokSet = new Set(brokerNetStats.topTekToks.slice(0, 5).map(item => item.broker));
+    return selectedBrokers.filter(broker => !top5BuySet.has(broker) && !top5SellSet.has(broker) && !top5TekTokSet.has(broker));
+  }, [selectedBrokers, brokerNetStats.topBuyers, brokerNetStats.topSellers, brokerNetStats.topTekToks]);
 
   // Set default visibility: only first buyer and first seller are visible
   useEffect(() => {
@@ -4181,6 +4265,9 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                       if (brokerSelectionMode.top5sell) {
                         quickSelectLabels.push('Top 5 Sell');
                       }
+                      if (brokerSelectionMode.top5tektok) {
+                        quickSelectLabels.push('Top 5 TekTok');
+                      }
 
                       // If quick select is active, show quick select labels
                       if (quickSelectLabels.length > 0) {
@@ -4199,7 +4286,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                     onChange={(e) => { handleBrokerSearchChange(e); }}
                     onFocus={handleBrokerFocus}
                     onKeyDown={handleBrokerKeyDown}
-                    className={`w-full sm:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${(brokerSelectionMode.top5buy || brokerSelectionMode.top5sell || selectedBrokers.length > 0) ? 'placeholder:text-white' : ''}`}
+                    className={`w-full sm:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground ${(brokerSelectionMode.top5buy || brokerSelectionMode.top5sell || brokerSelectionMode.top5tektok || selectedBrokers.length > 0) ? 'placeholder:text-white' : ''}`}
                     role="combobox"
                     aria-expanded={showBrokerSuggestions}
                     aria-controls="broker-suggestions"
@@ -4244,7 +4331,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                                     </div>
                                     {visibleRecommendedBrokers.map((broker, index) => {
                                       const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
-                                      const quickSelectCount = hasQuickSelect ? 2 : 0;
+                                      const quickSelectCount = hasQuickSelect ? 3 : 0;
                                       const globalIndex = quickSelectCount + index;
                                       return (
                                         <div
@@ -4308,7 +4395,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                                     </div>
                                     {visibleOtherBrokers.map((broker, index) => {
                                       const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && debouncedBrokerSearch === '';
-                                      const quickSelectCount = hasQuickSelect ? 2 : 0;
+                                      const quickSelectCount = hasQuickSelect ? 3 : 0;
                                       const globalIndex = quickSelectCount + recommendedBrokers.length + index;
                                       return (
                                         <div
@@ -4417,11 +4504,6 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                                     setBrokerSearch('');
                                     // Reset shouldFetchData to prevent auto-reload until Show is clicked
                                     setShouldFetchData(false);
-                                    console.log(`✅ Top 5 Buy ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
-                                      top5Buy,
-                                      count: top5Buy.length,
-                                      willAppearInLegend: !isCurrentlyActive
-                                    });
                                   }}
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter' || e.key === ' ') {
@@ -4455,7 +4537,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                                   aria-disabled={brokerNetStats.topBuyers.length === 0}
                                   className={`px-3 py-[2.06px] text-sm font-medium ${brokerNetStats.topBuyers.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted cursor-pointer'} ${highlightedBrokerIndex === 0 ? 'bg-accent' : ''} ${brokerSelectionMode.top5buy ? 'bg-primary/20' : ''}`}
                                 >
-                                  📈 Top 5 Buy {brokerSelectionMode.top5buy ? '✓' : ''} {brokerNetStats.topBuyers.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
+                                  Top 5 Buy {brokerNetStats.topBuyers.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
                                 </div>
                                 <div
                                   onClick={() => {
@@ -4483,11 +4565,6 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                                     setBrokerSearch('');
                                     // Reset shouldFetchData to prevent auto-reload until Show is clicked
                                     setShouldFetchData(false);
-                                    console.log(`✅ Top 5 Sell ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
-                                      top5Sell,
-                                      count: top5Sell.length,
-                                      willAppearInLegend: !isCurrentlyActive
-                                    });
                                   }}
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter' || e.key === ' ') {
@@ -4521,7 +4598,68 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                                   aria-disabled={brokerNetStats.topSellers.length === 0}
                                   className={`px-3 py-[2.06px] text-sm font-medium ${brokerNetStats.topSellers.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted cursor-pointer'} ${highlightedBrokerIndex === 1 ? 'bg-accent' : ''} ${brokerSelectionMode.top5sell ? 'bg-primary/20' : ''}`}
                                 >
-                                  📉 Top 5 Sell {brokerSelectionMode.top5sell ? '✓' : ''} {brokerNetStats.topSellers.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
+                                  Top 5 Sell {brokerNetStats.topSellers.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
+                                </div>
+                                <div
+                                  onClick={() => {
+                                    // Only allow action if data is loaded
+                                    if (brokerNetStats.topTekToks.length === 0) {
+                                      return;
+                                    }
+                                    // Toggle top5tektok mode and add/remove top 5 tektoks
+                                    const top5TekTok = brokerNetStats.topTekToks.slice(0, 5).map(item => item.broker);
+                                    const isCurrentlyActive = brokerSelectionMode.top5tektok;
+
+                                    if (isCurrentlyActive) {
+                                      // Remove top 5 tektoks from selection
+                                      setSelectedBrokers(prev => prev.filter(b => !top5TekTok.includes(b)));
+                                      setBrokerSelectionMode(prev => ({ ...prev, top5tektok: false }));
+                                    } else {
+                                      // Add top 5 tektoks to selection (merge with existing)
+                                      setSelectedBrokers(prev => {
+                                        const newSet = new Set([...prev, ...top5TekTok]);
+                                        return Array.from(newSet);
+                                      });
+                                      setBrokerSelectionMode(prev => ({ ...prev, top5tektok: true }));
+                                    }
+                                    setHasUserSelectedBrokers(false);
+                                    setBrokerSearch('');
+                                    // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                    setShouldFetchData(false);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      if (brokerNetStats.topTekToks.length === 0) {
+                                        return;
+                                      }
+                                      const top5TekTok = brokerNetStats.topTekToks.slice(0, 5).map(item => item.broker);
+                                      const isCurrentlyActive = brokerSelectionMode.top5tektok;
+
+                                      if (isCurrentlyActive) {
+                                        setSelectedBrokers(prev => prev.filter(b => !top5TekTok.includes(b)));
+                                        setBrokerSelectionMode(prev => ({ ...prev, top5tektok: false }));
+                                      } else {
+                                        setSelectedBrokers(prev => {
+                                          const newSet = new Set([...prev, ...top5TekTok]);
+                                          return Array.from(newSet);
+                                        });
+                                        setBrokerSelectionMode(prev => ({ ...prev, top5tektok: true }));
+                                      }
+                                      setHasUserSelectedBrokers(false);
+                                      setBrokerSearch('');
+                                      // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                      setShouldFetchData(false);
+                                    }
+                                  }}
+                                  tabIndex={brokerNetStats.topTekToks.length > 0 ? 0 : -1}
+                                  role="option"
+                                  aria-selected={brokerSelectionMode.top5tektok}
+                                  aria-disabled={brokerNetStats.topTekToks.length === 0}
+                                  className={`px-3 py-[2.06px] text-sm font-medium ${brokerNetStats.topTekToks.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted cursor-pointer'} ${highlightedBrokerIndex === 2 ? 'bg-accent' : ''} ${brokerSelectionMode.top5tektok ? 'bg-primary/20' : ''}`}
+                                >
+                                  Top 5 TekTok {brokerNetStats.topTekToks.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
                                 </div>
                               </>
                             )}
@@ -4830,6 +4968,17 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                       onRemoveAll={removeAllTop5Sell}
                     />
                   )}
+                  {brokerSelectionMode.top5tektok && top5TekTokBrokers.length > 0 && (
+                    <BrokerLegend
+                      title="Top 5 TekTok"
+                      brokers={top5TekTokBrokers}
+                      colorReferenceBrokers={selectedBrokers}
+                      brokerVisibility={brokerVisibility}
+                      onToggleVisibility={handleToggleBrokerVisibility}
+                      onRemoveBroker={removeBroker}
+                      onRemoveAll={removeAllTop5TekTok}
+                    />
+                  )}
                   {brokerSelectionMode.custom && customBrokers.length > 0 && (
                     <BrokerLegend
                       title="Selected Brokers"
@@ -4983,6 +5132,17 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         onToggleVisibility={handleToggleBrokerVisibility}
                         onRemoveBroker={removeBroker}
                         onRemoveAll={removeAllTop5Sell}
+                      />
+                    )}
+                    {brokerSelectionMode.top5tektok && top5TekTokBrokers.length > 0 && (
+                      <BrokerLegend
+                        title="Top 5 TekTok"
+                        brokers={top5TekTokBrokers}
+                        colorReferenceBrokers={selectedBrokers}
+                        brokerVisibility={brokerVisibility}
+                        onToggleVisibility={handleToggleBrokerVisibility}
+                        onRemoveBroker={removeBroker}
+                        onRemoveAll={removeAllTop5TekTok}
                       />
                     )}
                     {brokerSelectionMode.custom && customBrokers.length > 0 && (
@@ -5158,6 +5318,17 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         onToggleVisibility={handleToggleBrokerVisibility}
                         onRemoveBroker={removeBroker}
                         onRemoveAll={removeAllTop5Sell}
+                      />
+                    )}
+                    {brokerSelectionMode.top5tektok && top5TekTokBrokers.length > 0 && (
+                      <BrokerLegend
+                        title="Top 5 TekTok"
+                        brokers={top5TekTokBrokers}
+                        colorReferenceBrokers={selectedBrokers}
+                        brokerVisibility={brokerVisibility}
+                        onToggleVisibility={handleToggleBrokerVisibility}
+                        onRemoveBroker={removeBroker}
+                        onRemoveAll={removeAllTop5TekTok}
                       />
                     )}
                     {brokerSelectionMode.custom && customBrokers.length > 0 && (
