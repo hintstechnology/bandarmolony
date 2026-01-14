@@ -636,6 +636,18 @@ export function BrokerTransaction() {
     return () => clearTimeout(timeout);
   }, [currentPreferences]);
 
+  // Immediate save for date changes (no debounce) to ensure they're captured
+  useEffect(() => {
+    if (startDate || endDate) {
+      const datePrefs: Partial<UserPreferences> = {
+        ...currentPreferences,
+      };
+      if (startDate) datePrefs.startDate = startDate;
+      if (endDate) datePrefs.endDate = endDate;
+      savePreferences(datePrefs);
+    }
+  }, [startDate, endDate]);
+
   // Save on unmount to capture pending changes (e.g. user navigates away quickly)
   useEffect(() => {
     return () => {
