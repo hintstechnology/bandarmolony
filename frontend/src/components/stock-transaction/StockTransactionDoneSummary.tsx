@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { ChevronDown, Calendar, Search, Loader2 } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
@@ -928,19 +928,38 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
 
 
 
+  // Calculate global visible dates (union of all dates that have data across all selected stocks)
+  const globalVisibleDates = useMemo(() => {
+    const datesWithData = new Set<string>();
+    selectedStocks.forEach(stock => {
+      const stockData = priceDataByStockAndDate[stock] || {};
+      selectedDates.forEach(date => {
+        if (stockData[date] && stockData[date].length > 0) {
+          datesWithData.add(date);
+        }
+      });
+    });
+    // Return selectedDates filtered by the union set, to preserve order
+    return selectedDates.filter(date => datesWithData.has(date));
+  }, [selectedStocks, selectedDates, priceDataByStockAndDate]);
+
   const renderHorizontalSummaryView = (stock: string) => {
     const stockPriceDataByDate = priceDataByStockAndDate[stock] || {};
 
+    // Use global visible dates for all tables to ensure consistent width
+    const visibleDates = globalVisibleDates;
+
     console.log('Rendering summary view for stock:', stock, {
       selectedDates,
+      visibleDates,
       stockPriceDataByDate,
       stockPriceDataByDateKeys: Object.keys(stockPriceDataByDate)
     });
 
-    const allPrices = getAllUniquePrices(stock, selectedDates, stockPriceDataByDate, ohlcDataByStock[stock]);
+    const allPrices = getAllUniquePrices(stock, visibleDates, stockPriceDataByDate, ohlcDataByStock[stock]);
     console.log('All prices found:', allPrices);
 
-    const maxValues = findMaxValuesHorizontal(stock, selectedDates, stockPriceDataByDate);
+    const maxValues = findMaxValuesHorizontal(stock, visibleDates, stockPriceDataByDate);
     console.log('Max values:', maxValues);
 
     // Calculate column span based on showFrequency and showOrdColumns
@@ -964,27 +983,63 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto -mx-4 sm:mx-0">
-            <div className="min-w-full px-4 sm:px-0 pb-4">
+            <div className="px-4 sm:px-0 pb-4">
               {/* Ticker label at top left of table */}
               <div className="mb-2">
                 <span className="text-sm font-semibold text-foreground">{stock}</span>
               </div>
-              <table className="w-full text-[12px] border-collapse" style={{ tableLayout: 'auto', width: 'auto' }}>
+              <table className="w-full text-[12px] border-collapse" style={{ tableLayout: 'fixed' }}>
+                <colgroup>
+                  {[...visibleDates, 'TOTAL'].map((_, i) => (
+                    <React.Fragment key={i}>
+                      <col className="w-[60px]" />
+                      {showOrdColumns && (
+                        <>
+                          <col className="w-[65px]" />
+                          <col className="w-[55px]" />
+                        </>
+                      )}
+                      {showFrequency && (
+                        <>
+                          <col className="w-[60px]" />
+                          <col className="w-[55px]" />
+                        </>
+                      )}
+                      <col className="w-[70px]" />
+                      <col className="w-[70px]" />
+                      {showFrequency && (
+                        <>
+                          <col className="w-[55px]" />
+                          <col className="w-[60px]" />
+                        </>
+                      )}
+                      {showOrdColumns && (
+                        <>
+                          <col className="w-[55px]" />
+                          <col className="w-[60px]" />
+                        </>
+                      )}
+                      {showFrequency && <col className="w-[55px]" />}
+                      <col className="w-[70px]" />
+                      {showOrdColumns && <col className="w-[55px]" />}
+                    </React.Fragment>
+                  ))}
+                </colgroup>
                 <thead>
                   {/* Main Header Row - Dates */}
                   <tr className="border-t-2 border-white bg-[#3a4252]">
-                    {selectedDates.map((date, dateIndex) => (
-                      <th key={date} colSpan={colSpan} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
+                    {visibleDates.map((date, dateIndex) => (
+                      <th key={date} colSpan={colSpan} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
                         {formatDisplayDate(date)}
                       </th>
                     ))}
-                    <th colSpan={colSpan} className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
+                    <th colSpan={colSpan} className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
                       Total
                     </th>
                   </tr>
                   {/* Sub Header Row - Metrics */}
                   <tr className="bg-[#3a4252]">
-                    {selectedDates.map((date, dateIndex) => (
+                    {visibleDates.map((date, dateIndex) => (
                       <React.Fragment key={date}>
                         <th className={`text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>Price</th>
                         {showOrdColumns && (
@@ -1006,13 +1061,13 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                           </>
                         )}
                         {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">TFreq</th>}
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap ${!showOrdColumns && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TLot</th>
+                        <th className={`text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap ${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TLot</th>
                         {showOrdColumns && (
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TOr</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap ${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TOr</th>
                         )}
                       </React.Fragment>
                     ))}
-                    <th className={`text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>Price</th>
+                    <th className={`text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>Price</th>
                     {showOrdColumns && (
                       <>
                         <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot/BOr</th>
@@ -1046,7 +1101,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                   {allPrices.map((price, priceIndex) => {
                     return (
                       <tr key={price} className={`hover:bg-accent/50 ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`}>
-                        {selectedDates.map((date, dateIndex) => {
+                        {visibleDates.map((date, dateIndex) => {
                           // Get data for this specific date and price (only if exists in CSV for this date)
                           const dateData = stockPriceDataByDate[date] || [];
                           const data = dateData.find(item => item.price === price) || null;
@@ -1071,11 +1126,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                           });
 
                           if (ohlc) {
-                            if (price === ohlc.high) {
-                              bgClass = 'bg-blue-500/30'; // High -> More visible Blue
-                            } else if (price === ohlc.low) {
-                              bgClass = 'bg-yellow-500/30'; // Low -> More visible Yellow
-                            } else if (ohlc.close >= ohlc.open && price >= ohlc.open && price <= ohlc.close) {
+                            if (ohlc.close >= ohlc.open && price >= ohlc.open && price <= ohlc.close) {
                               bgClass = 'bg-green-500/20'; // Bullish Range
                             } else if (ohlc.close < ohlc.open && price >= ohlc.close && price <= ohlc.open) {
                               bgClass = 'bg-red-500/20'; // Bearish Range
@@ -1155,9 +1206,9 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                                   </>
                                 )}
                                 {showFrequency && <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>}
-                                <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
+                                <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
                                 {showOrdColumns && (
-                                  <td className={cellClass('text-right', `${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
+                                  <td className={cellClass('text-right', `${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
                                 )}
                               </React.Fragment>
                             );
@@ -1232,12 +1283,12 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                                 </td>
                               )}
                               {/* TLot */}
-                              <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {data ? formatNumberWithAbbreviation(data.tLot) : '-'}
                               </td>
                               {/* TOr */}
                               {showOrdColumns && (
-                                <td className={cellClass('text-right', `${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={cellClass('text-right', `${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {data ? formatNumberWithAbbreviation(data.tOrd) : '-'}
                                 </td>
                               )}
@@ -1246,27 +1297,27 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                         })}
                         {/* Grand Total Column for each row */}
                         {(() => {
-                          const totalBFreq = selectedDates.reduce((sum, date) => {
+                          const totalBFreq = visibleDates.reduce((sum, date) => {
                             const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                             return sum + (data?.bFreq || 0);
                           }, 0);
-                          const totalSFreq = selectedDates.reduce((sum, date) => {
+                          const totalSFreq = visibleDates.reduce((sum, date) => {
                             const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                             return sum + (data?.sFreq || 0);
                           }, 0);
-                          const totalBLot = selectedDates.reduce((sum, date) => {
+                          const totalBLot = visibleDates.reduce((sum, date) => {
                             const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                             return sum + (data?.bLot || 0);
                           }, 0);
-                          const totalSLot = selectedDates.reduce((sum, date) => {
+                          const totalSLot = visibleDates.reduce((sum, date) => {
                             const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                             return sum + (data?.sLot || 0);
                           }, 0);
-                          const totalBOrd = selectedDates.reduce((sum, date) => {
+                          const totalBOrd = visibleDates.reduce((sum, date) => {
                             const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                             return sum + (data?.bOrd || 0);
                           }, 0);
-                          const totalSOrd = selectedDates.reduce((sum, date) => {
+                          const totalSOrd = visibleDates.reduce((sum, date) => {
                             const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                             return sum + (data?.sOrd || 0);
                           }, 0);
@@ -1277,7 +1328,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
 
                           return (
                             <>
-                              <td className={`text-center py-[1px] px-[5px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className={`text-center py-[1px] px-[5px] font-bold text-white ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {formatNumber(price)}
                               </td>
                               {showOrdColumns && (
@@ -1328,7 +1379,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                               )}
                               {showFrequency && (
                                 <td className={`text-right py-[1px] px-[5px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                                  {formatNumberWithAbbreviation(visibleDates.reduce((sum, date) => {
                                     const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                                     return sum + (data?.tFreq || 0);
                                   }, 0))}
@@ -1337,13 +1388,13 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                               {showOrdColumns ? (
                                 <>
                                   <td className={`text-right py-[1px] px-[5px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                                    {formatNumberWithAbbreviation(visibleDates.reduce((sum, date) => {
                                       const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                                       return sum + (data?.tLot || 0);
                                     }, 0))}
                                   </td>
                                   <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                                    {formatNumberWithAbbreviation(visibleDates.reduce((sum, date) => {
                                       const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                                       return sum + (data?.tOrd || 0);
                                     }, 0))}
@@ -1351,7 +1402,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                                 </>
                               ) : (
                                 <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                                  {formatNumberWithAbbreviation(visibleDates.reduce((sum, date) => {
                                     const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                                     return sum + (data?.tLot || 0);
                                   }, 0))}
@@ -1365,7 +1416,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                   }).filter(Boolean)}
                   {/* Total Row */}
                   <tr className="border-t-2 border-b-2 border-white font-bold">
-                    {selectedDates.map((date, dateIndex) => {
+                    {visibleDates.map((date, dateIndex) => {
                       const dateData = stockPriceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return (
@@ -1437,12 +1488,12 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                             </td>
                           )}
                           {/* TLot */}
-                          <td className={`text-right py-[1px] px-[6px] font-bold text-white ${!showOrdColumns && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          <td className={`text-right py-[1px] px-[6px] font-bold text-white ${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {formatNumberWithAbbreviation(totals.tLot)}
                           </td>
                           {/* TOr */}
                           {showOrdColumns && (
-                            <td className={`text-right py-[1px] px-[6px] font-bold text-white ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            <td className={`text-right py-[1px] px-[6px] font-bold text-white ${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                               {formatNumberWithAbbreviation(totals.tOrd)}
                             </td>
                           )}
@@ -1451,32 +1502,32 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                     })}
                     {/* Grand Total Column */}
                     {(() => {
-                      const grandTotalBFreq = selectedDates.reduce((sum, date) => {
+                      const grandTotalBFreq = visibleDates.reduce((sum, date) => {
                         const dateData = stockPriceDataByDate[date] || [];
                         const totals = calculateTotals(dateData);
                         return sum + totals.bFreq;
                       }, 0);
-                      const grandTotalSFreq = selectedDates.reduce((sum, date) => {
+                      const grandTotalSFreq = visibleDates.reduce((sum, date) => {
                         const dateData = stockPriceDataByDate[date] || [];
                         const totals = calculateTotals(dateData);
                         return sum + totals.sFreq;
                       }, 0);
-                      const grandTotalBLot = selectedDates.reduce((sum, date) => {
+                      const grandTotalBLot = visibleDates.reduce((sum, date) => {
                         const dateData = stockPriceDataByDate[date] || [];
                         const totals = calculateTotals(dateData);
                         return sum + totals.bLot;
                       }, 0);
-                      const grandTotalSLot = selectedDates.reduce((sum, date) => {
+                      const grandTotalSLot = visibleDates.reduce((sum, date) => {
                         const dateData = stockPriceDataByDate[date] || [];
                         const totals = calculateTotals(dateData);
                         return sum + totals.sLot;
                       }, 0);
-                      const grandTotalBOrd = selectedDates.reduce((sum, date) => {
+                      const grandTotalBOrd = visibleDates.reduce((sum, date) => {
                         const dateData = stockPriceDataByDate[date] || [];
                         const totals = calculateTotals(dateData);
                         return sum + totals.bOrd;
                       }, 0);
-                      const grandTotalSOrd = selectedDates.reduce((sum, date) => {
+                      const grandTotalSOrd = visibleDates.reduce((sum, date) => {
                         const dateData = stockPriceDataByDate[date] || [];
                         const totals = calculateTotals(dateData);
                         return sum + totals.sOrd;
@@ -1485,17 +1536,17 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                       const grandTotalSLotPerFreq = grandTotalSFreq > 0 ? grandTotalSLot / grandTotalSFreq : 0;
                       const grandTotalBLotPerOrd = grandTotalBOrd > 0 ? grandTotalBLot / grandTotalBOrd : 0;
                       const grandTotalSLotPerOrd = grandTotalSOrd > 0 ? grandTotalSLot / grandTotalSOrd : 0;
-                      const grandTotalTFreq = selectedDates.reduce((sum, date) => {
+                      const grandTotalTFreq = visibleDates.reduce((sum, date) => {
                         const dateData = stockPriceDataByDate[date] || [];
                         const totals = calculateTotals(dateData);
                         return sum + totals.tFreq;
                       }, 0);
-                      const grandTotalTLot = selectedDates.reduce((sum, date) => {
+                      const grandTotalTLot = visibleDates.reduce((sum, date) => {
                         const dateData = stockPriceDataByDate[date] || [];
                         const totals = calculateTotals(dateData);
                         return sum + totals.tLot;
                       }, 0);
-                      const grandTotalTOrd = selectedDates.reduce((sum, date) => {
+                      const grandTotalTOrd = visibleDates.reduce((sum, date) => {
                         const dateData = stockPriceDataByDate[date] || [];
                         const totals = calculateTotals(dateData);
                         return sum + totals.tOrd;
@@ -1503,7 +1554,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
 
                       return (
                         <>
-                          <td className={`text-center py-[1px] px-[5px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
+                          <td className={`text-center py-[1px] px-[5px] font-bold text-white ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
                             TOTAL
                           </td>
                           {showOrdColumns && (
@@ -2068,12 +2119,12 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
 
                   datesToUse = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
 
-                  // Check if total trading dates exceed 7
-                  if (datesToUse.length > 7) {
+                  // Check if total trading dates exceed 20
+                  if (datesToUse.length > 20) {
                     showToast({
                       type: 'warning',
                       title: 'Terlalu Banyak Tanggal',
-                      message: 'Maksimal 7 hari trading yang bisa dipilih (tidak termasuk weekend)',
+                      message: 'Maksimal 20 hari trading yang bisa dipilih (tidak termasuk weekend)',
                     });
                     return;
                   }

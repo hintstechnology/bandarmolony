@@ -602,31 +602,46 @@ export function BrokerTransaction() {
     return () => clearTimeout(timeout);
   }, [tickerInput]);
 
-  // Save preferences to localStorage with debounce to reduce write operations
+  // Construct preferences object
+  const currentPreferences = useMemo<Partial<UserPreferences>>(() => {
+    const prefs: Partial<UserPreferences> = {
+      selectedBrokers,
+      selectedTickers,
+      selectedSectors,
+      pivotFilter,
+      invFilter,
+      boardFilter,
+      showFrequency,
+      showOrder,
+    };
+    if (startDate) prefs.startDate = startDate;
+    if (endDate) prefs.endDate = endDate;
+    return prefs;
+  }, [selectedBrokers, selectedTickers, selectedSectors, pivotFilter, invFilter, boardFilter, showFrequency, showOrder, startDate, endDate]);
+
+  // Ref to hold the latest preferences for unmount saving
+  const preferencesRef = useRef(currentPreferences);
+
+  // Update ref whenever preferences change
+  useEffect(() => {
+    preferencesRef.current = currentPreferences;
+  }, [currentPreferences]);
+
+  // Save preferences to cookies with debounce
   useEffect(() => {
     const timeout = setTimeout(() => {
-      const preferences: Partial<UserPreferences> = {
-        selectedBrokers,
-        selectedTickers,
-        selectedSectors,
-        pivotFilter,
-        invFilter,
-        boardFilter,
-        showFrequency,
-        showOrder,
-      };
-      // Only include dates if they have values
-      if (startDate) {
-        preferences.startDate = startDate;
-      }
-      if (endDate) {
-        preferences.endDate = endDate;
-      }
-      savePreferences(preferences);
-    }, 500); // Debounce 500ms to reduce localStorage writes
+      savePreferences(currentPreferences);
+    }, 500); // Debounce 500ms to reduce cookie writes
 
     return () => clearTimeout(timeout);
-  }, [selectedBrokers, selectedTickers, selectedSectors, pivotFilter, invFilter, boardFilter, showFrequency, showOrder, startDate, endDate]);
+  }, [currentPreferences]);
+
+  // Save on unmount to capture pending changes (e.g. user navigates away quickly)
+  useEffect(() => {
+    return () => {
+      savePreferences(preferencesRef.current);
+    };
+  }, []);
 
   // Consolidated Horizontal Scroll Synchronization
   useEffect(() => {
