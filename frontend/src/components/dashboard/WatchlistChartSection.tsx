@@ -28,7 +28,7 @@ export function WatchlistChartSection({ selectedStock, onStockSelect }: Watchlis
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 sm:gap-4 md:gap-6" data-watchlist-section>
       <div className="xl:col-span-1 order-2 xl:order-1">
         <div className="h-[300px] sm:h-[400px] md:h-[500px] xl:h-[620px]">
-          <Watchlist 
+          <Watchlist
             selectedStock={selectedStock}
             onStockSelect={handleStockSelect}
             showFavoritesOnly={true}
@@ -46,15 +46,16 @@ export function WatchlistChartSection({ selectedStock, onStockSelect }: Watchlis
               </div>
             </div>
           )}
-          
-          <TechnicalAnalysisTradingView 
-            selectedStock={selectedStock} 
-            hideControls={true} 
-            styleProp="candles" 
-            timeframeProp={timeframe} 
+
+          <TechnicalAnalysisTradingView
+            selectedStock={selectedStock}
+            hideControls={true}
+            styleProp="candles"
+            timeframeProp={timeframe}
             showStockSymbol={true}
-            timeframeOptions={['1D','3D','5D','1W','2W','3W','1M','3M','6M','1Y']}
+            timeframeOptions={['1D', '3D', '5D', '1W', '2W', '3W', '1M', '3M', '6M', '1Y']}
             onTimeframeChange={(tf) => setTimeframe(tf)}
+            persistenceKey="dashboard-watchlist-chart"
           />
         </div>
       </div>

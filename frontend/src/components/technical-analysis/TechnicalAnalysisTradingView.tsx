@@ -5,6 +5,7 @@ import { Settings as SettingsIcon, BarChart2, Search, Plus, X } from 'lucide-rea
 import { FootprintChart } from '../footprint/FootprintChart';
 import { api } from '../../services/api';
 import { STOCK_LIST, loadStockList } from '../../data/stockList';
+import { menuPreferencesService } from '../../services/menuPreferences';
 import {
   calculateSMA,
   calculateEMA,
@@ -471,12 +472,37 @@ interface TechnicalAnalysisTradingViewProps {
   showStockSymbol?: boolean;
   timeframeOptions?: string[];
   onTimeframeChange?: (timeframe: string) => void;
+  persistenceKey?: string; // Key for saving preferences to cookies
 }
 
-export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysisTradingView({ selectedStock, hideControls = false, styleProp, timeframeProp, showStockSymbol = false, timeframeOptions, onTimeframeChange }: TechnicalAnalysisTradingViewProps) {
-  const [symbol, setSymbol] = useState<string>(selectedStock || 'BBCA');
+const DEFAULT_PAGE_ID = 'technical-analysis';
+
+export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysisTradingView({ selectedStock, hideControls = false, styleProp, timeframeProp, showStockSymbol = false, timeframeOptions, onTimeframeChange, persistenceKey }: TechnicalAnalysisTradingViewProps) {
+  const pageId = persistenceKey || DEFAULT_PAGE_ID;
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
   const [style, setStyle] = useState<ChartStyle>('candles');
+
+  // Load initial preferences from cookies
+  const initialPrefs = useMemo(() => menuPreferencesService.loadPreferences(pageId), [pageId]);
+
+  const [symbol, setSymbol] = useState<string>(selectedStock || initialPrefs.symbol || 'BBCA');
+  const [indicatorChartHeight, setIndicatorChartHeight] = useState<number>(initialPrefs.indicatorChartHeight || 100);
+  const [horizontalScale, setHorizontalScale] = useState<number>(initialPrefs.horizontalScale || 1.5);
+  const [verticalScale, setVerticalScale] = useState<number>(initialPrefs.verticalScale || 10);
+  const [chartViewportHeight, setChartViewportHeight] = useState<number>(initialPrefs.chartViewportHeight || 600);
+
+  const [rsiSettings, setRsiSettings] = useState(initialPrefs.rsiSettings || {
+    overbought: 70,
+    oversold: 30,
+    showOverbought: true,
+    showOversold: true
+  });
+  const [volumeHistogramSettings, setVolumeHistogramSettings] = useState(initialPrefs.volumeHistogramSettings || {
+    upColor: 'rgba(22,163,74,0.6)',
+    downColor: 'rgba(220,38,38,0.6)',
+    showUpColor: true,
+    showDownColor: true
+  });
   const [rows, setRows] = useState<OhlcRow[]>([]);
   const [, setSrc] = useState<'file' | 'mock' | 'none'>('none');
   const [, setPlotted] = useState(0);
@@ -485,7 +511,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const [bidAskData, setBidAskData] = useState<any[]>([]);
   const [indicatorSeriesReady, setIndicatorSeriesReady] = useState<{ [key: string]: boolean }>({});
   const [indicatorReloaded, setIndicatorReloaded] = useState<{ [key: string]: boolean }>({});
-  const [searchQuery, setSearchQuery] = useState<string>('BBCA');
+  const [searchQuery, setSearchQuery] = useState<string>(selectedStock || initialPrefs.symbol || 'BBCA');
   const [showSearchDropdown, setShowSearchDropdown] = useState<boolean>(false);
   const [searchDropdownIndex, setSearchDropdownIndex] = useState<number>(-1);
   const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
@@ -496,19 +522,6 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     line: '#2563eb',
     candles: { up: '#16a34a', down: '#dc2626', wickUp: '#16a34a', wickDown: '#dc2626' },
     area: { line: '#2563eb', top: 'rgba(37,99,235,0.20)', bottom: 'rgba(37,99,235,0.05)' }
-  });
-  const [indicatorChartHeight, setIndicatorChartHeight] = useState(100);
-  const [rsiSettings, setRsiSettings] = useState({
-    overbought: 70,
-    oversold: 30,
-    showOverbought: true,
-    showOversold: true
-  });
-  const [volumeHistogramSettings, setVolumeHistogramSettings] = useState({
-    upColor: 'rgba(22,163,74,0.6)',
-    downColor: 'rgba(220,38,38,0.6)',
-    showUpColor: true,
-    showDownColor: true
   });
   const [stochasticSettings] = useState({
     kColor: '#9b59b6',
@@ -529,7 +542,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const controlsContainerRef = useRef<HTMLDivElement | null>(null);
   const menuContainerRef = useRef<HTMLDivElement>(null);
   const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
-  const [chartViewportHeight, setChartViewportHeight] = useState<number>(600);
+  // const [chartViewportHeight, setChartViewportHeight] = useState<number>(600);
   useEffect(() => {
     const HEADER_H = 56; // h-14 in header
     const MAIN_PADDING_V = 48; // p-6 top+bottom in <main>
@@ -576,8 +589,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         const stocks = STOCK_LIST;
         console.log('✅ TechnicalAnalysis: Loaded symbols:', stocks.length, 'symbols');
         setAvailableSymbols(stocks);
-        // Set default symbol if none selected
-        if (!selectedStock && stocks.length > 0) {
+        // Set default symbol if none selected and no current symbol
+        if (!selectedStock && !symbol && stocks.length > 0) {
           // Try to set BBCA as default, fallback to first available
           const defaultSymbol = stocks.includes('BBCA') ? 'BBCA' : stocks[0];
           setSymbol(defaultSymbol);
@@ -620,8 +633,19 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
 
     if (symbol) {
       fetchCompanyName();
+      // Save symbol to preferences
+      menuPreferencesService.savePreferences(pageId, { symbol });
+      // Sync search query with symbol
+      setSearchQuery(symbol);
     }
-  }, [symbol]);
+  }, [symbol, pageId]);
+
+  // Sync symbol with selectedStock prop if it changes (for Watchlist usage)
+  useEffect(() => {
+    if (selectedStock) {
+      setSymbol(selectedStock);
+    }
+  }, [selectedStock]);
 
   // Footprint chart settings
   const [footprintSettings, setFootprintSettings] = useState({
@@ -642,34 +666,6 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         console.log('Failed to load saved colors, using defaults');
       }
     }
-
-    const savedHeight = localStorage.getItem('indicatorChartHeight');
-    if (savedHeight) {
-      try {
-        setIndicatorChartHeight(parseInt(savedHeight));
-      } catch (e) {
-        console.log('Failed to load saved chart height, using defaults');
-      }
-    }
-
-    const savedRsiSettings = localStorage.getItem('rsiSettings');
-    if (savedRsiSettings) {
-      try {
-        setRsiSettings(JSON.parse(savedRsiSettings));
-      } catch (e) {
-        console.log('Failed to load saved RSI settings, using defaults');
-      }
-    }
-
-    const savedVolumeHistogramSettings = localStorage.getItem('volumeHistogramSettings');
-    if (savedVolumeHistogramSettings) {
-      try {
-        setVolumeHistogramSettings(JSON.parse(savedVolumeHistogramSettings));
-      } catch (e) {
-        console.log('Failed to load saved volume histogram settings, using defaults');
-      }
-    }
-
   }, []);
 
   // Save colors to localStorage when they change
@@ -677,21 +673,18 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     localStorage.setItem('chartColors', JSON.stringify(chartColors));
   }, [chartColors]);
 
-  // Save chart height to localStorage when it changes
+  // Save preferences to cookies when they change
+  // Save preferences to cookies when they change
   useEffect(() => {
-    localStorage.setItem('indicatorChartHeight', indicatorChartHeight.toString());
-  }, [indicatorChartHeight]);
-
-  // Save RSI settings to localStorage when they change
-  useEffect(() => {
-    localStorage.setItem('rsiSettings', JSON.stringify(rsiSettings));
-  }, [rsiSettings]);
-
-  // Save volume histogram settings to localStorage when they change
-  useEffect(() => {
-    localStorage.setItem('volumeHistogramSettings', JSON.stringify(volumeHistogramSettings));
-  }, [volumeHistogramSettings]);
-
+    menuPreferencesService.savePreferences(pageId, {
+      indicatorChartHeight,
+      chartViewportHeight,
+      horizontalScale,
+      verticalScale,
+      rsiSettings,
+      volumeHistogramSettings
+    });
+  }, [indicatorChartHeight, chartViewportHeight, horizontalScale, verticalScale, rsiSettings, volumeHistogramSettings, pageId]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -3044,6 +3037,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                     showDelta={footprintSettings.showDelta}
                     timeframe={footprintSettings.timeframe}
                     zoom={footprintSettings.zoom}
+                    verticalScaleProp={verticalScale}
+                    onVerticalScaleChange={setVerticalScale}
+                    horizontalScaleProp={horizontalScale}
+                    onHorizontalScaleChange={setHorizontalScale}
                     stockCode={symbol}
                     date={new Date().toISOString().split('T')[0]?.replace(/-/g, '') || ''}
                     ohlc={filteredRows.length > 0 ? filteredRows.map(d => ({
@@ -3464,8 +3461,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                           <button
                             onClick={() => toggleIndicator(indicator.id)}
                             className={`px-2 py-1 text-xs rounded ${indicator.enabled
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-gray-100 text-gray-700'
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-700'
                               }`}
                           >
                             {indicator.enabled ? 'ON' : 'OFF'}
