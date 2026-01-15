@@ -87,11 +87,11 @@ const formatRatio = (numerator: number, denominator: number): string => {
   if (denominator === 0 || !denominator) return '-';
   const ratio = numerator / denominator;
   if (ratio >= 1e6) {
-    return (ratio / 1e6).toFixed(2) + 'M';
+    return (ratio / 1e6).toFixed(0) + 'M';
   } else if (ratio >= 1e3) {
-    return (ratio / 1e3).toFixed(2) + 'K';
+    return (ratio / 1e3).toFixed(0) + 'K';
   } else {
-    return ratio.toFixed(2);
+    return Math.round(ratio).toLocaleString();
   }
 };
 
@@ -126,6 +126,8 @@ const calculateTotals = (data: PriceData[]) => {
 // Returns prices sorted in descending order
 const getAllUniquePrices = (_stock: string, dates: string[], stockPriceDataByDate: { [date: string]: PriceData[] }, ohlcData?: any[]): number[] => {
   const priceSet = new Set<number>();
+  let minLow = Infinity;
+  let maxHigh = -Infinity;
 
   // Collect all unique prices from all dates
   dates.forEach(date => {
@@ -143,13 +145,42 @@ const getAllUniquePrices = (_stock: string, dates: string[], stockPriceDataByDat
         return rowDate === date;
       });
       if (ohlc) {
-        if (ohlc.high) priceSet.add(ohlc.high);
-        if (ohlc.low) priceSet.add(ohlc.low);
+        if (ohlc.high) {
+          priceSet.add(ohlc.high);
+          if (ohlc.high > maxHigh) maxHigh = ohlc.high;
+        }
+        if (ohlc.low) {
+          priceSet.add(ohlc.low);
+          if (ohlc.low < minLow) minLow = ohlc.low;
+        }
         if (ohlc.open) priceSet.add(ohlc.open);
         if (ohlc.close) priceSet.add(ohlc.close);
       }
     }
   });
+
+  // Fill in all price steps between global minLow and maxHigh based on IDX tick rules
+  if (minLow !== Infinity && maxHigh !== -Infinity && minLow < maxHigh) {
+    let currentPrice = minLow;
+    // Safety counter to prevent infinite loops
+    let iterations = 0;
+    const maxIterations = 5000; // More than enough for any reasonable price range
+
+    while (currentPrice <= maxHigh && iterations < maxIterations) {
+      priceSet.add(currentPrice);
+
+      // Determine tick size based on current price range (IDX rules)
+      let tick = 1;
+      if (currentPrice < 200) tick = 1;
+      else if (currentPrice < 500) tick = 2;
+      else if (currentPrice < 2000) tick = 5;
+      else if (currentPrice < 5000) tick = 10;
+      else tick = 25;
+
+      currentPrice += tick;
+      iterations++;
+    }
+  }
 
   // Convert to array and sort from highest to lowest
   return Array.from(priceSet).sort((a, b) => b - a);
@@ -992,36 +1023,36 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                 <colgroup>
                   {[...visibleDates, 'TOTAL'].map((_, i) => (
                     <React.Fragment key={i}>
+                      <col className="w-[50px]" />
+                      {showOrdColumns && (
+                        <>
+                          <col className="w-[55px]" />
+                          <col className="w-[45px]" />
+                        </>
+                      )}
+                      {showFrequency && (
+                        <>
+                          <col className="w-[50px]" />
+                          <col className="w-[45px]" />
+                        </>
+                      )}
                       <col className="w-[60px]" />
-                      {showOrdColumns && (
-                        <>
-                          <col className="w-[65px]" />
-                          <col className="w-[55px]" />
-                        </>
-                      )}
+                      <col className="w-[60px]" />
                       {showFrequency && (
                         <>
-                          <col className="w-[60px]" />
-                          <col className="w-[55px]" />
-                        </>
-                      )}
-                      <col className="w-[70px]" />
-                      <col className="w-[70px]" />
-                      {showFrequency && (
-                        <>
-                          <col className="w-[55px]" />
-                          <col className="w-[60px]" />
+                          <col className="w-[45px]" />
+                          <col className="w-[50px]" />
                         </>
                       )}
                       {showOrdColumns && (
                         <>
-                          <col className="w-[55px]" />
-                          <col className="w-[60px]" />
+                          <col className="w-[45px]" />
+                          <col className="w-[50px]" />
                         </>
                       )}
-                      {showFrequency && <col className="w-[55px]" />}
-                      <col className="w-[70px]" />
-                      {showOrdColumns && <col className="w-[55px]" />}
+                      {showFrequency && <col className="w-[45px]" />}
+                      <col className="w-[65px]" />
+                      {showOrdColumns && <col className="w-[45px]" />}
                     </React.Fragment>
                   ))}
                 </colgroup>
@@ -1041,59 +1072,59 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                   <tr className="bg-[#3a4252]">
                     {visibleDates.map((date, dateIndex) => (
                       <React.Fragment key={date}>
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>Price</th>
+                        <th className={`text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>Price</th>
                         {showOrdColumns && (
                           <>
-                            <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BLot/BOr</th>
-                            <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BOr</th>
+                            <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BLot/BOr</th>
+                            <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BOr</th>
                           </>
                         )}
-                        {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BLot/F</th>}
-                        {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BFreq</th>}
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BLot</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SLot</th>
-                        {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SFreq</th>}
-                        {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SLot/F</th>}
+                        {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BLot/F</th>}
+                        {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BFreq</th>}
+                        <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BLot</th>
+                        <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SLot</th>
+                        {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SFreq</th>}
+                        {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SLot/F</th>}
                         {showOrdColumns && (
                           <>
-                            <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SOr</th>
-                            <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SLot/SOr</th>
+                            <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SOr</th>
+                            <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SLot/SOr</th>
                           </>
                         )}
-                        {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">TFreq</th>}
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap ${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TLot</th>
+                        {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">TFreq</th>}
+                        <th className={`text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap ${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TLot</th>
                         {showOrdColumns && (
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap ${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TOr</th>
+                          <th className={`text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap ${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TOr</th>
                         )}
                       </React.Fragment>
                     ))}
-                    <th className={`text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>Price</th>
+                    <th className={`text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>Price</th>
                     {showOrdColumns && (
                       <>
-                        <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot/BOr</th>
-                        <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BOr</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BLot/BOr</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BOr</th>
                       </>
                     )}
-                    {showFrequency && <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot/F</th>}
-                    {showFrequency && <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BFreq</th>}
-                    <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot</th>
-                    <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SLot</th>
-                    {showFrequency && <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SFreq</th>}
-                    {showFrequency && <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SLot/F</th>}
+                    {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BLot/F</th>}
+                    {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BFreq</th>}
+                    <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BLot</th>
+                    <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SLot</th>
+                    {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SFreq</th>}
+                    {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SLot/F</th>}
                     {showOrdColumns && (
                       <>
-                        <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SOr</th>
-                        <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SLot/SOr</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SOr</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SLot/SOr</th>
                       </>
                     )}
-                    {showFrequency && <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">TFreq</th>}
+                    {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">TFreq</th>}
                     {showOrdColumns ? (
                       <>
-                        <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">TLot</th>
-                        <th className="text-center py-[1px] px-[7px] font-bold text-white whitespace-nowrap border-r-2 border-white">TOr</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">TLot</th>
+                        <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap border-r-2 border-white">TOr</th>
                       </>
                     ) : (
-                      <th className="text-center py-[1px] px-[7px] font-bold text-white whitespace-nowrap border-r-2 border-white">TLot</th>
+                      <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap border-r-2 border-white">TLot</th>
                     )}
                   </tr>
                 </thead>
@@ -1177,7 +1208,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                               finalBorder = finalBorder.replace('border-t-2 border-white', '');
                             }
                             // ohlcBorderClass is put at the end to ensure it takes priority
-                            return `${align} py-[1px] px-[6px] font-bold ${bgClass} ${textColor} ${finalBorder} ${ohlcBorderClass}`;
+                            return `${align} py-[1px] px-[4px] font-bold ${bgClass} ${textColor} ${finalBorder} ${ohlcBorderClass}`;
                           };
 
                           // If no data for this price in this date, show empty cells
