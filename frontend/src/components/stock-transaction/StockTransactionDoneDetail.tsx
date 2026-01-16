@@ -2486,7 +2486,415 @@ export function StockTransactionDoneDetail() {
 
                   {/* Pivot Configuration Areas - Below Available Fields */}
                   <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {/* Rows */}
+                    {/* Top Left: Filters */}
+                    <div
+                      data-drop-zone="filters"
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedField && draggedFromSource) {
+                          handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'filters');
+                        }
+                        setDraggedField(null);
+                        setDraggedFromSource(null);
+                        setDraggedIndex(null);
+                      }}
+                      className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${dropZoneHighlight === 'filters'
+                        ? 'border-primary bg-primary/10'
+                        : 'border-[#3a4252]'
+                        }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase">Filters</div>
+                        <div className="relative group">
+                          <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+                          <div className="absolute left-0 lg:left-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                            <div className="text-xs text-popover-foreground mb-1"><strong>Filter data sebelum dihitung</strong></div>
+                            <div className="text-xs text-muted-foreground">Contoh: Buyer Broker → pilih broker tertentu, Transaction Time → pilih range waktu</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        {tempPivotConfig.filters.map((filterConfig, idx) => {
+                          const field = availableFields.find(f => f.id === filterConfig.field);
+                          if (!field) return null;
+
+                          // Time range filter
+                          if (filterConfig.filterType === 'timeRange') {
+                            const isDragging = draggedField === filterConfig.field && draggedFromSource === 'filters';
+                            return (
+                              <div
+                                key={idx}
+                                draggable
+                                onDragStart={(e) => {
+                                  setDraggedField(filterConfig.field);
+                                  setDraggedFromSource('filters');
+                                  setDraggedIndex(idx);
+                                  e.dataTransfer.effectAllowed = 'move';
+                                }}
+                                onDragEnd={() => {
+                                  setDraggedField(null);
+                                  setDraggedFromSource(null);
+                                  setDraggedIndex(null);
+                                }}
+                                onTouchStart={(e) => {
+                                  e.stopPropagation();
+                                  const touch = e.touches[0];
+                                  setDraggedField(filterConfig.field);
+                                  setDraggedFromSource('filters');
+                                  setDraggedIndex(idx);
+                                  setTouchDragState({
+                                    isDragging: true,
+                                    startX: touch.clientX,
+                                    startY: touch.clientY,
+                                    currentX: touch.clientX,
+                                    currentY: touch.clientY
+                                  });
+                                }}
+                                className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${isDragging ? 'opacity-50' : ''}`}
+                              >
+                                <div className="flex items-center gap-1 mb-1">
+                                  <GripVertical className="w-3 h-3 text-muted-foreground" />
+                                  <span className="text-xs text-foreground flex-1 font-medium">{field.label}</span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPivotConfig(prev => ({ ...prev, filters: prev.filters.filter((_, i) => i !== idx) }));
+                                    }}
+                                    onTouchStart={(e) => e.stopPropagation()}
+                                    className="text-muted-foreground hover:text-foreground"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <input
+                                    type="time"
+                                    value={filterConfig.timeRange?.start || '08:00'}
+                                    onChange={(e) => {
+                                      const newFilters = [...tempPivotConfig.filters];
+                                      if (newFilters[idx]) {
+                                        newFilters[idx].timeRange = {
+                                          ...(newFilters[idx].timeRange || { start: '08:00', end: '16:00' }),
+                                          start: e.target.value
+                                        };
+                                        setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                      }
+                                    }}
+                                    className="text-xs bg-background border border-[#3a4252] rounded px-2 py-1"
+                                  />
+                                  <span className="text-xs text-muted-foreground">to</span>
+                                  <input
+                                    type="time"
+                                    value={filterConfig.timeRange?.end || '16:00'}
+                                    onChange={(e) => {
+                                      const newFilters = [...tempPivotConfig.filters];
+                                      if (newFilters[idx]) {
+                                        newFilters[idx].timeRange = {
+                                          ...(newFilters[idx].timeRange || { start: '08:00', end: '16:00' }),
+                                          end: e.target.value
+                                        };
+                                        setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                      }
+                                    }}
+                                    className="text-xs bg-background border border-[#3a4252] rounded px-2 py-1"
+                                  />
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // List filter
+                          const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
+                          const uniqueValues = [...new Set(allData.map(item => {
+                            const value = item[filterConfig.field as keyof DoneDetailData];
+                            if (filterConfig.field === 'HAKA_HAKI') {
+                              return value === 1 ? 'HAKA' : 'HAKI';
+                            }
+                            return String(value || '');
+                          }))].sort((a, b) => {
+                            if (filterConfig.field === 'HAKA_HAKI') {
+                              if (a === 'HAKA' && b === 'HAKI') return -1;
+                              if (a === 'HAKI' && b === 'HAKA') return 1;
+                              return a.localeCompare(b);
+                            }
+                            const numA = parseFloat(a);
+                            const numB = parseFloat(b);
+                            if (!isNaN(numA) && !isNaN(numB)) {
+                              return numA - numB;
+                            }
+                            return a.localeCompare(b);
+                          });
+                          const searchTerm = tempFilterSearchTerms[filterConfig.field] || '';
+                          const isDropdownOpen = tempOpenFilterDropdowns[filterConfig.field] || false;
+                          const filteredValues = uniqueValues.filter(v =>
+                            v.toLowerCase().includes(searchTerm.toLowerCase())
+                          );
+
+                          const isDragging = draggedField === filterConfig.field && draggedFromSource === 'filters';
+                          return (
+                            <div
+                              key={idx}
+                              draggable
+                              onDragStart={(e) => {
+                                setDraggedField(filterConfig.field);
+                                setDraggedFromSource('filters');
+                                setDraggedIndex(idx);
+                                e.dataTransfer.effectAllowed = 'move';
+                              }}
+                              onDragEnd={() => {
+                                setDraggedField(null);
+                                setDraggedFromSource(null);
+                                setDraggedIndex(null);
+                              }}
+                              onTouchStart={(e) => {
+                                e.stopPropagation();
+                                const touch = e.touches[0];
+                                setDraggedField(filterConfig.field);
+                                setDraggedFromSource('filters');
+                                setDraggedIndex(idx);
+                                setTouchDragState({
+                                  isDragging: true,
+                                  startX: touch.clientX,
+                                  startY: touch.clientY,
+                                  currentX: touch.clientX,
+                                  currentY: touch.clientY
+                                });
+                              }}
+                              className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${isDragging ? 'opacity-50' : ''}`}
+                            >
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <GripVertical className="w-3 h-3 text-muted-foreground" />
+                                <span className="text-sm text-foreground flex-1 font-medium">{field.label}</span>
+                                {filterConfig.values.length > 0 && (
+                                  <span className="text-xs px-1.5 py-0.5 bg-primary/20 text-primary rounded">
+                                    {filterConfig.values.length}
+                                  </span>
+                                )}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setTempPivotConfig(prev => ({ ...prev, filters: prev.filters.filter((_, i) => i !== idx) }));
+                                    const newSearchTerms = { ...tempFilterSearchTerms };
+                                    delete newSearchTerms[filterConfig.field];
+                                    setTempFilterSearchTerms(newSearchTerms);
+                                    const newDropdowns = { ...tempOpenFilterDropdowns };
+                                    delete newDropdowns[filterConfig.field];
+                                    setTempOpenFilterDropdowns(newDropdowns);
+                                  }}
+                                  onTouchStart={(e) => e.stopPropagation()}
+                                  className="text-muted-foreground hover:text-foreground"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+
+                              <div className="relative" data-filter-dropdown>
+                                <div
+                                  className="relative cursor-pointer"
+                                  onClick={() => setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: !prev[filterConfig.field] }))}
+                                >
+                                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                                  <input
+                                    type="text"
+                                    placeholder={filterConfig.values.length > 0 ? `${filterConfig.values.length} selected` : "Search..."}
+                                    value={searchTerm}
+                                    onChange={(e) => {
+                                      setTempFilterSearchTerms(prev => ({ ...prev, [filterConfig.field]: e.target.value }));
+                                      setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: true }));
+                                    }}
+                                    onFocus={() => {
+                                      setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: true }));
+                                    }}
+                                    className="w-full pl-7 pr-2 py-1.5 text-xs bg-background border border-[#3a4252] rounded cursor-text"
+                                    readOnly={!isDropdownOpen}
+                                  />
+                                </div>
+
+                                {isDropdownOpen && (
+                                  <div className="absolute top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-popover border border-[#3a4252] rounded shadow-lg z-50">
+                                    {filteredValues.length > 0 ? (
+                                      <>
+                                        <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent cursor-pointer border-b-2 border-[#3a4252] font-medium bg-muted/30">
+                                          <input
+                                            type="checkbox"
+                                            checked={filterConfig.values.length === uniqueValues.length && uniqueValues.length > 0}
+                                            onChange={(e) => {
+                                              const newFilters = [...tempPivotConfig.filters];
+                                              const currentFilter = newFilters[idx];
+                                              if (currentFilter) {
+                                                if (e.target.checked) {
+                                                  currentFilter.values = [...uniqueValues];
+                                                } else {
+                                                  currentFilter.values = [];
+                                                }
+                                                setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                              }
+                                            }}
+                                            className="w-3 h-3"
+                                            onClick={(e) => e.stopPropagation()}
+                                          />
+                                          <span className="text-xs text-foreground flex-1 font-semibold">All ({uniqueValues.length})</span>
+                                        </label>
+                                        {filteredValues.map(value => (
+                                          <label
+                                            key={value}
+                                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent cursor-pointer border-b border-[#3a4252]/50 last:border-b-0"
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={filterConfig.values.includes(value)}
+                                              onChange={(e) => {
+                                                const newFilters = [...tempPivotConfig.filters];
+                                                if (newFilters[idx]) {
+                                                  if (e.target.checked) {
+                                                    newFilters[idx].values = [...newFilters[idx].values, value];
+                                                  } else {
+                                                    newFilters[idx].values = newFilters[idx].values.filter(v => v !== value);
+                                                  }
+                                                  setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                                }
+                                              }}
+                                              className="w-3 h-3"
+                                              onClick={(e) => e.stopPropagation()}
+                                            />
+                                            <span className="text-xs text-foreground flex-1">{value}</span>
+                                          </label>
+                                        ))}
+                                      </>
+                                    ) : (
+                                      <div className="text-xs text-muted-foreground px-2 py-2 text-center">No results found</div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {filterConfig.values.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {filterConfig.values.slice(0, 5).map(value => (
+                                    <div key={value} className="flex items-center gap-1 px-1.5 py-0.5 bg-primary/20 text-primary rounded text-xs">
+                                      <span>{value}</span>
+                                      <button
+                                        onClick={() => {
+                                          const newFilters = [...tempPivotConfig.filters];
+                                          if (newFilters[idx]) {
+                                            newFilters[idx].values = newFilters[idx].values.filter(v => v !== value);
+                                            setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                          }
+                                        }}
+                                        className="hover:bg-primary/30 rounded px-0.5"
+                                      >
+                                        <X className="w-2.5 h-2.5" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                  {filterConfig.values.length > 5 && (
+                                    <div className="text-xs text-muted-foreground px-1.5 py-0.5">
+                                      +{filterConfig.values.length - 5} more
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {tempPivotConfig.filters.length === 0 && (
+                          <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Top Right: Columns */}
+                    <div
+                      data-drop-zone="columns"
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedField && draggedFromSource) {
+                          handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'columns');
+                        }
+                        setDraggedField(null);
+                        setDraggedFromSource(null);
+                        setDraggedIndex(null);
+                      }}
+                      className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${dropZoneHighlight === 'columns'
+                        ? 'border-primary bg-primary/10'
+                        : 'border-[#3a4252]'
+                        }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase">Columns</div>
+                        <div className="relative group">
+                          <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+                          <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                            <div className="text-xs text-popover-foreground mb-1"><strong>Kolom - akan menjadi header horizontal</strong></div>
+                            <div className="text-xs text-muted-foreground">Contoh: Broker → setiap kolom menampilkan broker yang berbeda</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        {tempPivotConfig.columns.map((fieldId, idx) => {
+                          const field = availableFields.find(f => f.id === fieldId);
+                          const isDragging = draggedField === fieldId && draggedFromSource === 'columns';
+                          return field ? (
+                            <div
+                              key={idx}
+                              draggable
+                              onDragStart={(e) => {
+                                setDraggedField(fieldId);
+                                setDraggedFromSource('columns');
+                                setDraggedIndex(idx);
+                                e.dataTransfer.effectAllowed = 'move';
+                              }}
+                              onDragEnd={() => {
+                                setDraggedField(null);
+                                setDraggedFromSource(null);
+                                setDraggedIndex(null);
+                              }}
+                              onTouchStart={(e) => {
+                                e.stopPropagation();
+                                const touch = e.touches[0];
+                                setDraggedField(fieldId);
+                                setDraggedFromSource('columns');
+                                setDraggedIndex(idx);
+                                setTouchDragState({
+                                  isDragging: true,
+                                  startX: touch.clientX,
+                                  startY: touch.clientY,
+                                  currentX: touch.clientX,
+                                  currentY: touch.clientY
+                                });
+                              }}
+                              className={`flex items-center gap-1 p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${isDragging ? 'opacity-50' : ''}`}
+                            >
+                              <GripVertical className="w-3 h-3 text-muted-foreground" />
+                              <span className="text-xs text-foreground flex-1">{field.label}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTempPivotConfig(prev => ({ ...prev, columns: prev.columns.filter((_, i) => i !== idx) }));
+                                }}
+                                onTouchStart={(e) => e.stopPropagation()}
+                                className="text-muted-foreground hover:text-foreground"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : null;
+                        })}
+                        {tempPivotConfig.columns.length === 0 && (
+                          <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Bottom Left: Rows */}
                     <div
                       data-drop-zone="rows"
                       onDragOver={(e) => {
@@ -2602,95 +3010,7 @@ export function StockTransactionDoneDetail() {
                       </div>
                     </div>
 
-                    {/* Columns */}
-                    <div
-                      data-drop-zone="columns"
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = 'move';
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (draggedField && draggedFromSource) {
-                          handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'columns');
-                        }
-                        setDraggedField(null);
-                        setDraggedFromSource(null);
-                        setDraggedIndex(null);
-                      }}
-                      className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${dropZoneHighlight === 'columns'
-                        ? 'border-primary bg-primary/10'
-                        : 'border-[#3a4252]'
-                        }`}
-                    >
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <div className="text-xs font-semibold text-muted-foreground uppercase">Columns</div>
-                        <div className="relative group">
-                          <Info className="w-3 h-3 text-muted-foreground cursor-help" />
-                          <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
-                            <div className="text-xs text-popover-foreground mb-1"><strong>Kolom - akan menjadi header horizontal</strong></div>
-                            <div className="text-xs text-muted-foreground">Contoh: Broker → setiap kolom menampilkan broker yang berbeda</div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        {tempPivotConfig.columns.map((fieldId, idx) => {
-                          const field = availableFields.find(f => f.id === fieldId);
-                          const isDragging = draggedField === fieldId && draggedFromSource === 'columns';
-                          return field ? (
-                            <div
-                              key={idx}
-                              draggable
-                              onDragStart={(e) => {
-                                setDraggedField(fieldId);
-                                setDraggedFromSource('columns');
-                                setDraggedIndex(idx);
-                                e.dataTransfer.effectAllowed = 'move';
-                              }}
-                              onDragEnd={() => {
-                                setDraggedField(null);
-                                setDraggedFromSource(null);
-                                setDraggedIndex(null);
-                              }}
-                              onTouchStart={(e) => {
-                                e.stopPropagation();
-                                const touch = e.touches[0];
-                                setDraggedField(fieldId);
-                                setDraggedFromSource('columns');
-                                setDraggedIndex(idx);
-                                setTouchDragState({
-                                  isDragging: true,
-                                  startX: touch.clientX,
-                                  startY: touch.clientY,
-                                  currentX: touch.clientX,
-                                  currentY: touch.clientY
-                                });
-                              }}
-                              className={`flex items-center gap-1 p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${isDragging ? 'opacity-50' : ''
-                                }`}
-                            >
-                              <GripVertical className="w-3 h-3 text-muted-foreground" />
-                              <span className="text-xs text-foreground flex-1">{field.label}</span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setTempPivotConfig(prev => ({ ...prev, columns: prev.columns.filter((_, i) => i !== idx) }));
-                                }}
-                                onTouchStart={(e) => e.stopPropagation()}
-                                className="text-muted-foreground hover:text-foreground"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ) : null;
-                        })}
-                        {tempPivotConfig.columns.length === 0 && (
-                          <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Values */}
+                    {/* Bottom Right: Values */}
                     <div className="border border-[#3a4252] rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px]">
                       <div className="flex items-center gap-1.5 mb-1">
                         <div className="text-xs font-semibold text-muted-foreground uppercase">Values</div>
@@ -2744,345 +3064,7 @@ export function StockTransactionDoneDetail() {
                           </div>
                         </div>
                       </div>
-                    </div>
-
-                    {/* Filters */}
-                    <div
-                      data-drop-zone="filters"
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = 'move';
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (draggedField && draggedFromSource) {
-                          handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'filters');
-                        }
-                        setDraggedField(null);
-                        setDraggedFromSource(null);
-                        setDraggedIndex(null);
-                      }}
-                      className={`border rounded-lg p-1.5 bg-[#1a1f30] min-h-[60px] transition-colors ${dropZoneHighlight === 'filters'
-                        ? 'border-primary bg-primary/10'
-                        : 'border-[#3a4252]'
-                        }`}
-                    >
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <div className="text-xs font-semibold text-muted-foreground uppercase">Filters</div>
-                        <div className="relative group">
-                          <Info className="w-3 h-3 text-muted-foreground cursor-help" />
-                          <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
-                            <div className="text-xs text-popover-foreground mb-1"><strong>Filter data sebelum dihitung</strong></div>
-                            <div className="text-xs text-muted-foreground">Contoh: Buyer Broker → pilih broker tertentu, Transaction Time → pilih range waktu</div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        {tempPivotConfig.filters.map((filterConfig, idx) => {
-                          const field = availableFields.find(f => f.id === filterConfig.field);
-                          if (!field) return null;
-
-                          // Time range filter
-                          if (filterConfig.filterType === 'timeRange') {
-                            const isDragging = draggedField === filterConfig.field && draggedFromSource === 'filters';
-                            return (
-                              <div
-                                key={idx}
-                                draggable
-                                onDragStart={(e) => {
-                                  setDraggedField(filterConfig.field);
-                                  setDraggedFromSource('filters');
-                                  setDraggedIndex(idx);
-                                  e.dataTransfer.effectAllowed = 'move';
-                                }}
-                                onDragEnd={() => {
-                                  setDraggedField(null);
-                                  setDraggedFromSource(null);
-                                  setDraggedIndex(null);
-                                }}
-                                onTouchStart={(e) => {
-                                  e.stopPropagation();
-                                  const touch = e.touches[0];
-                                  setDraggedField(filterConfig.field);
-                                  setDraggedFromSource('filters');
-                                  setDraggedIndex(idx);
-                                  setTouchDragState({
-                                    isDragging: true,
-                                    startX: touch.clientX,
-                                    startY: touch.clientY,
-                                    currentX: touch.clientX,
-                                    currentY: touch.clientY
-                                  });
-                                }}
-                                className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${isDragging ? 'opacity-50' : ''
-                                  }`}
-                              >
-                                <div className="flex items-center gap-1 mb-1">
-                                  <GripVertical className="w-3 h-3 text-muted-foreground" />
-                                  <span className="text-xs text-foreground flex-1 font-medium">{field.label}</span>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setPivotConfig(prev => ({ ...prev, filters: prev.filters.filter((_, i) => i !== idx) }));
-                                    }}
-                                    onTouchStart={(e) => e.stopPropagation()}
-                                    className="text-muted-foreground hover:text-foreground"
-                                  >
-                                    <X className="w-3 h-3" />
-                                  </button>
-                                </div>
-                                <div className="flex items-center gap-2 mt-2">
-                                  <input
-                                    type="time"
-                                    value={filterConfig.timeRange?.start || '08:00'}
-                                    onChange={(e) => {
-                                      const newFilters = [...tempPivotConfig.filters];
-                                      if (newFilters[idx]) {
-                                        newFilters[idx].timeRange = {
-                                          ...(newFilters[idx].timeRange || { start: '08:00', end: '16:00' }),
-                                          start: e.target.value
-                                        };
-                                        setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
-                                      }
-                                    }}
-                                    className="text-xs bg-background border border-[#3a4252] rounded px-2 py-1"
-                                  />
-                                  <span className="text-xs text-muted-foreground">to</span>
-                                  <input
-                                    type="time"
-                                    value={filterConfig.timeRange?.end || '16:00'}
-                                    onChange={(e) => {
-                                      const newFilters = [...tempPivotConfig.filters];
-                                      if (newFilters[idx]) {
-                                        newFilters[idx].timeRange = {
-                                          ...(newFilters[idx].timeRange || { start: '08:00', end: '16:00' }),
-                                          end: e.target.value
-                                        };
-                                        setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
-                                      }
-                                    }}
-                                    className="text-xs bg-background border border-[#3a4252] rounded px-2 py-1"
-                                  />
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          // List filter with compact searchable dropdown (for broker, price, HAKA/HAKI, etc)
-                          const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
-                          // For numeric fields like price and HAKA_HAKI, sort numerically; otherwise sort alphabetically
-                          const uniqueValues = [...new Set(allData.map(item => {
-                            const value = item[filterConfig.field as keyof DoneDetailData];
-                            // For HAKA_HAKI, convert 1 to "HAKA" and 0 to "HAKI" for display
-                            if (filterConfig.field === 'HAKA_HAKI') {
-                              return value === 1 ? 'HAKA' : 'HAKI';
-                            }
-                            return String(value || '');
-                          }))].sort((a, b) => {
-                            // For HAKA/HAKI, sort HAKA first
-                            if (filterConfig.field === 'HAKA_HAKI') {
-                              if (a === 'HAKA' && b === 'HAKI') return -1;
-                              if (a === 'HAKI' && b === 'HAKA') return 1;
-                              return a.localeCompare(b);
-                            }
-                            // Try numeric sort first (for price)
-                            const numA = parseFloat(a);
-                            const numB = parseFloat(b);
-                            if (!isNaN(numA) && !isNaN(numB)) {
-                              return numA - numB;
-                            }
-                            // Otherwise alphabetical sort
-                            return a.localeCompare(b);
-                          });
-                          const searchTerm = tempFilterSearchTerms[filterConfig.field] || '';
-                          const isDropdownOpen = tempOpenFilterDropdowns[filterConfig.field] || false;
-                          const filteredValues = uniqueValues.filter(v =>
-                            v.toLowerCase().includes(searchTerm.toLowerCase())
-                          );
-
-                          const isDragging = draggedField === filterConfig.field && draggedFromSource === 'filters';
-                          return (
-                            <div
-                              key={idx}
-                              draggable
-                              onDragStart={(e) => {
-                                setDraggedField(filterConfig.field);
-                                setDraggedFromSource('filters');
-                                setDraggedIndex(idx);
-                                e.dataTransfer.effectAllowed = 'move';
-                              }}
-                              onDragEnd={() => {
-                                setDraggedField(null);
-                                setDraggedFromSource(null);
-                                setDraggedIndex(null);
-                              }}
-                              onTouchStart={(e) => {
-                                e.stopPropagation();
-                                const touch = e.touches[0];
-                                setDraggedField(filterConfig.field);
-                                setDraggedFromSource('filters');
-                                setDraggedIndex(idx);
-                                setTouchDragState({
-                                  isDragging: true,
-                                  startX: touch.clientX,
-                                  startY: touch.clientY,
-                                  currentX: touch.clientX,
-                                  currentY: touch.clientY
-                                });
-                              }}
-                              className={`p-1 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${isDragging ? 'opacity-50' : ''
-                                }`}
-                            >
-                              <div className="flex items-center gap-1.5 mb-1.5">
-                                <GripVertical className="w-3 h-3 text-muted-foreground" />
-                                <span className="text-sm text-foreground flex-1 font-medium">{field.label}</span>
-                                {filterConfig.values.length > 0 && (
-                                  <span className="text-xs px-1.5 py-0.5 bg-primary/20 text-primary rounded">
-                                    {filterConfig.values.length}
-                                  </span>
-                                )}
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setTempPivotConfig(prev => ({ ...prev, filters: prev.filters.filter((_, i) => i !== idx) }));
-                                    const newSearchTerms = { ...tempFilterSearchTerms };
-                                    delete newSearchTerms[filterConfig.field];
-                                    setTempFilterSearchTerms(newSearchTerms);
-                                    const newDropdowns = { ...tempOpenFilterDropdowns };
-                                    delete newDropdowns[filterConfig.field];
-                                    setTempOpenFilterDropdowns(newDropdowns);
-                                  }}
-                                  onTouchStart={(e) => e.stopPropagation()}
-                                  className="text-muted-foreground hover:text-foreground"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-
-                              {/* Compact dropdown with search - only show when open */}
-                              <div className="relative" data-filter-dropdown>
-                                <div
-                                  className="relative cursor-pointer"
-                                  onClick={() => setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: !prev[filterConfig.field] }))}
-                                >
-                                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                                  <input
-                                    type="text"
-                                    placeholder={filterConfig.values.length > 0 ? `${filterConfig.values.length} selected - Click to search` : "Click to search and select..."}
-                                    value={searchTerm}
-                                    onChange={(e) => {
-                                      setTempFilterSearchTerms(prev => ({ ...prev, [filterConfig.field]: e.target.value }));
-                                      setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: true }));
-                                    }}
-                                    onFocus={() => {
-                                      setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: true }));
-                                    }}
-                                    className="w-full pl-7 pr-2 py-1.5 text-xs bg-background border border-[#3a4252] rounded cursor-text"
-                                    readOnly={!isDropdownOpen}
-                                  />
-                                </div>
-
-                                {/* Dropdown list - show when open */}
-                                {isDropdownOpen && (
-                                  <div className="absolute top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-popover border border-[#3a4252] rounded shadow-lg z-50">
-                                    {filteredValues.length > 0 ? (
-                                      <>
-                                        {/* "All" option */}
-                                        <label
-                                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent cursor-pointer border-b-2 border-[#3a4252] font-medium bg-muted/30"
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={filterConfig.values.length === uniqueValues.length && uniqueValues.length > 0}
-                                            onChange={(e) => {
-                                              const newFilters = [...tempPivotConfig.filters];
-                                              const currentFilter = newFilters[idx];
-                                              if (currentFilter) {
-                                                if (e.target.checked) {
-                                                  // Select all unique values
-                                                  currentFilter.values = [...uniqueValues];
-                                                } else {
-                                                  // Deselect all
-                                                  currentFilter.values = [];
-                                                }
-                                                setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
-                                              }
-                                            }}
-                                            className="w-3 h-3"
-                                            onClick={(e) => e.stopPropagation()}
-                                          />
-                                          <span className="text-xs text-foreground flex-1 font-semibold">All ({uniqueValues.length})</span>
-                                        </label>
-                                        {/* Individual values */}
-                                        {filteredValues.map(value => (
-                                          <label
-                                            key={value}
-                                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent cursor-pointer border-b border-[#3a4252]/50 last:border-b-0"
-                                          >
-                                            <input
-                                              type="checkbox"
-                                              checked={filterConfig.values.includes(value)}
-                                              onChange={(e) => {
-                                                const newFilters = [...tempPivotConfig.filters];
-                                                if (newFilters[idx]) {
-                                                  if (e.target.checked) {
-                                                    newFilters[idx].values = [...newFilters[idx].values, value];
-                                                  } else {
-                                                    newFilters[idx].values = newFilters[idx].values.filter(v => v !== value);
-                                                  }
-                                                  setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
-                                                }
-                                              }}
-                                              className="w-3 h-3"
-                                              onClick={(e) => e.stopPropagation()}
-                                            />
-                                            <span className="text-xs text-foreground flex-1">{value}</span>
-                                          </label>
-                                        ))}
-                                      </>
-                                    ) : (
-                                      <div className="text-xs text-muted-foreground px-2 py-2 text-center">No results found</div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Selected values as compact chips */}
-                              {filterConfig.values.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-2">
-                                  {filterConfig.values.slice(0, 5).map(value => (
-                                    <div key={value} className="flex items-center gap-1 px-1.5 py-0.5 bg-primary/20 text-primary rounded text-xs">
-                                      <span>{value}</span>
-                                      <button
-                                        onClick={() => {
-                                          const newFilters = [...tempPivotConfig.filters];
-                                          if (newFilters[idx]) {
-                                            newFilters[idx].values = newFilters[idx].values.filter(v => v !== value);
-                                            setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
-                                          }
-                                        }}
-                                        className="hover:bg-primary/30 rounded px-0.5"
-                                      >
-                                        <X className="w-2.5 h-2.5" />
-                                      </button>
-                                    </div>
-                                  ))}
-                                  {filterConfig.values.length > 5 && (
-                                    <div className="text-xs text-muted-foreground px-1.5 py-0.5">
-                                      +{filterConfig.values.length - 5} more
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                        {tempPivotConfig.filters.length === 0 && (
-                          <div className="text-xs text-muted-foreground italic py-2 text-center">Drop fields here</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                    </div>                  </div>
                 </div>
 
                 {/* Action Buttons */}
