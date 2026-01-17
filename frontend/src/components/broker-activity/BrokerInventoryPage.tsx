@@ -410,6 +410,28 @@ const TradingViewChart = ({
         close: d.close,
       })));
 
+      // Pre-calculate cumulative data (Running Sum) for all valid/displayed brokers
+      // This ensures consistency between the chart lines and the tooltip
+      // Structure: { time: string, [broker]: number }[]
+      const cumulativeInventoryData: any[] = [];
+      let runningSums: Record<string, number> = {};
+
+      // Initialize running sums for all displayed brokers to 0
+      brokersToDisplay.forEach(b => runningSums[b] = 0);
+
+      inventoryData.forEach(day => {
+        const row: any = { time: day.time };
+        brokersToDisplay.forEach(broker => {
+          const dailyNet = (day[broker] as number) || 0;
+          // FLIP LOGIC: DailyNet * -1
+          const currentSum = runningSums[broker] || 0;
+          runningSums[broker] = currentSum + (dailyNet * -1);
+          // Convert to Lot (/100)
+          row[broker] = runningSums[broker]! / 100;
+        });
+        cumulativeInventoryData.push(row);
+      });
+
       // Add inventory lines for each visible broker to Pane 0
       // Use right price scale for broker series (label broker di kanan)
 
@@ -424,10 +446,10 @@ const TradingViewChart = ({
         brokersToDisplay.forEach(broker => {
           const brokerColor = generateBrokerColor(broker, selectedBrokers);
 
-          // Extract Net Volume data (BuyVol - SellVol) - one line per broker
-          const brokerData = inventoryData.map(d => ({
+          // Extract Cumulative data from pre-calculated array
+          const brokerData = cumulativeInventoryData.map(d => ({
             time: d.time,
-            value: d[broker] as number, // Net Volume (BuyVol - SellVol)
+            value: d[broker] as number,
           })).filter(d => d.value !== undefined && d.value !== null && !isNaN(d.value) && isFinite(d.value));
 
           console.log(`📊 TradingViewChart: Adding Net Volume series for broker ${broker}:`, {
@@ -496,7 +518,7 @@ const TradingViewChart = ({
           const up = upMap[d.time] ?? ((d.value ?? 0) >= 0);
           return {
             time: d.time,
-            value: d.value,
+            value: (d.value ?? 0) / 100, // Convert to Lot (/100)
             color: up ? userColors.bullish : userColors.bearish,
           };
         }));
@@ -536,10 +558,10 @@ const TradingViewChart = ({
           return dTime === timeStr;
         });
 
-        // Get broker data at hover time
+        // Get broker data at hover time - USE cumulativeInventoryData for consistency
         const brokerValues: Array<{ broker: string; value: number; color: string }> = [];
-        if (inventoryData && displayBrokers && displayBrokers.length > 0 && timeStr) {
-          const brokerDataPoint = inventoryData.find((d: any) => {
+        if (cumulativeInventoryData && displayBrokers && displayBrokers.length > 0 && timeStr) {
+          const brokerDataPoint = cumulativeInventoryData.find((d: any) => {
             const dTime = typeof d.time === 'string' ? d.time : new Date(d.time * 1000).toISOString().split('T')[0];
             return dTime === timeStr;
           });
@@ -817,7 +839,7 @@ export const VolumeChart = ({ volumeData, candlestickData, showLabel = true }: {
         const up = upMap[d.time] ?? (d.value ?? 0) >= 0;
         return {
           time: d.time,
-          value: d.value,
+          value: (d.value ?? 0) / 100, // Convert to Lot (/100)
           color: up ? userColors.bullish : userColors.bearish,
         };
       }));
@@ -1135,14 +1157,34 @@ const InventoryChart = ({
         return;
       }
 
+      // Pre-calculate cumulative data (Running Sum) for all valid/displayed brokers to match Combined View logic
+      // Structure: { time: string, [broker]: number }[]
+      const cumulativeInventoryData: any[] = [];
+      let runningSums: Record<string, number> = {};
+
+      // Initialize running sums for all displayed brokers to 0
+      brokersToDisplay.forEach(b => runningSums[b] = 0);
+
+      inventoryData.forEach(day => {
+        const row: any = { time: day.time };
+        brokersToDisplay.forEach(broker => {
+          const dailyNet = (day[broker] as number) || 0;
+          // FLIP LOGIC: DailyNet * -1
+          runningSums[broker] += (dailyNet * -1);
+          // Convert to Lot (/100)
+          row[broker] = runningSums[broker] / 100;
+        });
+        cumulativeInventoryData.push(row);
+      });
+
       // Use left price scale for broker series (axis kiri tetap ada)
       let firstBrokerSeries: any = null;
 
       brokersToDisplay.forEach(broker => {
         const brokerColor = generateBrokerColor(broker, selectedBrokers);
 
-        // Extract Net Volume data (BuyVol - SellVol) - one line per broker
-        const brokerData = inventoryData
+        // Extract Cumulative Inventory data from pre-calculated array
+        const brokerData = cumulativeInventoryData
           .map(d => {
             const netValue = d[broker]; // Net Volume (BuyVol - SellVol)
             // Convert time to proper format (lightweight-charts expects YYYY-MM-DD string)
@@ -3820,12 +3862,13 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
       // Sort by NetBuyVol descending and slice
       const sortedBrokers = brokersForDate
         .filter(record => record.broker && typeof record.broker === 'string')
-        .sort((a, b) => (b.NetBuyVol || 0) - (a.NetBuyVol || 0))
+        // User requested to use NetSellVol as Buy data (swapped) and divide by 100 for Lots
+        .sort((a, b) => (b.NetSellVol || 0) - (a.NetSellVol || 0))
         .slice(0, limit)
         .map((record) => ({
           broker: record.broker || record.BrokerCode || '',
           volume: record.TotalVol || 0,
-          netFlow: record.NetBuyVol || 0,
+          netFlow: (record.NetSellVol || 0) / 100, // Use NetSellVol as Buy and convert to Lot
           color: getBrokerColor(record.broker || record.BrokerCode || '')
         }));
 
