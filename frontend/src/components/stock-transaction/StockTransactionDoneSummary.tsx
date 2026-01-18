@@ -74,6 +74,25 @@ const formatNumberWithAbbreviation = (num: number): string => {
   if (absNum >= 1e9) {
     return sign + (absNum / 1e9).toFixed(1) + 'B';
   } else if (absNum >= 1e6) {
+    // User Request: Use K for millions, e.g. 11,111,111 -> 11,111K
+    const valInK = absNum / 1000;
+    return sign + valInK.toLocaleString('en-US', { maximumFractionDigits: 1 }) + 'K';
+  } else {
+    // User Request: Show full number for thousands (e.g. 1264 -> 1,264)
+    return num.toLocaleString();
+  }
+};
+
+// Format number with K, M, B abbreviations (Specifically for TOTAL row to keep compact format)
+const formatNumberWithAbbreviationTotals = (num: number): string => {
+  if (num === 0) return '0';
+
+  const absNum = Math.abs(num);
+  const sign = num < 0 ? '-' : '';
+
+  if (absNum >= 1e9) {
+    return sign + (absNum / 1e9).toFixed(1) + 'B';
+  } else if (absNum >= 1e6) {
     return sign + (absNum / 1e6).toFixed(1) + 'M';
   } else if (absNum >= 1e3) {
     return sign + (absNum / 1e3).toFixed(1) + 'K';
@@ -86,14 +105,32 @@ const formatNumberWithAbbreviation = (num: number): string => {
 const formatRatio = (numerator: number, denominator: number): string => {
   if (denominator === 0 || !denominator) return '-';
   const ratio = numerator / denominator;
-  if (ratio >= 1e6) {
-    return (ratio / 1e6).toFixed(0) + 'M';
-  } else if (ratio >= 1e3) {
-    return (ratio / 1e3).toFixed(0) + 'K';
+
+  if (ratio >= 1e9) {
+    return (ratio / 1e9).toFixed(1) + 'B';
+  } else if (ratio >= 1e6) {
+    // Consistent with formatNumberWithAbbreviation
+    const valInK = ratio / 1000;
+    return valInK.toLocaleString('en-US', { maximumFractionDigits: 0 }) + 'K';
   } else {
     return Math.round(ratio).toLocaleString();
   }
 };
+
+// Format ratio for Totals (Compact format)
+const formatRatioTotals = (numerator: number, denominator: number): string => {
+  if (denominator === 0 || !denominator) return '-';
+  const ratio = numerator / denominator;
+  if (ratio >= 1e6) {
+    return (ratio / 1e6).toFixed(0) + 'M';
+  } else if (ratio >= 1e3) {
+    return (ratio / 1e3).toFixed(1) + 'K';
+  } else {
+    return Math.round(ratio).toLocaleString();
+  }
+};
+
+
 
 // Helper function to get color class based on comparison
 // Returns: 'text-green-500' for greater, 'text-red-500' for smaller, 'text-yellow-500' for equal
@@ -1460,72 +1497,72 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                           {showOrdColumns && (
                             <>
                               <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bOrd > 0 && totals.sOrd > 0 ? getComparisonColor(totals.bLot / totals.bOrd, totals.sLot / totals.sOrd, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatRatio(totals.bLot, totals.bOrd)}
+                                {formatRatioTotals(totals.bLot, totals.bOrd)}
                               </td>
                               {/* BOr */}
                               <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bOrd, totals.sOrd, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumberWithAbbreviation(totals.bOrd)}
+                                {formatNumberWithAbbreviationTotals(totals.bOrd)}
                               </td>
                             </>
                           )}
                           {/* BLot/Freq */}
                           {showFrequency && (
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bFreq > 0 && totals.sFreq > 0 ? getComparisonColor(totals.bLot / totals.bFreq, totals.sLot / totals.sFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatRatio(totals.bLot, totals.bFreq)}
+                              {formatRatioTotals(totals.bLot, totals.bFreq)}
                             </td>
                           )}
                           {/* BFreq */}
                           {showFrequency && (
                             <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bFreq, totals.sFreq, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviation(totals.bFreq)}
+                              {formatNumberWithAbbreviationTotals(totals.bFreq)}
                             </td>
                           )}
                           {/* BLot */}
                           <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumber(totals.bLot)}
+                            {formatNumberWithAbbreviationTotals(totals.bLot)}
                           </td>
                           {/* SLot */}
                           <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumber(totals.sLot)}
+                            {formatNumberWithAbbreviationTotals(totals.sLot)}
                           </td>
                           {/* SFreq */}
                           {showFrequency && (
                             <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bFreq, totals.sFreq, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviation(totals.sFreq)}
+                              {formatNumberWithAbbreviationTotals(totals.sFreq)}
                             </td>
                           )}
                           {/* SLot/Freq */}
                           {showFrequency && (
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bFreq > 0 && totals.sFreq > 0 ? getComparisonColor(totals.bLot / totals.bFreq, totals.sLot / totals.sFreq, false) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatRatio(totals.sLot, totals.sFreq)}
+                              {formatRatioTotals(totals.sLot, totals.sFreq)}
                             </td>
                           )}
                           {/* SOr */}
                           {showOrdColumns && (
                             <>
                               <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bOrd, totals.sOrd, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumberWithAbbreviation(totals.sOrd)}
+                                {formatNumberWithAbbreviationTotals(totals.sOrd)}
                               </td>
                               {/* SLot/SOr */}
                               <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bOrd > 0 && totals.sOrd > 0 ? getComparisonColor(totals.bLot / totals.bOrd, totals.sLot / totals.sOrd, false) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatRatio(totals.sLot, totals.sOrd)}
+                                {formatRatioTotals(totals.sLot, totals.sOrd)}
                               </td>
                             </>
                           )}
                           {/* TFreq */}
                           {showFrequency && (
                             <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviation(totals.tFreq)}
+                              {formatNumberWithAbbreviationTotals(totals.tFreq)}
                             </td>
                           )}
                           {/* TLot */}
                           <td className={`text-right py-[1px] px-[6px] font-bold text-white ${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumberWithAbbreviation(totals.tLot)}
+                            {formatNumberWithAbbreviationTotals(totals.tLot)}
                           </td>
                           {/* TOr */}
                           {showOrdColumns && (
                             <td className={`text-right py-[1px] px-[6px] font-bold text-white ${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviation(totals.tOrd)}
+                              {formatNumberWithAbbreviationTotals(totals.tOrd)}
                             </td>
                           )}
                         </React.Fragment>
@@ -1591,46 +1628,46 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                           {showOrdColumns && (
                             <>
                               <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotalBOrd > 0 && grandTotalSOrd > 0 ? getComparisonColor(grandTotalBLotPerOrd, grandTotalSLotPerOrd, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatRatio(grandTotalBLot, grandTotalBOrd)}
+                                {formatRatioTotals(grandTotalBLot, grandTotalBOrd)}
                               </td>
                               <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotalBOrd, grandTotalSOrd, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumberWithAbbreviation(grandTotalBOrd)}
+                                {formatNumberWithAbbreviationTotals(grandTotalBOrd)}
                               </td>
                             </>
                           )}
                           {showFrequency && (
                             <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotalBFreq > 0 && grandTotalSFreq > 0 ? getComparisonColor(grandTotalBLotPerFreq, grandTotalSLotPerFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatRatio(grandTotalBLot, grandTotalBFreq)}
+                              {formatRatioTotals(grandTotalBLot, grandTotalBFreq)}
                             </td>
                           )}
                           {showFrequency && (
                             <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotalBFreq, grandTotalSFreq, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviation(grandTotalBFreq)}
+                              {formatNumberWithAbbreviationTotals(grandTotalBFreq)}
                             </td>
                           )}
                           <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumber(grandTotalBLot)}
+                            {formatNumberWithAbbreviationTotals(grandTotalBLot)}
                           </td>
                           <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumber(grandTotalSLot)}
+                            {formatNumberWithAbbreviationTotals(grandTotalSLot)}
                           </td>
                           {showFrequency && (
                             <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotalBFreq, grandTotalSFreq, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviation(grandTotalSFreq)}
+                              {formatNumberWithAbbreviationTotals(grandTotalSFreq)}
                             </td>
                           )}
                           {showFrequency && (
                             <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotalBFreq > 0 && grandTotalSFreq > 0 ? getComparisonColor(grandTotalBLotPerFreq, grandTotalSLotPerFreq, false) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatRatio(grandTotalSLot, grandTotalSFreq)}
+                              {formatRatioTotals(grandTotalSLot, grandTotalSFreq)}
                             </td>
                           )}
                           {showOrdColumns && (
                             <>
                               <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotalBOrd, grandTotalSOrd, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumberWithAbbreviation(grandTotalSOrd)}
+                                {formatNumberWithAbbreviationTotals(grandTotalSOrd)}
                               </td>
                               <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotalBOrd > 0 && grandTotalSOrd > 0 ? getComparisonColor(grandTotalBLotPerOrd, grandTotalSLotPerOrd, false) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatRatio(grandTotalSLot, grandTotalSOrd)}
+                                {formatRatioTotals(grandTotalSLot, grandTotalSOrd)}
                               </td>
                             </>
                           )}
