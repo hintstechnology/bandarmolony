@@ -1039,6 +1039,24 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
     const ordCols = showOrdColumns ? 5 : 0;
     const colSpan = baseCols + freqCols + ordCols;
 
+    const getBlockWidth = () => {
+      let width = 50 + 60 + 60 + 65; // Price(50) + BLot(60) + SLot(60) + TLot(65)
+      if (showOrdColumns) {
+        width += 55 + 45; // BLot/O, BOr
+        width += 45 + 50; // SOr, SLot/O
+        width += 45; // TOr
+      }
+      if (showFrequency) {
+        width += 50 + 45; // BLot/F, BFreq
+        width += 45 + 50; // SFreq, SLot/F
+        width += 45; // TFreq
+      }
+      return width;
+    };
+
+    const blockWidth = getBlockWidth();
+    const tableWidth = blockWidth * (visibleDates.length + 1);
+
     return (
       <Card key={stock}>
         <CardHeader>
@@ -1051,12 +1069,12 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto -mx-4 sm:mx-0">
-            <div className="px-4 sm:px-0 pb-4">
+            <div className="px-4 sm:px-0 pb-4 w-fit">
               {/* Ticker label at top left of table */}
               <div className="mb-2">
                 <span className="text-sm font-semibold text-foreground">{stock}</span>
               </div>
-              <table className="w-full text-[12px] border-collapse" style={{ tableLayout: 'fixed' }}>
+              <table className="text-[12px] border-collapse" style={{ tableLayout: 'fixed', width: `${tableWidth}px` }}>
                 <colgroup>
                   {[...visibleDates, 'TOTAL'].map((_, i) => (
                     <React.Fragment key={i}>
@@ -1112,7 +1130,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                         <th className={`text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>Price</th>
                         {showOrdColumns && (
                           <>
-                            <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BLot/BOr</th>
+                            <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BLot/O</th>
                             <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BOr</th>
                           </>
                         )}
@@ -1125,7 +1143,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                         {showOrdColumns && (
                           <>
                             <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SOr</th>
-                            <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SLot/SOr</th>
+                            <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SLot/O</th>
                           </>
                         )}
                         {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">TFreq</th>}
@@ -1138,7 +1156,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                     <th className={`text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>Price</th>
                     {showOrdColumns && (
                       <>
-                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BLot/BOr</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BLot/O</th>
                         <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BOr</th>
                       </>
                     )}
@@ -1151,7 +1169,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                     {showOrdColumns && (
                       <>
                         <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SOr</th>
-                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SLot/SOr</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SLot/O</th>
                       </>
                     )}
                     {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">TFreq</th>}
@@ -1221,9 +1239,14 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                                 ohlcBorderClass = 'border-b-2 border-b-gray-500';
                                 hasBottomOhlcBorder = true;
                               }
-                            } else if (ohlc.close >= ohlc.open) {
-                              // Bullish
-                              if (price === ohlc.open) {
+                            } else {
+                              // Bullish or Doji
+                              if (price === ohlc.open && price === ohlc.close) {
+                                // Doji case: Open == Close == Price
+                                ohlcBorderClass = 'border-t-2 border-t-gray-500 border-b-2 border-b-gray-500';
+                                hasTopOhlcBorder = true;
+                                hasBottomOhlcBorder = true;
+                              } else if (price === ohlc.open) {
                                 ohlcBorderClass = 'border-b-2 border-b-gray-500';
                                 hasBottomOhlcBorder = true;
                               } else if (price === ohlc.close) {
@@ -1274,9 +1297,9 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                                   </>
                                 )}
                                 {showFrequency && <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>}
-                                <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
+                                <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
                                 {showOrdColumns && (
-                                  <td className={cellClass('text-right', `${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
+                                  <td className={cellClass('text-right', `${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
                                 )}
                               </React.Fragment>
                             );
@@ -1313,11 +1336,11 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                                 </td>
                               )}
                               {/* BLot */}
-                              <td className={cellClass('text-right', `${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''} ${wickBorderClassR}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className={cellClass('text-right', `${priceIndex === allPrices.length - 1 && !isWick ? 'border-b-2 border-white' : ''} ${wickBorderClassR}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {data ? formatNumber(data.bLot) : '-'}
                               </td>
                               {/* SLot */}
-                              <td className={cellClass('text-right', `${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''} ${wickBorderClassL}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className={cellClass('text-right', `${priceIndex === allPrices.length - 1 && !isWick ? 'border-b-2 border-white' : ''} ${wickBorderClassL}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {data ? formatNumber(data.sLot) : '-'}
                               </td>
                               {/* SFreq */}
@@ -1351,12 +1374,12 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                                 </td>
                               )}
                               {/* TLot */}
-                              <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {data ? formatNumberWithAbbreviation(data.tLot) : '-'}
                               </td>
                               {/* TOr */}
                               {showOrdColumns && (
-                                <td className={cellClass('text-right', `${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={cellClass('text-right', `${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {data ? formatNumberWithAbbreviation(data.tOrd) : '-'}
                                 </td>
                               )}
@@ -1461,7 +1484,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                                       return sum + (data?.tLot || 0);
                                     }, 0))}
                                   </td>
-                                  <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-r-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatNumberWithAbbreviation(visibleDates.reduce((sum, date) => {
                                       const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
                                       return sum + (data?.tOrd || 0);
