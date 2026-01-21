@@ -1,4 +1,3 @@
-import { BlobServiceClient } from '@azure/storage-blob';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import { OptimizedAzureStorageService, parseCsvString } from '../services/dataUpdateService';
@@ -7,7 +6,6 @@ import { OptimizedAzureStorageService, parseCsvString } from '../services/dataUp
 dotenv.config();
 
 const connectionString = process.env['AZURE_STORAGE_CONNECTION_STRING'] || "";
-const containerName = process.env['AZURE_STORAGE_CONTAINER_NAME'] || "stock-trading-data";
 
 if (!connectionString) {
     console.error("Please set AZURE_STORAGE_CONNECTION_STRING in your .env file");
@@ -74,7 +72,8 @@ async function findZeroOHLStocks() {
         // Find sector
         let sectorFound = '';
         for (const sector of Object.keys(SECTOR_MAPPING)) {
-            if (SECTOR_MAPPING[sector].includes(ticker)) {
+            const sectorEmitens = SECTOR_MAPPING[sector];
+            if (sectorEmitens && sectorEmitens.includes(ticker)) {
                 sectorFound = sector;
                 break;
             }
@@ -90,7 +89,7 @@ async function findZeroOHLStocks() {
             const csvContent = await azureStorage.downloadCsvData(blobName);
             const data = await parseCsvString(csvContent);
 
-            data.forEach((row, index) => {
+            data.forEach((row) => {
                 // Handle various header casing
                 const open = parseFloat(row.open || row.Open || row.open_price || "0");
                 const high = parseFloat(row.high || row.High || row.high_price || "0");

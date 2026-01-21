@@ -1,4 +1,3 @@
-import { BlobServiceClient } from '@azure/storage-blob';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -115,7 +114,8 @@ async function fixAllStocks() {
         // Find which sector the stock belongs to
         let sectorFound = '';
         for (const sector of Object.keys(SECTOR_MAPPING)) {
-            if (SECTOR_MAPPING[sector]?.includes(ticker)) {
+            const sectorEmitens = SECTOR_MAPPING[sector];
+            if (sectorEmitens && sectorEmitens.includes(ticker)) {
                 sectorFound = sector;
                 break;
             }
@@ -164,8 +164,8 @@ async function fixAllStocks() {
 
             if (datesFound.length === 0) continue;
 
-            const minDate = new Date(Math.min(...datesFound)).toISOString().split('T')[0];
-            const maxDate = new Date(Math.max(...datesFound)).toISOString().split('T')[0];
+            const minDate = new Date(Math.min(...datesFound)).toISOString().split('T')[0] as string;
+            const maxDate = new Date(Math.max(...datesFound)).toISOString().split('T')[0] as string;
 
             // Fetch from Yahoo Finance via Python
             const apiData = fetchYahooFinanceData(ticker, minDate, maxDate);
