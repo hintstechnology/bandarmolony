@@ -49,7 +49,8 @@ async function loadSectorMapping() {
 
 function getSectorForEmiten(ticker: string): string {
     for (const sector of Object.keys(SECTOR_MAPPING)) {
-        if (SECTOR_MAPPING[sector].includes(ticker)) {
+        const sectorEmitens = SECTOR_MAPPING[sector];
+        if (sectorEmitens && sectorEmitens.includes(ticker)) {
             return sector;
         }
     }

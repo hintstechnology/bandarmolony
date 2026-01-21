@@ -1,6 +1,4 @@
-import { BlobServiceClient } from '@azure/storage-blob';
 import * as dotenv from 'dotenv';
-import axios from 'axios';
 import {
     OptimizedAzureStorageService,
     OptimizedHttpClient,
@@ -13,7 +11,6 @@ import {
 dotenv.config();
 
 const connectionString = process.env['AZURE_STORAGE_CONNECTION_STRING'] || "";
-const containerName = process.env['AZURE_STORAGE_CONTAINER_NAME'] || "stock-trading-data";
 const jwtToken = process.env['TICMI_JWT_TOKEN'] || '';
 const baseUrl = `${process.env['TICMI_API_BASE_URL'] || ''}/dp/eq/`;
 
@@ -77,7 +74,8 @@ async function fixStock(ticker: string) {
 
     let sectorFound = '';
     for (const sector of Object.keys(SECTOR_MAPPING)) {
-        if (SECTOR_MAPPING[sector]?.includes(ticker)) {
+        const sectorEmitens = SECTOR_MAPPING[sector];
+        if (sectorEmitens && sectorEmitens.includes(ticker)) {
             sectorFound = sector;
             break;
         }
@@ -105,7 +103,7 @@ async function fixStock(ticker: string) {
 
     // Identify problematic dates
     const problematicDates: string[] = [];
-    existingData.forEach((row, idx) => {
+    existingData.forEach((row) => {
         const open = parseFloat(row.open || row.open_price || row.Open || "0");
         const high = parseFloat(row.high || row.high_price || row.High || "0");
         const low = parseFloat(row.low || row.low_price || row.Low || "0");
