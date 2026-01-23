@@ -889,8 +889,10 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     const topBrokerDuration = Math.round((Date.now() - topBrokerStartTime) / 1000);
     console.log(`📊 Top Broker completed in ${topBrokerDuration}s`);
     if (logEntry) {
+      // Hitung progress phase sebagai rata-rata progress kalkulasi individual
+      const progress = Math.round((1 / phaseTasks.length) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: Math.round((1 / phaseTasks.length) * 100),
+        progress_percentage: progress,
         current_processing: 'Top Broker completed'
       });
     }
@@ -903,8 +905,9 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     const brokerSummaryDuration = Math.round((Date.now() - brokerSummaryStartTime) / 1000);
     console.log(`📊 Broker Summary completed in ${brokerSummaryDuration}s`);
     if (logEntry) {
+      const progress = Math.round((2 / phaseTasks.length) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: Math.round((2 / phaseTasks.length) * 100),
+        progress_percentage: progress,
         current_processing: 'Broker Summary completed'
       });
     }
@@ -917,8 +920,9 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     const idxDuration = Math.round((Date.now() - idxStartTime) / 1000);
     console.log(`📊 Broker Summary IDX completed in ${idxDuration}s`);
     if (logEntry) {
+      const progress = Math.round((3 / phaseTasks.length) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: Math.round((3 / phaseTasks.length) * 100),
+        progress_percentage: progress,
         current_processing: 'Broker Summary IDX completed'
       });
     }
@@ -931,8 +935,9 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     const brokerSummaryTypeDuration = Math.round((Date.now() - brokerSummaryTypeStartTime) / 1000);
     console.log(`📊 Broker Summary Type completed in ${brokerSummaryTypeDuration}s`);
     if (logEntry) {
+      const progress = Math.round((4 / phaseTasks.length) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: Math.round((4 / phaseTasks.length) * 100),
+        progress_percentage: progress,
         current_processing: 'Broker Summary Type completed'
       });
     }
@@ -1072,8 +1077,9 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
     const brokerTransactionDuration = Math.round((Date.now() - brokerTransactionStartTime) / 1000);
     console.log(`📊 Broker Transaction completed in ${brokerTransactionDuration}s`);
     if (logEntry) {
+      const progress = Math.round((1 / 4) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: Math.round((1 / 4) * 100),
+        progress_percentage: progress,
         current_processing: 'Broker Transaction completed'
       });
     }
@@ -1085,8 +1091,9 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
     const brokerTransactionRGTNNGDuration = Math.round((Date.now() - brokerTransactionRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction RG/TN/NG completed in ${brokerTransactionRGTNNGDuration}s`);
     if (logEntry) {
+      const progress = Math.round((2 / 4) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: Math.round((2 / 4) * 100),
+        progress_percentage: progress,
         current_processing: 'Broker Transaction RG/TN/NG completed'
       });
     }
@@ -1098,8 +1105,9 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
     const brokerTransactionFDDuration = Math.round((Date.now() - brokerTransactionFDStartTime) / 1000);
     console.log(`📊 Broker Transaction F/D completed in ${brokerTransactionFDDuration}s`);
     if (logEntry) {
+      const progress = Math.round((3 / 4) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: Math.round((3 / 4) * 100),
+        progress_percentage: progress,
         current_processing: 'Broker Transaction F/D completed'
       });
     }
@@ -1111,8 +1119,9 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
     const brokerTransactionFDRGTNNGDuration = Math.round((Date.now() - brokerTransactionFDRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction F/D RG/TN/NG completed in ${brokerTransactionFDRGTNNGDuration}s`);
     if (logEntry) {
+      const progress = Math.round((4 / 4) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: Math.round((4 / 5) * 100),
+        progress_percentage: progress,
         current_processing: 'Broker Transaction F/D RG/TN/NG completed'
       });
     }
@@ -1237,8 +1246,9 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
     const brokerTransactionStockDuration = Math.round((Date.now() - brokerTransactionStockStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock completed in ${brokerTransactionStockDuration}s`);
     if (logEntry) {
+      const progress = Math.round((1 / 5) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: Math.round((1 / 4) * 100),
+        progress_percentage: progress,
         current_processing: 'Broker Transaction Stock completed'
       });
     }
@@ -1250,8 +1260,9 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
     const brokerTransactionStockFDDuration = Math.round((Date.now() - brokerTransactionStockFDStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock F/D completed in ${brokerTransactionStockFDDuration}s`);
     if (logEntry) {
+      const progress = Math.round((2 / 5) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: Math.round((2 / 4) * 100),
+        progress_percentage: progress,
         current_processing: 'Broker Transaction Stock F/D completed'
       });
     }
@@ -1263,8 +1274,9 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
     const brokerTransactionStockRGTNNGDuration = Math.round((Date.now() - brokerTransactionStockRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock RG/TN/NG completed in ${brokerTransactionStockRGTNNGDuration}s`);
     if (logEntry) {
+      const progress = Math.round((3 / 5) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: Math.round((3 / 4) * 100),
+        progress_percentage: progress,
         current_processing: 'Broker Transaction Stock RG/TN/NG completed'
       });
     }
@@ -1276,8 +1288,9 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
     const brokerTransactionStockFDRGTNNGDuration = Math.round((Date.now() - brokerTransactionStockFDRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock F/D RG/TN/NG completed in ${brokerTransactionStockFDRGTNNGDuration}s`);
     if (logEntry) {
+      const progress = Math.round((4 / 5) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: Math.round((4 / 5) * 100),
+        progress_percentage: progress,
         current_processing: 'Broker Transaction Stock F/D RG/TN/NG completed'
       });
     }
@@ -1367,19 +1380,19 @@ export async function runPhase7BidBreakdownCalculations(manualTriggeredBy?: stri
     console.log('⚠️ Phase 7 Bid Breakdown is disabled - skipping');
     return;
   }
-  
+
   phaseStatus['phase7_bid_breakdown'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 7 BID BREAKDOWN STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
   console.log(`📋 Phase: Bid Breakdown (Bid/Ask Footprint, Broker Breakdown)`);
-  
+
   // Start memory monitoring for this phase
   startMemoryMonitoring();
   resetPerformanceMetrics();
-  
+
   let logEntry: SchedulerLog | null = null;
-  
+
   try {
     // Check memory before starting
     const memoryOk = await monitorMemoryUsage();
@@ -1402,12 +1415,12 @@ export async function runPhase7BidBreakdownCalculations(manualTriggeredBy?: stri
       started_at: new Date().toISOString(),
       environment: process.env['NODE_ENV'] || 'development'
     };
-    
+
     logEntry = await SchedulerLogService.createLog(logData);
     if (logEntry) {
       console.log('📊 Phase 7 Bid Breakdown database log created:', logEntry.id);
     }
-    
+
     const triggeredBy = fromManual ? manualTriggeredBy! : 'Phase 7 Bid Breakdown';
 
     console.log('🔄 Starting Bid/Ask Footprint calculation...');
@@ -1415,11 +1428,12 @@ export async function runPhase7BidBreakdownCalculations(manualTriggeredBy?: stri
     // Pass null as logId so each calculation creates its own log entry with progress tracking
     const bidAskResult = await bidAskService.generateBidAskData('all', null, triggeredBy);
     const bidAskDuration = Math.round((Date.now() - bidAskStartTime) / 1000);
-    
+
     console.log(`📊 Bid/Ask Footprint completed in ${bidAskDuration}s`);
     if (logEntry) {
+      const progress = Math.round((1 / 2) * 100);
       await SchedulerLogService.updateLog(logEntry.id!, {
-        progress_percentage: 50,
+        progress_percentage: progress,
         current_processing: 'Bid/Ask Footprint completed'
       });
     }
@@ -1429,7 +1443,7 @@ export async function runPhase7BidBreakdownCalculations(manualTriggeredBy?: stri
     // Pass null as logId so each calculation creates its own log entry with progress tracking
     const brokerBreakdownResult = await brokerBreakdownService.generateBrokerBreakdownData('all', null, triggeredBy);
     const brokerBreakdownDuration = Math.round((Date.now() - brokerBreakdownStartTime) / 1000);
-    
+
     console.log(`📊 Broker Breakdown completed in ${brokerBreakdownDuration}s`);
     if (logEntry) {
       await SchedulerLogService.updateLog(logEntry.id!, {
@@ -1437,20 +1451,20 @@ export async function runPhase7BidBreakdownCalculations(manualTriggeredBy?: stri
         current_processing: 'Bid Breakdown calculations completed'
       });
     }
-    
+
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
-    
+
     const successCount = (bidAskResult.success ? 1 : 0) + (brokerBreakdownResult.success ? 1 : 0);
     const totalCalculations = 2;
-    
+
     console.log(`\n📊 ===== PHASE 7 BID BREAKDOWN COMPLETED =====`);
     console.log(`✅ Success: ${successCount}/${totalCalculations} calculations`);
     console.log(`📊 Bid/Ask Footprint: ${bidAskResult.success ? 'SUCCESS' : 'FAILED'} (${bidAskDuration}s)`);
     console.log(`📊 Broker Breakdown: ${brokerBreakdownResult.success ? 'SUCCESS' : 'FAILED'} (${brokerBreakdownDuration}s)`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
-    
+
     // Update database log
     if (logEntry) {
       if (successCount >= 1) {
@@ -1463,15 +1477,15 @@ export async function runPhase7BidBreakdownCalculations(manualTriggeredBy?: stri
         await SchedulerLogService.markFailed(logEntry.id!, `Phase 7 Bid Breakdown failed: ${successCount}/${totalCalculations} calculations successful`, { successCount, totalCalculations, totalDuration });
       }
     }
-    
+
     // Cleanup after Phase 7
     await aggressiveMemoryCleanup();
-    
+
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
-    
+
     // Trigger Phase 8 automatically if Phase 7 succeeded and Phase 8 is enabled
-      // Pass manualTriggeredBy if this was manually triggered
+    // Pass manualTriggeredBy if this was manually triggered
     if (successCount >= 1 && phaseEnabled['phase8_additional']) {
       console.log('🔄 Triggering Phase 8 Additional calculations...');
       await runPhase8AdditionalCalculations(fromManual ? manualTriggeredBy : undefined);
@@ -1482,14 +1496,14 @@ export async function runPhase7BidBreakdownCalculations(manualTriggeredBy?: stri
         console.log('⚠️ Skipping Phase 8 due to Phase 7 failure');
       }
     }
-    
-    } catch (error) {
-      trackError(error, 'Phase 7 Bid Breakdown Calculations');
-      console.error('❌ Error during Phase 7 Bid Breakdown calculations:', error);
-    
+
+  } catch (error: any) {
+    trackError(error, 'Phase 7 Bid Breakdown Calculations');
+    console.error('❌ Error during Phase 7 Bid Breakdown calculations:', error);
+
     // Stop memory monitoring on error
     stopMemoryMonitoring();
-    
+
     if (logEntry) {
       await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
     }
@@ -1593,8 +1607,9 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
 
       // Update overall phase log progress after each calculation
       if (logEntry && totalCalculations > 0) {
+        const progress = Math.round((totalSuccessCount / additionalCalculations.length) * 100);
         await SchedulerLogService.updateLog(logEntry.id!, {
-          progress_percentage: Math.round((totalSuccessCount / additionalCalculations.length) * 100),
+          progress_percentage: progress,
           current_processing: `${calc.name} completed (${totalSuccessCount}/${additionalCalculations.length})`
         });
       }
