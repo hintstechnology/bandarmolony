@@ -56,6 +56,9 @@ jobs:
 
             echo "== Save PM2 process list =="
             $PM2 save
+            
+            echo "== PM2 list check =="
+            $PM2 list
 
             echo "== Backend deploy finished successfully =="
           EOF
