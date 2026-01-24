@@ -1,106 +1,55 @@
-name: Deploy Backend to Azure Container Apps
+name: Deploy Backend to VM Azure
 
 on:
   push:
-    branches: [ main ]
-    paths:
-      - 'backend/**'
+    branches:
+      - main
   workflow_dispatch:
 
-env:
-  REGISTRY: ${{ secrets.CONTAINER_REGISTRY }}
-  IMAGE_REPO: bandarmolony-backend
-  RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
-  CONTAINER_APP_NAME: ${{ secrets.BE_CONTAINER_APP_NAME }}
-
 jobs:
-  build-and-deploy:
+  deploy-backend-azure:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
 
-    - name: Prepare image tags
-      id: prep
-      run: |
-        echo "TAG=main-${GITHUB_SHA}" >> $GITHUB_ENV
-        echo "IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}:main-${GITHUB_SHA}" >> $GITHUB_ENV
-        echo "IMAGE_LATEST=${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}:latest" >> $GITHUB_ENV
+      - name: Deploy Backend (Safe Update + Build + PM2 Restart)
+        run: |
+          ssh ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} << 'EOF'
+            set -e
 
-    - name: Login to Azure Container Registry
-      uses: azure/docker-login@v1
-      with:
-        login-server: ${{ env.REGISTRY }}
-        username: ${{ secrets.ACR_USERNAME }}
-        password: ${{ secrets.ACR_PASSWORD }}
+            echo "== Acquire deploy lock (backend) =="
+            LOCK="/tmp/bdm-backend-deploy.lock"
+            exec 9>\$LOCK
+            flock 9
+            echo "Lock acquired"
 
-    - name: Set up Docker Buildx (docker-container)
-      uses: docker/setup-buildx-action@v3
-      with:
-        driver: docker-container
-        install: true
+            echo "== Load NVM & Node =="
+            export NVM_DIR="\$HOME/.nvm"
+            [ -s "\$NVM_DIR/nvm.sh" ] && . "\$NVM_DIR/nvm.sh"
+              nvm use 24.13.0
 
-    - name: Ensure builder
-      run: |
-        docker buildx create --name gha-builder --driver docker-container --use || docker buildx use gha-builder
-        docker buildx inspect --bootstrap
+            echo "== Ensure branch is main & sync code safely =="
+            cd /home/nickyansen/hints
+            git fetch origin
+            git checkout main
+            git reset --hard origin/main
 
-    - name: Build and Push
-      uses: docker/build-push-action@v6
-      with:
-        context: ./backend
-        push: true
-        tags: |
-          ${{ env.IMAGE }}
-          ${{ env.IMAGE_LATEST }}
-        platforms: linux/amd64
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+            echo "== Install backend dependencies =="
+            cd backend
+            npm install
 
-    - name: Azure Login
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
+            echo "== Build backend =="
+            npm run build
 
-    - name: Deploy to Azure Container Apps
-      run: |
-        az containerapp update \
-          --name ${{ env.CONTAINER_APP_NAME }} \
-          --resource-group ${{ env.RESOURCE_GROUP }} \
-          --image ${{ env.IMAGE }} \
-          --replace-env-vars \
-            NODE_ENV="${{ secrets.NODE_ENV }}" \
-            PORT="${{ secrets.PORT }}" \
-            SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
-            SUPABASE_SERVICE_ROLE_KEY="${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-            DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-            MIDTRANS_MERCHANT_ID="${{ secrets.MIDTRANS_MERCHANT_ID }}" \
-            MIDTRANS_CLIENT_KEY="${{ secrets.MIDTRANS_CLIENT_KEY }}" \
-            MIDTRANS_SERVER_KEY="${{ secrets.MIDTRANS_SERVER_KEY }}" \
-            MIDTRANS_IS_PRODUCTION="${{ secrets.MIDTRANS_IS_PRODUCTION }}" \
-            MIDTRANS_3DS="${{ secrets.MIDTRANS_3DS }}" \
-            MIDTRANS_SANITIZED="${{ secrets.MIDTRANS_SANITIZED }}" \
-            MIDTRANS_PAYMENT_NOTIFICATION_URL="${{ secrets.MIDTRANS_PAYMENT_NOTIFICATION_URL }}" \
-            MIDTRANS_RECURRING_NOTIFICATION_URL="${{ secrets.MIDTRANS_RECURRING_NOTIFICATION_URL }}" \
-            MIDTRANS_PAY_ACCOUNT_NOTIFICATION_URL="${{ secrets.MIDTRANS_PAY_ACCOUNT_NOTIFICATION_URL }}" \
-            MIDTRANS_FINISH_REDIRECT_URL="${{ secrets.MIDTRANS_FINISH_REDIRECT_URL }}" \
-            MIDTRANS_UNFINISH_REDIRECT_URL="${{ secrets.MIDTRANS_UNFINISH_REDIRECT_URL }}" \
-            MIDTRANS_ERROR_REDIRECT_URL="${{ secrets.MIDTRANS_ERROR_REDIRECT_URL }}" \
-            FRONTEND_URL="${{ secrets.FRONTEND_URL }}" \
-            BACKEND_URL="${{ secrets.BACKEND_URL }}" \
-            CORS_ORIGIN="${{ secrets.CORS_ORIGIN }}" \
-            PAYMENT_TIMEOUT_MINUTES="${{ secrets.PAYMENT_TIMEOUT_MINUTES }}" \
-            SESSION_DURATION_HOURS="${{ secrets.SESSION_DURATION_HOURS }}" \
-            AZURE_STORAGE_CONNECTION_STRING="${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
-            AZURE_STORAGE_CONTAINER_NAME="${{ secrets.AZURE_STORAGE_CONTAINER_NAME }}" \
-            TICMI_JWT_TOKEN="${{ secrets.TICMI_JWT_TOKEN }}" \
-            TICMI_API_BASE_URL="${{ secrets.TICMI_API_BASE_URL }}" \
-            NODE_OPTIONS="${{ secrets.NODE_OPTIONS }}" \
-            GH_OWNER="hintstechnology" \
-            GH_REPO="bandarmolony" \
-            GH_WEBHOOK_TOKEN="${{ secrets.GH_WEBHOOK_TOKEN }}"
+            echo "== Restart backend via PM2 =="
+              PM2="$HOME/.nvm/versions/node/v24.13.0/bin/pm2"
+              $PM2 start npm --name bdm-backend -- start || $PM2 restart bdm-backend --update-env
 
-    - name: Show deployed image
-      run: |
-        echo "Deployed: $IMAGE"
+            echo "== Backend deploy finished successfully =="
+          EOF
