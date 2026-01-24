@@ -27,29 +27,35 @@ jobs:
             LOCK="/tmp/bdm-frontend-deploy.lock"
             exec 9>\$LOCK
             flock 9
-            echo "Lock acquired"
+            echo "== Lock acquired =="
 
-            echo "== Load NVM & Node =="
+            echo "== Load NVM & Node.js =="
             export NVM_DIR="$HOME/.nvm"
             . "$NVM_DIR/nvm.sh"
             nvm use 24.13.0
 
-            echo "== Ensure branch is main & sync code safely =="
+            echo "== Ensure branch is main & sync code =="
             cd /home/nickyansen/hints
             git fetch origin
             git checkout main
             git reset --hard origin/main
 
-            echo "== Install frontend dependencies =="
+            echo "== Install frontend dependencies (npm install) =="
             cd frontend
             npm install
 
-            echo "== Build frontend =="
+            echo "== Build frontend (npm run build) =="
             npm run build
 
-            echo "== Restart frontend via PM2 =="
+            echo "== Start frontend via PM2 =="
             PM2="$HOME/.nvm/versions/node/v24.13.0/bin/pm2"
-            $PM2 start npm --name bdm-frontend -- start || $PM2 restart bdm-frontend --update-env
+            if $PM2 list | grep -q 'bdm-frontend'; then
+              $PM2 delete bdm-frontend
+            fi
+            $PM2 start npm --name bdm-frontend -- start
+
+            echo "== Save PM2 process list =="
+            $PM2 save
 
             echo "== Frontend deploy finished successfully =="
           EOF

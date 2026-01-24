@@ -27,29 +27,35 @@ jobs:
             LOCK="/tmp/bdm-backend-deploy.lock"
             exec 9>\$LOCK
             flock 9
-            echo "Lock acquired"
+            echo "== Lock acquired =="
 
-            echo "== Load NVM & Node =="
+            echo "== Load NVM & Node.js =="
             export NVM_DIR="$HOME/.nvm"
             . "$NVM_DIR/nvm.sh"
             nvm use 24.13.0
 
-            echo "== Ensure branch is main & sync code safely =="
+            echo "== Ensure branch is main & sync code =="
             cd /home/nickyansen/hints
             git fetch origin
             git checkout main
             git reset --hard origin/main
 
-            echo "== Install backend dependencies =="
+            echo "== Install backend dependencies (npm install) =="
             cd backend
             npm install
 
-            echo "== Build backend =="
+            echo "== Build backend (npm run build) =="
             npm run build
 
-            echo "== Restart backend via PM2 =="
+            echo "== Start backend via PM2 =="
             PM2="$HOME/.nvm/versions/node/v24.13.0/bin/pm2"
-            $PM2 start npm --name bdm-backend -- start || $PM2 restart bdm-backend --update-env
+            if $PM2 list | grep -q 'bdm-backend'; then
+              $PM2 delete bdm-backend
+            fi
+            $PM2 start npm --name bdm-backend -- start
+
+            echo "== Save PM2 process list =="
+            $PM2 save
 
             echo "== Backend deploy finished successfully =="
           EOF
