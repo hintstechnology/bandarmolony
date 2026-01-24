@@ -30,9 +30,9 @@ jobs:
             echo "Lock acquired"
 
             echo "== Load NVM & Node =="
-            export NVM_DIR="\$HOME/.nvm"
-            [ -s "\$NVM_DIR/nvm.sh" ] && . "\$NVM_DIR/nvm.sh"
-              nvm use 24.13.0
+            export NVM_DIR="$HOME/.nvm"
+            . "$NVM_DIR/nvm.sh"
+            nvm use 24.13.0
 
             echo "== Ensure branch is main & sync code safely =="
             cd /home/nickyansen/hints
@@ -48,8 +48,8 @@ jobs:
             npm run build
 
             echo "== Restart backend via PM2 =="
-              PM2="$HOME/.nvm/versions/node/v24.13.0/bin/pm2"
-              $PM2 start npm --name bdm-backend -- start || $PM2 restart bdm-backend --update-env
+            PM2="$HOME/.nvm/versions/node/v24.13.0/bin/pm2"
+            $PM2 start npm --name bdm-backend -- start || $PM2 restart bdm-backend --update-env
 
             echo "== Backend deploy finished successfully =="
           EOF
