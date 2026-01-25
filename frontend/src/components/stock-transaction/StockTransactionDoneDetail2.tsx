@@ -496,10 +496,40 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
             {...pivotState}
             data={flatData}
             onChange={(s: any) => setPivotState(s)}
-            renderers={{
-              ...((TableRenderers as any).default || TableRenderers),
-              ...((PlotlyRenderers as any).default || PlotlyRenderers)
-            }}
+            renderers={(() => {
+              // Robust normalization for ESM interop
+              const unwrap = (obj: any) => {
+                if (!obj) return {};
+                // Handle ESM default export
+                if (obj.__esModule && obj.default) return obj.default;
+                // Handle nested default
+                if (typeof obj === 'object' && obj.default && typeof obj.default === 'object') {
+                  return obj.default;
+                }
+                return obj;
+              };
+
+              const tableRend = unwrap(TableRenderers);
+              const plotlyRend = unwrap(PlotlyRenderers);
+
+              // Merge and filter out non-component keys
+              const merged = { ...tableRend, ...plotlyRend };
+              const filtered: Record<string, any> = {};
+
+              for (const key in merged) {
+                // Skip module metadata keys
+                if (key === 'default' || key === '__esModule' || key === 'Symbol(Symbol.toStringTag)') {
+                  continue;
+                }
+                const value = merged[key];
+                // Only include if it's a function or valid React component
+                if (typeof value === 'function' || (typeof value === 'object' && value !== null && (value.$$typeof || value.render))) {
+                  filtered[key] = value;
+                }
+              }
+
+              return filtered;
+            })()}
             aggregators={aggregators}
             hiddenAttributes={[]}
             hiddenFromDragDrop={['TYP', 'STK_CODE']}

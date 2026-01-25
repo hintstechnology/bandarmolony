@@ -7,10 +7,45 @@ import Sortable from 'react-sortablejs';
 import Draggable from 'react-draggable';
 import { Loader2 } from 'lucide-react';
 
-export class DraggableAttribute extends React.Component<any, any> {
+// Helper to unwrap ESM modules or other object wrappers
+const normalize = (obj: any) => {
+    if (!obj) return obj;
+    if (obj.__esModule && obj.default) return obj.default;
+    if (typeof obj === 'object' && obj.default && (typeof obj.default === 'function' || (typeof obj.default === 'object' && obj.default.render))) {
+        return obj.default;
+    }
+    return obj;
+};
+
+const SortableComponent = normalize(Sortable);
+const DraggableComponent = normalize(Draggable);
+const PivotTableComponent = normalize(PivotTable);
+
+interface DraggableAttributeProps {
+    name: string;
+    addValuesToFilter: (attr: string, values: any[]) => void;
+    removeValuesFromFilter: (attr: string, values: any[]) => void;
+    setValuesInFilter: (attr: string, values: any[]) => void;
+    attrValues: Record<string, number>;
+    valueFilter: Record<string, boolean>;
+    moveFilterBoxToTop: (attr: string) => void;
+    sorter: (a: any, b: any) => number;
+    menuLimit?: number;
+    zIndex?: number;
+    groupByHour?: boolean;
+    toggleGroupByHour?: (val: boolean) => void;
+}
+
+interface DraggableAttributeState {
+    open: boolean;
+    filterText: string;
+    displayLimit: number;
+}
+
+export class DraggableAttribute extends React.Component<DraggableAttributeProps, DraggableAttributeState> {
     filterBoxRef: React.RefObject<HTMLDivElement>;
 
-    constructor(props: any) {
+    constructor(props: DraggableAttributeProps) {
         super(props);
         this.state = {
             open: false,
@@ -21,11 +56,11 @@ export class DraggableAttribute extends React.Component<any, any> {
         this.handleClickOutside = this.handleClickOutside.bind(this);
     }
 
-    componentDidMount() {
+    override componentDidMount() {
         document.addEventListener('mousedown', this.handleClickOutside);
     }
 
-    componentWillUnmount() {
+    override componentWillUnmount() {
         document.removeEventListener('mousedown', this.handleClickOutside);
     }
 
@@ -35,7 +70,6 @@ export class DraggableAttribute extends React.Component<any, any> {
             this.filterBoxRef.current &&
             !this.filterBoxRef.current.contains(event.target as Node)
         ) {
-            // Check if the click was on the pvtAttr button itself (to avoid double toggle)
             const attrButton = (event.target as HTMLElement).closest('.pvtAttr');
             const isOurButton = attrButton && attrButton.parentElement?.getAttribute('data-id') === this.props.name;
 
@@ -98,10 +132,9 @@ export class DraggableAttribute extends React.Component<any, any> {
 
     getFilterBox() {
         const isTrxTime = this.props.name === 'TRX_TIME';
-        const showMenu = true; // Forced to true to bypass built-in limit
         const values = Object.keys(this.props.attrValues);
 
-        let shown = values
+        const shown = values
             .filter(this.matchesFilter.bind(this))
             .sort(this.props.sorter);
 
@@ -113,7 +146,7 @@ export class DraggableAttribute extends React.Component<any, any> {
         }
 
         return (
-            <Draggable handle=".pvtDragHandle">
+            <DraggableComponent handle=".pvtDragHandle">
                 <div
                     className="pvtFilterBox"
                     ref={this.filterBoxRef}
@@ -153,7 +186,7 @@ export class DraggableAttribute extends React.Component<any, any> {
                                     type="checkbox"
                                     checked={this.props.groupByHour}
                                     onChange={e => {
-                                        this.props.toggleGroupByHour(e.target.checked);
+                                        this.props.toggleGroupByHour?.(e.target.checked);
                                         this.setState({ displayLimit: 10 });
                                     }}
                                     className="w-3 h-3"
@@ -243,7 +276,7 @@ export class DraggableAttribute extends React.Component<any, any> {
                         )}
                     </div>
                 </div>
-            </Draggable>
+            </DraggableComponent>
         );
     }
 
@@ -252,7 +285,7 @@ export class DraggableAttribute extends React.Component<any, any> {
         this.props.moveFilterBoxToTop(this.props.name);
     }
 
-    render() {
+    override render() {
         const filtered =
             Object.keys(this.props.valueFilter).length !== 0
                 ? 'pvtFilteredAttribute'
@@ -272,26 +305,17 @@ export class DraggableAttribute extends React.Component<any, any> {
     }
 }
 
-(DraggableAttribute as any).defaultProps = {
-    valueFilter: {},
-};
+interface DropdownProps {
+    zIndex?: number;
+    toggle: () => void;
+    open: boolean;
+    current?: string;
+    values: string[];
+    setValue: (val: string) => void;
+}
 
-(DraggableAttribute as any).propTypes = {
-    name: PropTypes.string.isRequired,
-    addValuesToFilter: PropTypes.func.isRequired,
-    removeValuesFromFilter: PropTypes.func.isRequired,
-    attrValues: PropTypes.objectOf(PropTypes.number).isRequired,
-    valueFilter: PropTypes.objectOf(PropTypes.bool),
-    moveFilterBoxToTop: PropTypes.func.isRequired,
-    sorter: PropTypes.func.isRequired,
-    menuLimit: PropTypes.number,
-    zIndex: PropTypes.number,
-    groupByHour: PropTypes.bool,
-    toggleGroupByHour: PropTypes.func,
-};
-
-export class Dropdown extends React.PureComponent<any, any> {
-    render() {
+export class Dropdown extends React.PureComponent<DropdownProps> {
+    override render() {
         return (
             <div className="pvtDropdown" style={{ zIndex: this.props.zIndex }}>
                 <div
@@ -337,8 +361,49 @@ export class Dropdown extends React.PureComponent<any, any> {
     }
 }
 
-class PivotTableUI extends React.PureComponent<any, any> {
-    constructor(props: any) {
+interface PivotTableUIProps {
+    data: any;
+    onChange: (state: any) => void;
+    renderers?: Record<string, any>;
+    aggregators?: Record<string, any>;
+    aggregatorName?: string;
+    rendererName?: string;
+    vals: string[];
+    cols: string[];
+    rows: string[];
+    valueFilter: Record<string, Record<string, boolean>>;
+    sorters?: any;
+    derivedAttributes?: Record<string, (record: any) => any>;
+    rowOrder?: string;
+    colOrder?: string;
+    hiddenAttributes?: string[];
+    hiddenFromDragDrop?: string[];
+    hiddenFromAggregators?: string[];
+    menuLimit?: number;
+    unusedOrientationCutoff?: number;
+    [key: string]: any;
+}
+
+interface PivotTableUIState {
+    unusedOrder: string[];
+    zIndices: Record<string, number>;
+    maxZIndex: number;
+    openDropdown: string | false;
+    attrValues: Record<string, Record<string, number>>;
+    materializedInput: any[];
+    groupByHour: boolean;
+    isProcessing: boolean;
+}
+
+class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUIState> {
+    static defaultProps = Object.assign({}, PivotData.defaultProps, {
+        hiddenAttributes: [],
+        hiddenFromDragDrop: [],
+        hiddenFromAggregators: [],
+        onDragDrop: () => { },
+    });
+
+    constructor(props: PivotTableUIProps) {
         super(props);
         this.state = {
             unusedOrder: [],
@@ -347,47 +412,43 @@ class PivotTableUI extends React.PureComponent<any, any> {
             openDropdown: false,
             attrValues: {},
             materializedInput: [],
-            groupByHour: true, // Default Table grouping
+            groupByHour: true,
             isProcessing: false,
         };
         this.handleClickOutside = this.handleClickOutside.bind(this);
     }
 
-    componentDidMount() {
-        this.materializeInput(this.props.data);
+    override componentDidMount() {
+        this.materializeInput(this.props);
         document.addEventListener('mousedown', this.handleClickOutside);
     }
 
-    componentWillUnmount() {
+    override componentWillUnmount() {
         document.removeEventListener('mousedown', this.handleClickOutside);
     }
 
     handleClickOutside(event: MouseEvent) {
         if (this.state.openDropdown) {
             const target = event.target as HTMLElement;
-            // Check if context is indeed a dropdown or its trigger
             const isInsideDropdown = target.closest('.pvtDropdown');
-
             if (!isInsideDropdown) {
                 this.setState({ openDropdown: false });
             }
         }
     }
 
-    componentDidUpdate(prevProps: any, prevState: any) {
+    override componentDidUpdate(prevProps: PivotTableUIProps, prevState: PivotTableUIState) {
         if (prevProps.data !== this.props.data || prevState.groupByHour !== this.state.groupByHour) {
-            this.materializeInput(this.props.data);
+            this.materializeInput(this.props);
         }
     }
 
-    materializeInput(nextData: any) {
-        const derivedAttributes = {
-            ...(this.props.derivedAttributes || {})
-        };
-        // Removed dynamic derived TRX_TIME to handle it explicitly in the loop for better control
+    materializeInput(props: PivotTableUIProps) {
+        const { data, derivedAttributes: rawDerived } = props;
+        const derivedAttributes = rawDerived || {};
 
         const newState: any = {
-            data: nextData,
+            data,
             attrValues: {},
             materializedInput: [],
         };
@@ -401,12 +462,9 @@ class PivotTableUI extends React.PureComponent<any, any> {
         let recordsProcessed = 0;
         PivotData.forEachRecord(
             newState.data,
-            {}, // Use empty derived attributes in iteration to get raw records
+            {},
             (rawRecord: any) => {
-                // Create a shallow copy to avoid mutating the original data
                 const record = { ...rawRecord };
-
-                // Apply derived attributes (custom props)
                 for (const k in derivedAttributes) {
                     const derived = derivedAttributes[k](record);
                     if (derived !== null) {
@@ -414,7 +472,6 @@ class PivotTableUI extends React.PureComponent<any, any> {
                     }
                 }
 
-                // Force TRX_TIME hourly grouping if enabled
                 if (this.state.groupByHour && record['TRX_TIME'] !== undefined) {
                     const time = record['TRX_TIME'];
                     if (time !== null) {
@@ -448,10 +505,8 @@ class PivotTableUI extends React.PureComponent<any, any> {
 
     sendPropUpdate(command: any) {
         this.setState({ isProcessing: true }, () => {
-            // Allow one frame for the spinner to render
             setTimeout(() => {
                 this.props.onChange(update(this.props, command));
-                // Set to false after the change has been propagated
                 this.setState({ isProcessing: false });
             }, 50);
         });
@@ -510,7 +565,7 @@ class PivotTableUI extends React.PureComponent<any, any> {
 
     makeDnDCell(items: any[], onChange: any, classes: string) {
         return (
-            <Sortable
+            <SortableComponent
                 options={{
                     group: 'shared',
                     ghostClass: 'pvtPlaceholder',
@@ -525,7 +580,7 @@ class PivotTableUI extends React.PureComponent<any, any> {
                     <DraggableAttribute
                         name={x}
                         key={x}
-                        attrValues={this.state.attrValues[x]}
+                        attrValues={this.state.attrValues[x] || {}}
                         valueFilter={this.props.valueFilter[x] || {}}
                         sorter={getSort(this.props.sorters, x)}
                         menuLimit={this.props.menuLimit}
@@ -544,12 +599,17 @@ class PivotTableUI extends React.PureComponent<any, any> {
                         }}
                     />
                 ))}
-            </Sortable>
+            </SortableComponent>
         );
     }
 
-    render() {
-        const renderers = this.props.renderers || PivotData.defaultProps.renderers;
+    override render() {
+        const rawRenderers = this.props.renderers || PivotData.defaultProps.renderers;
+        const rawAggregators = this.props.aggregators || PivotData.defaultProps.aggregators;
+
+        const renderers = (normalize(rawRenderers) || {}) as Record<string, any>;
+        const aggregators = (normalize(rawAggregators) || {}) as Record<string, any>;
+
         const aggregatorName =
             this.props.aggregatorName || PivotData.defaultProps.aggregatorName;
         const rendererName =
@@ -576,7 +636,7 @@ class PivotTableUI extends React.PureComponent<any, any> {
             <td className="pvtVals" style={{ zIndex: (this.isOpen('aggregator') || this.props.vals.some((x: any) => this.isOpen(`val${x}`))) ? 2001 : 1, position: 'relative' }}>
                 <Dropdown
                     current={aggregatorName}
-                    values={Object.keys(this.props.aggregators)}
+                    values={Object.keys(aggregators).filter(k => k !== 'default')}
                     open={this.isOpen('aggregator')}
                     zIndex={this.state.maxZIndex + 1}
                     toggle={() =>
@@ -652,10 +712,12 @@ class PivotTableUI extends React.PureComponent<any, any> {
                     </div>
                 )}
                 <div style={{ overflow: 'hidden', width: '100%', height: '100%', opacity: this.state.isProcessing ? 0.5 : 1 }}>
-                    <PivotTable
+                    <PivotTableComponent
                         {...update(this.props, {
                             data: { $set: this.state.materializedInput },
                             derivedAttributes: { $set: {} },
+                            renderers: { $set: renderers },
+                            aggregators: { $set: aggregators }
                         })}
                     />
                 </div>
@@ -684,13 +746,6 @@ class PivotTableUI extends React.PureComponent<any, any> {
         );
     }
 }
-
-PivotTableUI.defaultProps = Object.assign({}, PivotData.defaultProps, {
-    hiddenAttributes: [],
-    hiddenFromDragDrop: [],
-    hiddenFromAggregators: [],
-    onDragDrop: () => { },
-});
 
 (PivotTableUI as any).propTypes = Object.assign({}, PivotData.propTypes, {
     onChange: PropTypes.func.isRequired,
