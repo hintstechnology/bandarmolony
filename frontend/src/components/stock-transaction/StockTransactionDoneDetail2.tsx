@@ -496,7 +496,10 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
             {...pivotState}
             data={flatData}
             onChange={(s: any) => setPivotState(s)}
-            renderers={Object.assign({}, TableRenderers, PlotlyRenderers)}
+            renderers={{
+              ...((TableRenderers as any).default || TableRenderers),
+              ...((PlotlyRenderers as any).default || PlotlyRenderers)
+            }}
             aggregators={aggregators}
             hiddenAttributes={[]}
             hiddenFromDragDrop={['TYP', 'STK_CODE']}
