@@ -87,7 +87,7 @@ type InvestorType = 'D' | 'F'; // D = Domestik (I), F = Foreign (A)
 
 export class BrokerTransactionFDCalculator {
   private readonly OPEN_TIME = '08:58:00'; // Market open time
-  
+
   constructor() {
     // No need for Azure client initialization - using azureBlob utility
   }
@@ -97,7 +97,7 @@ export class BrokerTransactionFDCalculator {
    */
   private isAfterOpen(timeStr: string): boolean {
     if (!timeStr || timeStr.trim() === '') return false;
-    
+
     // Normalize time format (handle HH:MM:SS or HHMMSS)
     let normalizedTime = timeStr.trim().replace(/:/g, '');
     if (normalizedTime.length === 6) {
@@ -108,7 +108,7 @@ export class BrokerTransactionFDCalculator {
     } else {
       return false;
     }
-    
+
     // Extract HHMM from OPEN_TIME (08:58:00 -> 0858)
     const openTime = this.OPEN_TIME.replace(/:/g, '').substring(0, 4);
     return normalizedTime >= openTime;
@@ -119,7 +119,7 @@ export class BrokerTransactionFDCalculator {
    */
   private getTimeKey(timeStr: string): string {
     if (!timeStr || timeStr.trim() === '') return '';
-    
+
     // Normalize to HH:MM:SS format
     let normalized = timeStr.trim().replace(/:/g, '');
     if (normalized.length === 6) {
@@ -143,7 +143,7 @@ export class BrokerTransactionFDCalculator {
     emiten: string
   ): { newBuyerOrdNum: number; newSellerOrdNum: number } {
     // === BUYER CALCULATION ===
-    
+
     // Step 1: Group buyer transactions by time after open
     const buyerTimeGroups = new Map<string, TransactionData[]>();
     buyerTransactions.forEach(t => {
@@ -158,7 +158,7 @@ export class BrokerTransactionFDCalculator {
         }
       }
     });
-    
+
     // Step 2: Extract one representative order number from each time group
     // Each time group contributes at most 1 order number (first transaction's TRX_ORD1)
     // If same order number appears in different time groups, it will be deduplicated in the Set
@@ -170,7 +170,7 @@ export class BrokerTransactionFDCalculator {
         buyerOrdNumsFromTimeGroups.add(firstTransaction.TRX_ORD1);
       }
     });
-    
+
     // Step 3: Count unique orders before open
     const buyerOrdNumsBeforeOpen = new Set<number>();
     buyerTransactions.forEach(t => {
@@ -178,7 +178,7 @@ export class BrokerTransactionFDCalculator {
         buyerOrdNumsBeforeOpen.add(t.TRX_ORD1);
       }
     });
-    
+
     // Step 4: Combine - deduplicate if order number appears in both periods
     // NewBuyerOrdNum should be ≤ time groups count (since we take 1 order per time group)
     const allBuyerOrdNums = new Set<number>();
@@ -189,11 +189,11 @@ export class BrokerTransactionFDCalculator {
         allBuyerOrdNums.add(ord);
       }
     });
-    
+
     const newBuyerOrdNum = allBuyerOrdNums.size;
-    
+
     // === SELLER CALCULATION ===
-    
+
     // Step 1: Group seller transactions by time after open
     const sellerTimeGroups = new Map<string, TransactionData[]>();
     sellerTransactions.forEach(t => {
@@ -208,7 +208,7 @@ export class BrokerTransactionFDCalculator {
         }
       }
     });
-    
+
     // Step 2: Extract one representative order number from each time group
     // Each time group contributes at most 1 order number (first transaction's TRX_ORD2)
     // If same order number appears in different time groups, it will be deduplicated in the Set
@@ -220,7 +220,7 @@ export class BrokerTransactionFDCalculator {
         sellerOrdNumsFromTimeGroups.add(firstTransaction.TRX_ORD2);
       }
     });
-    
+
     // Step 3: Count unique orders before open
     const sellerOrdNumsBeforeOpen = new Set<number>();
     sellerTransactions.forEach(t => {
@@ -228,7 +228,7 @@ export class BrokerTransactionFDCalculator {
         sellerOrdNumsBeforeOpen.add(t.TRX_ORD2);
       }
     });
-    
+
     // Step 4: Combine - deduplicate if order number appears in both periods
     const allSellerOrdNums = new Set<number>();
     sellerOrdNumsFromTimeGroups.forEach(ord => allSellerOrdNums.add(ord));
@@ -238,9 +238,9 @@ export class BrokerTransactionFDCalculator {
         allSellerOrdNums.add(ord);
       }
     });
-    
+
     const newSellerOrdNum = allSellerOrdNums.size;
-    
+
     return { newBuyerOrdNum, newSellerOrdNum };
   }
 
@@ -261,48 +261,48 @@ export class BrokerTransactionFDCalculator {
    */
   private async findAllDtFiles(): Promise<string[]> {
     console.log("Scanning all DT files in done-summary folder...");
-    
+
     try {
       // Use shared cache for DT files list
       // Type assertion needed due to TypeScript type inference issue
       const allDtFiles = await (doneSummaryCache as any).getDtFilesList();
-      
+
       // Sort by date descending (newest first)
       const sortedFiles = allDtFiles.sort((a: string, b: string) => {
         const dateA = a.split('/')[1] || '';
         const dateB = b.split('/')[1] || '';
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
-      
+
       // OPTIMIZATION: Limit to 7 most recent dates
       const MAX_DATES_TO_PROCESS = 7;
       const limitedFiles = sortedFiles.slice(0, MAX_DATES_TO_PROCESS);
-      
+
       if (sortedFiles.length > MAX_DATES_TO_PROCESS) {
         console.log(`📅 Found ${sortedFiles.length} DT files, limiting to ${MAX_DATES_TO_PROCESS} most recent dates`);
       }
-      
+
       // OPTIMIZATION: Check which dates already have broker_transaction_d and broker_transaction_f outputs (BATCH CHECKING for speed)
       console.log("🔍 Checking existing broker_transaction_d/f folders to skip (batch checking - quick check: D only)...");
       const filesToProcess: string[] = [];
       let skippedCount = 0;
-      
+
       // Process in batches for parallel checking (faster than sequential)
       const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
       const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
-      
+
       for (let i = 0; i < limitedFiles.length; i += CHECK_BATCH_SIZE) {
         const batch = limitedFiles.slice(i, i + CHECK_BATCH_SIZE);
         const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
         const totalBatches = Math.ceil(limitedFiles.length / CHECK_BATCH_SIZE);
-        
+
         // Process batch checks in parallel with concurrency limit
         const checkPromises = batch.map(async (file: string) => {
           const dateFolder = file.split('/')[1] || '';
           const exists = await this.checkBrokerTransactionFDExists(dateFolder);
           return { file, dateFolder, exists };
         });
-        
+
         // Limit concurrency for checks
         const checkResults: { file: string; dateFolder: string; exists: boolean }[] = [];
         for (let j = 0; j < checkPromises.length; j += MAX_CONCURRENT_CHECKS) {
@@ -310,7 +310,7 @@ export class BrokerTransactionFDCalculator {
           const results = await Promise.all(concurrentChecks);
           checkResults.push(...results);
         }
-        
+
         // Process results
         for (const result of checkResults) {
           if (result.exists) {
@@ -323,13 +323,13 @@ export class BrokerTransactionFDCalculator {
             filesToProcess.push(result.file);
           }
         }
-        
+
         // Progress update for large batches
         if (totalBatches > 1 && batchNumber % 5 === 0) {
           console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, limitedFiles.length)}/${limitedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
         }
       }
-      
+
       // Summary log
       if (skippedCount > 5) {
         console.log(`⏭️  ... and ${skippedCount - 5} more files skipped`);
@@ -356,15 +356,15 @@ export class BrokerTransactionFDCalculator {
         // If D exists, assume both D and F exist (skip date)
         return existingFilesD.length > 0;
       } catch (error: any) {
-        const isRetryable = 
+        const isRetryable =
           error?.code === 'PARSE_ERROR' ||
           error?.name === 'RestError' ||
           (error?.message && error.message.includes('aborted'));
-        
+
         if (!isRetryable || attempt === maxRetries) {
           return false;
         }
-        
+
         const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
         await new Promise(resolve => setTimeout(resolve, delayMs));
       }
@@ -379,23 +379,23 @@ export class BrokerTransactionFDCalculator {
   private async loadAndProcessSingleDtFile(blobName: string): Promise<{ data: TransactionData[], dateSuffix: string } | null> {
     try {
       console.log(`Loading DT file: ${blobName}`);
-      
+
       // Use shared cache for raw content (will cache automatically if not exists)
       const content = await doneSummaryCache.getRawContent(blobName);
-      
+
       if (!content || content.trim().length === 0) {
         console.log(`⚠️ Empty file: ${blobName}`);
         return null;
       }
-      
+
       // Extract date from blob name (done-summary/20251021/DT251021.csv)
       const pathParts = blobName.split('/');
       const dateFolder = pathParts[1] || 'unknown'; // 20251021
       const dateSuffix = dateFolder; // Use full date as suffix
-      
+
       const data = this.parseTransactionData(content);
       console.log(`✅ Loaded ${data.length} transactions from ${blobName}`);
-      
+
       return { data, dateSuffix };
     } catch (error) {
       console.log(`📄 File not found, will create new: ${blobName}`);
@@ -406,17 +406,17 @@ export class BrokerTransactionFDCalculator {
   private parseTransactionData(content: string): TransactionData[] {
     const lines = content.trim().split('\n');
     const data: TransactionData[] = [];
-    
+
     if (lines.length < 2) return data;
-    
+
     // Parse header to get column indices (using semicolon separator)
     const header = lines[0]?.split(';') || [];
     console.log(`📋 CSV Header: ${header.join(', ')}`);
-    
+
     const getColumnIndex = (columnName: string): number => {
       return header.findIndex(col => col.trim() === columnName);
     };
-    
+
     const stkCodeIndex = getColumnIndex('STK_CODE');
     const brkCod1Index = getColumnIndex('BRK_COD1');
     const brkCod2Index = getColumnIndex('BRK_COD2');
@@ -428,25 +428,25 @@ export class BrokerTransactionFDCalculator {
     const invTyp2Index = getColumnIndex('INV_TYP2');
     const trxOrd1Index = getColumnIndex('TRX_ORD1');
     const trxOrd2Index = getColumnIndex('TRX_ORD2');
-    
+
     // Validate required columns exist
-    if (stkCodeIndex === -1 || brkCod1Index === -1 || brkCod2Index === -1 || 
-        stkVolmIndex === -1 || stkPricIndex === -1 || trxCodeIndex === -1 ||
-        trxTimeIndex === -1 || invTyp1Index === -1 || invTyp2Index === -1 ||
-        trxOrd1Index === -1 || trxOrd2Index === -1) {
+    if (stkCodeIndex === -1 || brkCod1Index === -1 || brkCod2Index === -1 ||
+      stkVolmIndex === -1 || stkPricIndex === -1 || trxCodeIndex === -1 ||
+      trxTimeIndex === -1 || invTyp1Index === -1 || invTyp2Index === -1 ||
+      trxOrd1Index === -1 || trxOrd2Index === -1) {
       console.error('❌ Required columns not found in CSV header');
       return data;
     }
-    
+
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
       if (!line || line.trim().length === 0) continue;
-      
+
       const values = line.split(';');
       if (values.length < header.length) continue;
-      
+
       const stockCode = values[stkCodeIndex]?.trim() || '';
-      
+
       // Filter hanya kode emiten 4 huruf
       if (stockCode.length === 4) {
         const transaction: TransactionData = {
@@ -462,11 +462,11 @@ export class BrokerTransactionFDCalculator {
           TRX_ORD1: parseInt(values[trxOrd1Index]?.trim() || '0', 10) || 0,
           TRX_ORD2: parseInt(values[trxOrd2Index]?.trim() || '0', 10) || 0,
         };
-        
+
         data.push(transaction);
       }
     }
-    
+
     console.log(`📊 Loaded ${data.length} transaction records from Azure (4-character stocks only)`);
     return data;
   }
@@ -476,41 +476,41 @@ export class BrokerTransactionFDCalculator {
    * OPTIMIZED: Skip files that already exist
    */
   private async createBrokerTransactionPerBroker(
-    data: TransactionData[], 
+    data: TransactionData[],
     dateSuffix: string,
     progressTracker?: ProgressTracker
   ): Promise<{ files: string[]; brokerCount: number }> {
     console.log("\nCreating broker transaction files per broker (D/F split)...");
-    
+
     // Get unique broker codes (both buyer and seller brokers)
     const uniqueBrokers = [...new Set([
       ...data.map(row => row.BRK_COD1), // buyer brokers
       ...data.map(row => row.BRK_COD2)  // seller brokers
     ])];
     console.log(`Found ${uniqueBrokers.length} unique brokers`);
-    
+
     const createdFiles: string[] = [];
     let processedBrokerCount = 0;
-    
+
     for (let i = 0; i < uniqueBrokers.length; i++) {
       const broker = uniqueBrokers[i];
       if (!broker) continue; // Skip if undefined
       let brokerProcessed = false;
-      
+
       // Process for both D (Domestik) and F (Foreign)
       for (const invType of ['D', 'F'] as const) {
         const folderPrefix = invType === 'D' ? 'd' : 'f';
         const filename = `broker_transaction/broker_transaction_${folderPrefix}_${dateSuffix}/${broker}.csv`;
-        
+
         console.log(`Processing broker: ${broker} (${invType === 'D' ? 'Domestik' : 'Foreign'})`);
-        
+
         // Filter data for this broker and investor type
         // For buyer side: check INV_TYP1
         // For seller side: check INV_TYP2
         const brokerData = data.filter(row => {
           const isBuyer = row.BRK_COD1 === broker;
           const isSeller = row.BRK_COD2 === broker;
-          
+
           if (isBuyer) {
             const buyerInvType = this.getInvestorType(row.INV_TYP1);
             return buyerInvType === invType;
@@ -521,11 +521,11 @@ export class BrokerTransactionFDCalculator {
           }
           return false;
         });
-        
+
         if (brokerData.length === 0) {
           continue; // Skip if no data for this broker and investor type
         }
-        
+
         // Group by stock code for this broker
         const stockGroups = new Map<string, TransactionData[]>();
         brokerData.forEach(row => {
@@ -535,15 +535,15 @@ export class BrokerTransactionFDCalculator {
           }
           stockGroups.get(stock)!.push(row);
         });
-        
+
         // Calculate summary for each stock
         const stockSummary: BrokerTransactionData[] = [];
-        
+
         stockGroups.forEach((transactions, stock) => {
           // Separate buyer and seller transactions
           const buyerTransactions = transactions.filter(t => t.BRK_COD1 === broker);
           const sellerTransactions = transactions.filter(t => t.BRK_COD2 === broker);
-          
+
           // Calculate buyer data
           const buyerVol = buyerTransactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
           const buyerValue = buyerTransactions.reduce((sum, t) => sum + (t.STK_VOLM * t.STK_PRIC), 0);
@@ -553,49 +553,49 @@ export class BrokerTransactionFDCalculator {
           const sellerVol = sellerTransactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
           const sellerValue = sellerTransactions.reduce((sum, t) => sum + (t.STK_VOLM * t.STK_PRIC), 0);
           const sellerAvg = sellerVol > 0 ? sellerValue / sellerVol : 0;
-          
+
           // Calculate frequencies and order numbers
           const buyerTxCodes = new Set<string>();
           const sellerTxCodes = new Set<string>();
           const buyerOrdNums = new Set<number>();
           const sellerOrdNums = new Set<number>();
-          
+
           buyerTransactions.forEach(t => {
             if (t.TRX_CODE) buyerTxCodes.add(t.TRX_CODE);
             if (t.TRX_ORD1 > 0) buyerOrdNums.add(t.TRX_ORD1);
           });
-          
+
           sellerTransactions.forEach(t => {
             if (t.TRX_CODE) sellerTxCodes.add(t.TRX_CODE);
             if (t.TRX_ORD2 > 0) sellerOrdNums.add(t.TRX_ORD2);
           });
-          
-        const buyerFreq = buyerTxCodes.size;
-        const sellerFreq = sellerTxCodes.size;
-        const oldBuyerOrdNum = buyerOrdNums.size;
-        const oldSellerOrdNum = sellerOrdNums.size;
-        
-        // Calculate BuyerOrdNum and SellerOrdNum (grouping by time after 08:58:00)
-        const { newBuyerOrdNum, newSellerOrdNum } = this.calculateNewOrderNumbers(
-          buyerTransactions,
-          sellerTransactions,
-          broker,
-          stock
-        );
-        
-        // Calculate net values
-        const rawNetBuyVol = buyerVol - sellerVol;
-        const rawNetBuyValue = buyerValue - sellerValue;
-        const netBuyFreq = buyerFreq - sellerFreq; // Can be negative
-        const netBuyOrdNum = newBuyerOrdNum - newSellerOrdNum; // Use New values, can be negative
-        const netSellFreq = sellerFreq - buyerFreq; // Can be negative
-        const netSellOrdNum = newSellerOrdNum - newBuyerOrdNum; // Use New values, can be negative
-          
+
+          const buyerFreq = buyerTxCodes.size;
+          const sellerFreq = sellerTxCodes.size;
+          const oldBuyerOrdNum = buyerOrdNums.size;
+          const oldSellerOrdNum = sellerOrdNums.size;
+
+          // Calculate BuyerOrdNum and SellerOrdNum (grouping by time after 08:58:00)
+          const { newBuyerOrdNum, newSellerOrdNum } = this.calculateNewOrderNumbers(
+            buyerTransactions,
+            sellerTransactions,
+            broker,
+            stock
+          );
+
+          // Calculate net values
+          const rawNetBuyVol = buyerVol - sellerVol;
+          const rawNetBuyValue = buyerValue - sellerValue;
+          const netBuyFreq = buyerFreq - sellerFreq; // Can be negative
+          const netBuyOrdNum = newBuyerOrdNum - newSellerOrdNum; // Use New values, can be negative
+          const netSellFreq = sellerFreq - buyerFreq; // Can be negative
+          const netSellOrdNum = newSellerOrdNum - newBuyerOrdNum; // Use New values, can be negative
+
           let netBuyVol = 0;
           let netBuyValue = 0;
           let netSellVol = 0;
           let netSellValue = 0;
-          
+
           // If NetBuy is negative, it becomes NetSell (and NetBuy is set to 0)
           // If NetBuy is positive, NetSell is 0 (and NetBuy keeps the value)
           if (rawNetBuyVol >= 0) {
@@ -611,29 +611,29 @@ export class BrokerTransactionFDCalculator {
             netBuyVol = 0;
             netBuyValue = 0;
           }
-          
+
           // Calculate net averages
           const netBuyAvg = netBuyVol > 0 ? netBuyValue / netBuyVol : 0;
           const netSellAvg = netSellVol > 0 ? netSellValue / netSellVol : 0;
-          
+
           // Calculate Lot values (Vol / 100)
           const buyerLot = buyerVol / 100;
           const sellerLot = sellerVol / 100;
           const netBuyLot = netBuyVol / 100;
           const netSellLot = netSellVol / 100;
-          
+
           // Calculate Lot/F (Lot per Frequency)
           const buyerLotPerFreq = buyerFreq > 0 ? buyerLot / buyerFreq : 0;
           const sellerLotPerFreq = sellerFreq > 0 ? sellerLot / sellerFreq : 0;
           const netBuyLotPerFreq = netBuyFreq !== 0 ? netBuyLot / netBuyFreq : 0;
           const netSellLotPerFreq = netSellFreq !== 0 ? netSellLot / netSellFreq : 0;
-          
+
           // Calculate Lot/ON (Lot per Order Number) - use New values
           const buyerLotPerOrdNum = newBuyerOrdNum > 0 ? buyerLot / newBuyerOrdNum : 0;
           const sellerLotPerOrdNum = newSellerOrdNum > 0 ? sellerLot / newSellerOrdNum : 0;
           const netBuyLotPerOrdNum = netBuyOrdNum !== 0 ? netBuyLot / netBuyOrdNum : 0;
           const netSellLotPerOrdNum = netSellOrdNum !== 0 ? netSellLot / netSellOrdNum : 0;
-          
+
           stockSummary.push({
             Emiten: stock,
             BuyerVol: buyerVol,
@@ -672,22 +672,22 @@ export class BrokerTransactionFDCalculator {
             NSLotPerOrdNum: netSellLotPerOrdNum,
           });
         });
-        
+
         // Sort by net buy value descending
         stockSummary.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
-        
+
         // Save to Azure
         await this.saveToAzure(filename, stockSummary);
         createdFiles.push(filename);
-        
+
         console.log(`Created ${filename} with ${stockSummary.length} stocks`);
-        
+
         // Mark broker as processed if at least one investor type has data
         if (!brokerProcessed && stockSummary.length > 0) {
           brokerProcessed = true;
         }
       }
-      
+
       // Update progress tracker after each broker (count once per broker, not per investor type)
       if (brokerProcessed && progressTracker) {
         progressTracker.processedBrokers++;
@@ -695,7 +695,7 @@ export class BrokerTransactionFDCalculator {
         processedBrokerCount++;
       }
     }
-    
+
     console.log(`Created ${createdFiles.length} broker transaction files`);
     return { files: createdFiles, brokerCount: processedBrokerCount };
   }
@@ -708,14 +708,14 @@ export class BrokerTransactionFDCalculator {
       console.log(`No data to save for ${filename}`);
       return filename;
     }
-    
+
     // Convert to CSV format
     const headers = Object.keys(data[0]);
     const csvContent = [
       headers.join(','),
       ...data.map(row => headers.map(header => row[header]).join(','))
     ].join('\n');
-    
+
     await uploadText(filename, csvContent, 'text/csv');
     console.log(`Saved ${data.length} records to ${filename}`);
     return filename;
@@ -730,14 +730,14 @@ export class BrokerTransactionFDCalculator {
     const pathParts = blobName.split('/');
     const dateFolder = pathParts[1] || 'unknown';
     const dateSuffix = dateFolder;
-    
+
     // OPTIMIZATION: Double-check folders don't exist (race condition protection)
     const exists = await this.checkBrokerTransactionFDExists(dateFolder);
     if (exists) {
       console.log(`⏭️ Skipping ${blobName} - broker_transaction_d/f folders already exist for ${dateFolder} (race condition check)`);
       return { success: false, dateSuffix, files: [] };
     }
-    
+
     // CRITICAL: Pastikan active date sudah di-set SEBELUM load file
     // Active date sudah di-set di generateBrokerTransactionFDData() SETELAH pre-check
     // Tapi kita perlu memastikan date ini active sebelum load
@@ -746,39 +746,39 @@ export class BrokerTransactionFDCalculator {
       doneSummaryCache.addActiveProcessingDate(dateSuffix);
       console.log(`📅 Added active processing date ${dateSuffix} before loading file`);
     }
-    
+
     const result = await this.loadAndProcessSingleDtFile(blobName);
-    
+
     if (!result) {
       return { success: false, dateSuffix, files: [] };
     }
-    
+
     const { data } = result;
-    
+
     if (data.length === 0) {
       console.log(`⚠️ No transaction data in ${blobName} - skipping`);
       return { success: false, dateSuffix, files: [] };
     }
-    
+
     console.log(`🔄 Processing ${blobName} (${data.length} transactions)...`);
-    
+
     try {
       // Track timing
       const timing = {
         brokerTransaction: 0
       };
-      
+
       // Create broker transaction files
       const startTime = Date.now();
       const result = await this.createBrokerTransactionPerBroker(data, dateSuffix, progressTracker);
       timing.brokerTransaction = Math.round((Date.now() - startTime) / 1000);
-      
+
       const allFiles = result.files;
       const brokerCount = result.brokerCount;
-      
+
       console.log(`✅ Completed processing ${blobName} - ${allFiles.length} files created, ${brokerCount} brokers processed`);
       return { success: true, dateSuffix, files: allFiles, timing, brokerCount };
-      
+
     } catch (error) {
       console.error(`Error processing ${blobName}:`, error);
       return { success: false, dateSuffix, files: [] };
@@ -792,13 +792,13 @@ export class BrokerTransactionFDCalculator {
   public async generateBrokerTransactionData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     const startTime = Date.now();
     let datesToProcess: Set<string> = new Set();
-    
+
     try {
       console.log(`Starting broker transaction data analysis (D/F split) for all DT files...`);
-      
+
       // Find all DT files (sudah filter yang belum ada output)
       const dtFiles = await this.findAllDtFiles();
-      
+
       if (dtFiles.length === 0) {
         console.log(`⚠️ No DT files found in done-summary folder`);
         return {
@@ -807,9 +807,9 @@ export class BrokerTransactionFDCalculator {
           data: { skipped: true, reason: 'No DT files found' }
         };
       }
-      
+
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
-      
+
       // CRITICAL: JANGAN PRE-COUNT - tidak boleh load input sebelum cek existing
       // Set active processing dates untuk file yang sudah di-filter (yang benar-benar perlu diproses)
       dtFiles.forEach(file => {
@@ -818,13 +818,13 @@ export class BrokerTransactionFDCalculator {
           datesToProcess.add(dateMatch[1]);
         }
       });
-      
+
       // Set active dates di cache untuk file yang akan diproses
       datesToProcess.forEach(date => {
         doneSummaryCache.addActiveProcessingDate(date);
       });
       console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
-      
+
       // Create progress tracker based on files processed (not brokers)
       const progressTracker: ProgressTracker = {
         totalBrokers: 0, // No pre-count
@@ -839,19 +839,19 @@ export class BrokerTransactionFDCalculator {
           }
         }
       };
-      
+
       // Process files in batches (Phase 5: 6 files at a time)
       const BATCH_SIZE = BATCH_SIZE_PHASE_5; // Phase 5: 6 files
       const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_5; // Phase 5: 3 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[]; timing?: any; brokerCount?: number }[] = [];
       let processed = 0;
       let successful = 0;
-      
+
       for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
-        
+
         // Update progress before batch (showing DT file progress)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
@@ -859,7 +859,7 @@ export class BrokerTransactionFDCalculator {
             current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates)`
           });
         }
-        
+
         // Memory check before batch
         if (global.gc) {
           const memBefore = process.memoryUsage();
@@ -870,11 +870,11 @@ export class BrokerTransactionFDCalculator {
             await new Promise(resolve => setTimeout(resolve, 100));
           }
         }
-        
+
         // Process batch in parallel with concurrency limit, pass progress tracker
         const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName, progressTracker));
         const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
-        
+
         // Memory cleanup after batch
         if (global.gc) {
           global.gc();
@@ -882,7 +882,7 @@ export class BrokerTransactionFDCalculator {
           const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
           console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
         }
-        
+
         // Collect results
         batchResults.forEach((result) => {
           if (result && result.success !== undefined) {
@@ -893,10 +893,10 @@ export class BrokerTransactionFDCalculator {
             }
           }
         });
-        
+
         const batchBrokerCount = batchResults.reduce((sum, r: any) => sum + (r?.brokerCount || 0), 0);
         console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful, ${batchBrokerCount} brokers processed`);
-        
+
         // Update progress after batch (based on files processed)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
@@ -904,23 +904,23 @@ export class BrokerTransactionFDCalculator {
             current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates)`
           });
         }
-        
+
         // Small delay between batches
         if (i + BATCH_SIZE < dtFiles.length) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
-      
+
       const totalFiles = allResults.reduce((sum, result) => sum + result.files.length, 0);
       const totalDuration = Math.round((Date.now() - startTime) / 1000);
-      
+
       // Calculate breakdown of output files by type and aggregate timing
       let brokerTransactionFiles = 0;
-      
+
       const totalTiming = {
         brokerTransaction: 0
       };
-      
+
       allResults.forEach(result => {
         if (result.success) {
           result.files.forEach(file => {
@@ -928,14 +928,14 @@ export class BrokerTransactionFDCalculator {
               brokerTransactionFiles++;
             }
           });
-          
+
           // Aggregate timing if available
           if (result.timing) {
             totalTiming.brokerTransaction += result.timing.brokerTransaction || 0;
           }
         }
       });
-      
+
       console.log(`✅ Broker transaction data analysis (D/F split) completed!`);
       console.log(`📊 Processed: ${processed}/${dtFiles.length} DT files`);
       console.log(`📊 Successful: ${successful}/${processed} files`);
@@ -944,7 +944,7 @@ export class BrokerTransactionFDCalculator {
       console.log(`   📊 Broker Transaction files (D/F): ${brokerTransactionFiles} (${totalTiming.brokerTransaction}s)`);
       console.log(`✅ Broker Transaction Data (D/F) calculation completed successfully`);
       console.log(`✅ Broker Transaction Data (D/F) completed in ${totalDuration}s`);
-      
+
       return {
         success: true,
         message: `Broker transaction data (D/F split) generated successfully for ${successful}/${processed} DT files`,
@@ -961,7 +961,7 @@ export class BrokerTransactionFDCalculator {
           results: allResults.filter(r => r.success)
         }
       };
-      
+
     } catch (error) {
       console.error('Error generating broker transaction data (D/F):', error);
       return {

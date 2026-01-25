@@ -54,6 +54,7 @@ const menuItems = [
     children: [
       { title: "Done Summary", url: "#", route: "stock-transaction/done-summary" },
       { title: "Done Detail", url: "#", route: "stock-transaction/done-detail" },
+      { title: "Done Detail 2", url: "#", route: "stock-transaction/done-detail-2" },
     ],
   },
   {
@@ -133,21 +134,21 @@ export function Sidebar({
       try {
         // Use AuthContext signOut for proper state management
         await signOut();
-        
+
         // Show toast immediately after logout
         showToast({
           type: 'success',
           title: 'Logout Berhasil!',
           message: 'Anda telah berhasil logout.',
         });
-        
+
         // Small delay to let user see the toast before redirect
         // isLoggingOut is true, preventing App.tsx redirect
         setTimeout(() => {
           // Force navigate to auth page after showing toast
           window.location.href = '/auth';
         }, 1000);
-        
+
       } catch (error) {
         console.error('Logout error:', error);
         // Show error toast if logout fails
@@ -180,14 +181,14 @@ export function Sidebar({
       {/* Overlay hanya untuk mobile ketika sidebar terbuka */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-40 lg:hidden bg-black/30 backdrop-blur-[2px]"
+          className="fixed inset-0 z-[10000] lg:hidden bg-black/30 backdrop-blur-[2px]"
           onClick={onToggle}
         />
       )}
 
       <div
         className={`
-          fixed inset-y-0 left-0 z-50 bg-card border-r border-border
+          fixed inset-y-0 left-0 z-[10001] bg-card border-r border-border
           transform transition-all duration-300 ease-in-out h-screen
           ${isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
           ${isExpanded ? "w-64" : "w-16"}
@@ -236,10 +237,9 @@ export function Sidebar({
                         className={`
                           flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group min-w-0
                           ${!isExpanded ? "justify-center" : ""}
-                          ${
-                            currentRoute === item.route
-                              ? "bg-accent text-accent-foreground shadow-sm"
-                              : "text-card-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
+                          ${currentRoute === item.route
+                            ? "bg-accent text-accent-foreground shadow-sm"
+                            : "text-card-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
                           }
                         `}
                       >
@@ -269,10 +269,9 @@ export function Sidebar({
                         className={`
                           flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group min-w-0
                           ${!isExpanded ? "justify-center" : ""}
-                          ${
-                            currentRoute === item.route
-                              ? "bg-accent text-accent-foreground shadow-sm"
-                              : "text-card-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
+                          ${currentRoute === item.route
+                            ? "bg-accent text-accent-foreground shadow-sm"
+                            : "text-card-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
                           }
                         `}
                       >
@@ -304,10 +303,9 @@ export function Sidebar({
                         className={`
                           flex items-center justify-between px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group min-w-0
                           ${!isExpanded ? "justify-center" : ""}
-                          ${
-                            active
-                              ? "bg-accent text-accent-foreground shadow-sm"
-                              : "text-card-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
+                          ${active
+                            ? "bg-accent text-accent-foreground shadow-sm"
+                            : "text-card-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
                           }
                         `}
                         onClick={() => {
@@ -345,10 +343,9 @@ export function Sidebar({
                                 onClick={() => handleNavigation(child.route)}
                                 className={`
                                   block px-2 py-1 text-xs rounded-md transition-all duration-200 cursor-pointer group
-                                  ${
-                                    currentRoute === child.route
-                                      ? "bg-accent text-accent-foreground shadow-sm font-medium"
-                                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
+                                  ${currentRoute === child.route
+                                    ? "bg-accent text-accent-foreground shadow-sm font-medium"
+                                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
                                   }
                                 `}
                               >
@@ -371,10 +368,9 @@ export function Sidebar({
                 className={`
                   flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group min-w-0
                   ${!isExpanded ? "justify-center" : ""}
-                  ${
-                    currentRoute === '/profile'
-                      ? "bg-accent text-accent-foreground shadow-sm"
-                      : "text-card-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
+                  ${currentRoute === '/profile'
+                    ? "bg-accent text-accent-foreground shadow-sm"
+                    : "text-card-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
                   }
                 `}
               >
@@ -388,10 +384,9 @@ export function Sidebar({
                   className={`
                     flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group min-w-0
                     ${!isExpanded ? "justify-center" : ""}
-                    ${
-                      currentRoute === item.route
-                        ? "bg-accent text-accent-foreground shadow-sm"
-                        : "text-card-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
+                    ${currentRoute === item.route
+                      ? "bg-accent text-accent-foreground shadow-sm"
+                      : "text-card-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
                     }
                   `}
                 >
