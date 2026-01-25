@@ -9,6 +9,16 @@ interface PivotTableProps {
     [key: string]: any;
 }
 
+// Helper to unwrap ESM modules or other object wrappers
+const normalize = (obj: any) => {
+    if (!obj) return obj;
+    if (obj.__esModule && obj.default) return obj.default;
+    if (typeof obj === 'object' && obj.default && (typeof obj.default === 'function' || (typeof obj.default === 'object' && obj.default.render))) {
+        return obj.default;
+    }
+    return obj;
+};
+
 class PivotTable extends React.PureComponent<PivotTableProps> {
     static propTypes = Object.assign({}, PivotData.propTypes, {
         rendererName: PropTypes.string,
@@ -21,9 +31,12 @@ class PivotTable extends React.PureComponent<PivotTableProps> {
     });
 
     override render() {
-        const renderers = (this.props.renderers || {}) as Record<string, any>;
+        const rawRenderers = this.props.renderers || {};
+        // Normalize the renderers object itself if it's a module
+        const renderers = (normalize(rawRenderers) || {}) as Record<string, any>;
         const rendererName = this.props.rendererName || 'Table';
         const rendererKeys = Object.keys(renderers);
+
         let Renderer = renderers[
             rendererName in renderers
                 ? rendererName
@@ -32,26 +45,25 @@ class PivotTable extends React.PureComponent<PivotTableProps> {
 
         // Diagnostic logging for production
         if (typeof process !== 'undefined' && process.env && (process.env as any)['NODE_ENV'] === 'production' && (!Renderer || typeof Renderer !== 'function')) {
-            console.error('PivotTable Render Error Diagnostic:', {
+            console.error('PivotTable Resolution Error:', {
                 rendererName,
-                hasRenderer: !!Renderer,
-                type: typeof Renderer,
-                availableRenderers: Object.keys(renderers)
+                resolvedType: typeof Renderer,
+                isObject: Renderer && typeof Renderer === 'object',
+                hasDefault: Renderer && typeof Renderer === 'object' && 'default' in Renderer,
+                availableKeys: rendererKeys
             });
         }
 
-        // Handle ESM default wrapper if found
-        if (Renderer && typeof Renderer === 'object' && 'default' in Renderer) {
-            Renderer = Renderer.default;
-        }
+        // Normalize the selected renderer
+        Renderer = normalize(Renderer);
 
         if (!Renderer) {
             return React.createElement('div', null, `Renderer "${rendererName}" not found.`);
         }
 
-        // If it's still an object and not a valid React type, show error instead of crashing
+        // Final safety check: if still not a valid React type, return an error div
         if (typeof Renderer === 'object' && !Array.isArray(Renderer)) {
-            return React.createElement('div', null, `Invalid Renderer type for "${rendererName}": object. Check console.`);
+            return React.createElement('div', null, `Invalid Renderer component for "${rendererName}". Check console.`);
         }
 
         return React.createElement(Renderer, this.props);
