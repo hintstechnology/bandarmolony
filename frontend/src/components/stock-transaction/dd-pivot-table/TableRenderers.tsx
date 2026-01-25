@@ -151,12 +151,12 @@ function makeRenderer(opts: any = {}) {
                         React.createElement(
                             'tr',
                             { key: 'colAttr' + j },
-                            j === 0 &&
-                            rowAttrs.length !== 0 &&
-                            React.createElement('th', {
-                                colSpan: rowAttrs.length,
-                                rowSpan: colAttrs.length,
-                            }),
+                            (j === 0 && rowAttrs.length !== 0)
+                                ? React.createElement('th', {
+                                    colSpan: rowAttrs.length,
+                                    rowSpan: colAttrs.length,
+                                })
+                                : null,
                             React.createElement('th', { className: 'pvtAxisLabel' }, c),
                             colKeys.map((colKey, i) => {
                                 const x = spanSize(colKeys, i, j);
@@ -177,34 +177,36 @@ function makeRenderer(opts: any = {}) {
                                     colKey[j]
                                 );
                             }),
-                            j === 0 &&
-                            React.createElement(
-                                'th',
-                                {
-                                    className: 'pvtTotalLabel',
-                                    rowSpan: colAttrs.length + (rowAttrs.length === 0 ? 0 : 1),
-                                },
-                                'Totals'
-                            )
+                            j === 0
+                                ? React.createElement(
+                                    'th',
+                                    {
+                                        className: 'pvtTotalLabel',
+                                        rowSpan: colAttrs.length + (rowAttrs.length === 0 ? 0 : 1),
+                                    },
+                                    'Totals'
+                                )
+                                : null
                         )
                     ),
-                    rowAttrs.length !== 0 &&
-                    React.createElement(
-                        'tr',
-                        null,
-                        rowAttrs.map((r: any, i: number) =>
+                    rowAttrs.length !== 0
+                        ? React.createElement(
+                            'tr',
+                            null,
+                            rowAttrs.map((r: any, i: number) =>
+                                React.createElement(
+                                    'th',
+                                    { className: 'pvtAxisLabel', key: 'rowAttr' + i },
+                                    r
+                                )
+                            ),
                             React.createElement(
                                 'th',
-                                { className: 'pvtAxisLabel', key: 'rowAttr' + i },
-                                r
+                                { className: 'pvtTotalLabel' },
+                                colAttrs.length === 0 ? 'Totals' : null
                             )
-                        ),
-                        React.createElement(
-                            'th',
-                            { className: 'pvtTotalLabel' },
-                            colAttrs.length === 0 ? 'Totals' : null
                         )
-                    )
+                        : null
                 ),
                 React.createElement(
                     'tbody',
