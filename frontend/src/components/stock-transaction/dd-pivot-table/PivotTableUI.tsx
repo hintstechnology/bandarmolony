@@ -559,7 +559,7 @@ class PivotTableUI extends React.PureComponent<any, any> {
             <td className="pvtRenderers" style={{ zIndex: this.isOpen('renderer') ? 2001 : 1, position: 'relative' }}>
                 <Dropdown
                     current={rendererName}
-                    values={Object.keys(renderers)}
+                    values={Object.keys(renderers).filter(k => k !== 'default')}
                     open={this.isOpen('renderer')}
                     zIndex={this.state.maxZIndex + 1}
                     toggle={() =>
