@@ -22,6 +22,8 @@ export default defineConfig({
           router: ['react-router-dom'],
           ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
           charts: ['lightweight-charts', 'recharts'],
+          plotly: ['plotly.js-basic-dist-min', 'react-plotly.js'],
+          pivot: ['react-pivottable'],
           utils: ['clsx', 'tailwind-merge', 'sonner']
         }
       }

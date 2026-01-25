@@ -66,6 +66,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.14",
     "@types/node": "^22.7.5",
+    "cross-env": "^7.0.3",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@types/react-pivottable": "^0.11.6",
@@ -79,8 +80,8 @@
     "vite": "^7.0.0"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "cross-env NODE_OPTIONS=\"--max-old-space-size=4096\" vite",
+    "build": "cross-env NODE_OPTIONS=\"--max-old-space-size=4096\" vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "type-check": "tsc --noEmit",
