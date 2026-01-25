@@ -17,7 +17,7 @@ import { PublicRoute } from "./components/dashboard/PublicRoute";
 import { Sidebar } from "./components/dashboard/Sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import { User, Home, ChevronRight, TrendingUp, Activity, ArrowRightLeft, BookOpen, Star, BarChart3, CreditCard, Shield } from "lucide-react";
- 
+
 // Import all dashboard components
 import MarketRotationRRG from "./components/market-rotation/MarketRotationRRG";
 import MarketRotationRRC from "./components/market-rotation/MarketRotationRRC";
@@ -28,6 +28,7 @@ import { BrokerSummaryPage } from "./components/broker-activity/BrokerSummaryPag
 import { BrokerInventoryPage } from "./components/broker-activity/BrokerInventoryPage";
 import { StockTransactionDoneSummary } from "./components/stock-transaction/StockTransactionDoneSummary";
 import { StockTransactionDoneDetail } from "./components/stock-transaction/StockTransactionDoneDetail";
+import { StockTransactionDoneDetail2 } from "./components/stock-transaction/StockTransactionDoneDetail2";
 import { StoryAccumulationDistribution } from "./components/story/StoryAccumulationDistribution";
 import { StoryMarketParticipant } from "./components/story/StoryMarketParticipant";
 import { StoryOwnership } from "./components/story/StoryOwnership";
@@ -58,7 +59,6 @@ function DashboardLayout() {
   const { profile, isLoading, isAuthenticated, hasConnectionError } = useNavigation();
   const location = useLocation();
   const navigate = useNavigate();
-  const hasRedirected = React.useRef(false);
 
   // IMPORTANT:
   // We REMOVE all automatic redirect logic from DashboardLayout to prevent
@@ -116,12 +116,12 @@ function DashboardLayout() {
   const getCurrentRoute = () => {
     try {
       const path = (location?.pathname || '').trim();
-      
+
       // Handle exact matches first
       if (path === '/profile' || path.startsWith('/profile/')) return 'profile';
       if (path === '/subscription' || path.startsWith('/subscription/')) return 'subscription';
       if (path === '/dashboard' || path === '/dashboard/' || path === '/') return 'dashboard';
-      
+
       // Remove leading slash and return the route
       const route = path.replace(/^\/+/, '') || 'dashboard';
       return route;
@@ -160,6 +160,7 @@ function DashboardLayout() {
       children: {
         'done-summary': 'Done Summary',
         'done-detail': 'Done Detail',
+        'done-detail-2': 'Done Detail 2',
       },
     },
     'story': {
@@ -214,10 +215,10 @@ function DashboardLayout() {
   };
 
   // Render main content based on route
-  const renderMainContent = () => {
+  const renderMainContent = (sidebarOpen: boolean) => {
     // Get current route again inside render to ensure it's fresh
     const route = getCurrentRoute();
-    
+
     // Check if user has premium access for current route
     const hasAccess = hasPremiumAccess(profile);
     const needsPremium = requiresPremiumAccess(route);
@@ -266,6 +267,8 @@ function DashboardLayout() {
         return <StockTransactionDoneSummary />;
       case "stock-transaction/done-detail":
         return <StockTransactionDoneDetail />;
+      case "stock-transaction/done-detail-2":
+        return <StockTransactionDoneDetail2 sidebarOpen={sidebarOpen} />;
 
       // Story routes
       case "story":
@@ -326,7 +329,7 @@ function DashboardLayout() {
       />
 
       {/* Main Content */}
-        <div className="flex-1 flex flex-col overflow-hidden ml-0 lg:ml-16">
+      <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarOpen ? "lg:ml-64" : "lg:ml-16"}`}>
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card h-14">
           <div className="flex items-center gap-3">
@@ -340,7 +343,7 @@ function DashboardLayout() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            
+
             {/* Breadcrumb Navigation */}
             <nav className="flex items-center space-x-2 text-sm">
               {getBreadcrumbParts().map((part, idx, arr) => (
@@ -356,49 +359,49 @@ function DashboardLayout() {
               ))}
             </nav>
           </div>
-          
+
           <div className="flex items-center gap-3">
             {/* Profile Button */}
             <div className="relative">
-            <button
-              onClick={handleProfileClick}
-              className="flex items-center gap-2 hover:bg-accent hover:text-accent-foreground active:bg-accent/80 rounded-lg px-3 py-1.5 transition-all duration-200 group relative"
-              aria-label="Open profile"
-              title="View Profile"
-            >
-              <Avatar className="h-7 w-7 ring-2 ring-transparent group-hover:ring-blue-200 dark:group-hover:ring-blue-800 transition-all duration-200">
-                <AvatarImage src={profile?.avatarUrl || profile?.avatar} alt="User Avatar" />
-                <AvatarFallback className="bg-muted text-muted-foreground group-hover:bg-blue-100 dark:group-hover:bg-blue-900 transition-colors duration-200">
-                  <User className="h-4 w-4" />
-                </AvatarFallback>
-              </Avatar>
-              <div className="hidden sm:block text-left">
-                <div className="text-sm font-medium leading-none group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200">
-                  {profile?.full_name || profile?.name || 'User'}
+              <button
+                onClick={handleProfileClick}
+                className="flex items-center gap-2 hover:bg-accent hover:text-accent-foreground active:bg-accent/80 rounded-lg px-3 py-1.5 transition-all duration-200 group relative"
+                aria-label="Open profile"
+                title="View Profile"
+              >
+                <Avatar className="h-7 w-7 ring-2 ring-transparent group-hover:ring-blue-200 dark:group-hover:ring-blue-800 transition-all duration-200">
+                  <AvatarImage src={profile?.avatarUrl || profile?.avatar} alt="User Avatar" />
+                  <AvatarFallback className="bg-muted text-muted-foreground group-hover:bg-blue-100 dark:group-hover:bg-blue-900 transition-colors duration-200">
+                    <User className="h-4 w-4" />
+                  </AvatarFallback>
+                </Avatar>
+                <div className="hidden sm:block text-left">
+                  <div className="text-sm font-medium leading-none group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200">
+                    {profile?.full_name || profile?.name || 'User'}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5 group-hover:text-blue-500 dark:group-hover:text-blue-300 transition-colors duration-200">
+                    {profile?.subscriptionStatus === 'trial'
+                      ? 'Pro Plan (Trial)'
+                      : (profile?.subscriptionPlan || 'Free') + ' Plan'}
+                    {profile?.subscriptionStatus === 'trial' && profile?.subscriptionEndDate && (() => {
+                      const now = new Date();
+                      const endDate = new Date(profile.subscriptionEndDate);
+                      const daysLeft = Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                      return daysLeft >= 0 ? ` • ${daysLeft} day${daysLeft !== 1 ? 's' : ''} left` : '';
+                    })()}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5 group-hover:text-blue-500 dark:group-hover:text-blue-300 transition-colors duration-200">
-                  {profile?.subscriptionStatus === 'trial' 
-                    ? 'Pro Plan (Trial)' 
-                    : (profile?.subscriptionPlan || 'Free') + ' Plan'}
-                  {profile?.subscriptionStatus === 'trial' && profile?.subscriptionEndDate && (() => {
-                    const now = new Date();
-                    const endDate = new Date(profile.subscriptionEndDate);
-                    const daysLeft = Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                    return daysLeft >= 0 ? ` • ${daysLeft} day${daysLeft !== 1 ? 's' : ''} left` : '';
-                  })()}
-                </div>
-              </div>
-              {/* Hover indicator */}
-              <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-0 h-0.5 bg-blue-500 group-hover:w-8 transition-all duration-200"></div>
-            </button>
-            
+                {/* Hover indicator */}
+                <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-0 h-0.5 bg-blue-500 group-hover:w-8 transition-all duration-200"></div>
+              </button>
+
             </div>
           </div>
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-auto p-6 bg-[#0a0f20]">
-          {renderMainContent()}
+        <main className="flex-1 flex flex-col min-h-0 bg-[#0a0f20]">
+          {renderMainContent(sidebarOpen)}
         </main>
       </div>
     </div>
@@ -409,7 +412,7 @@ function DashboardLayout() {
 function PublicRouteWrapper() {
   const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
-  
+
   // Handle Start Free Trial - check if already authenticated
   const handleStartTrial = () => {
     if (!authLoading && isAuthenticated) {
@@ -420,7 +423,7 @@ function PublicRouteWrapper() {
       navigate('/auth?mode=register');
     }
   };
-  
+
   // Handle Sign In - check if already authenticated
   const handleSignIn = () => {
     if (!authLoading && isAuthenticated) {
@@ -431,7 +434,7 @@ function PublicRouteWrapper() {
       navigate('/auth?mode=login');
     }
   };
-  
+
   // Handle Register - check if already authenticated
   const handleRegister = () => {
     if (!authLoading && isAuthenticated) {
@@ -442,160 +445,160 @@ function PublicRouteWrapper() {
       navigate('/auth?mode=register');
     }
   };
-  
+
   return (
     <Routes>
       {/* Landing page - public route */}
-      <Route 
-        path="/" 
+      <Route
+        path="/"
         element={
-          <LandingPage 
-            onStartTrial={handleStartTrial} 
+          <LandingPage
+            onStartTrial={handleStartTrial}
             onSignIn={handleSignIn}
             onRegister={handleRegister}
           />
-        } 
+        }
       />
       <Route path="/features" element={<FeaturesPage />} />
-      <Route 
-        path="/pricing" 
+      <Route
+        path="/pricing"
         element={
-          <PricingPage 
+          <PricingPage
             onSignIn={() => navigate('/auth?mode=login')}
             onRegister={() => navigate('/auth?mode=register')}
           />
-        } 
+        }
       />
       <Route path="/contact" element={<ContactPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
-      
+
       {/* Email verification handler */}
-      <Route 
-        path="/auth/verify" 
-        element={<EmailVerificationHandler />} 
+      <Route
+        path="/auth/verify"
+        element={<EmailVerificationHandler />}
       />
-      
+
       {/* Supabase redirect handler for direct email verification */}
-      <Route 
-        path="/auth/callback" 
-        element={<SupabaseRedirectHandler />} 
+      <Route
+        path="/auth/callback"
+        element={<SupabaseRedirectHandler />}
       />
-      
+
       {/* Password reset page */}
-      <Route 
-        path="/auth/reset-password" 
-        element={<ResetPasswordPage key={window.location.search} />} 
+      <Route
+        path="/auth/reset-password"
+        element={<ResetPasswordPage key={window.location.search} />}
       />
-      
+
       {/* Public routes - redirect to dashboard if authenticated */}
-      <Route 
-        path="/auth" 
+      <Route
+        path="/auth"
         element={
           <PublicRoute children={<AuthPage />} />
-        } 
+        }
       />
-      
+
       {/* Protected routes - redirect to auth if not authenticated */}
-      <Route 
-        path="/dashboard/*" 
+      <Route
+        path="/dashboard/*"
         element={
           <ProtectedRoute children={<DashboardLayout />} />
-        } 
+        }
       />
-      
+
       {/* Profile route - handled by dashboard layout */}
-      <Route 
-        path="/profile" 
+      <Route
+        path="/profile"
         element={
           <ProtectedRoute children={<DashboardLayout />} />
-        } 
+        }
       />
-      
+
       {/* Subscription route - handled by dashboard layout */}
-      <Route 
-        path="/subscription" 
+      <Route
+        path="/subscription"
         element={
           <ProtectedRoute children={<DashboardLayout />} />
-        } 
+        }
       />
-      
+
       {/* Market Rotation routes */}
-      <Route 
-        path="/market-rotation/*" 
+      <Route
+        path="/market-rotation/*"
         element={
           <ProtectedRoute children={<DashboardLayout />} />
-        } 
+        }
       />
-      
+
       {/* Broker Activity routes */}
-      <Route 
-        path="/broker-activity/*" 
+      <Route
+        path="/broker-activity/*"
         element={
           <ProtectedRoute children={<DashboardLayout />} />
-        } 
+        }
       />
-      
+
       {/* Stock Transaction routes */}
-      <Route 
-        path="/stock-transaction/*" 
+      <Route
+        path="/stock-transaction/*"
         element={
           <ProtectedRoute children={<DashboardLayout />} />
-        } 
+        }
       />
-      
+
       {/* Story routes */}
-      <Route 
-        path="/story/*" 
+      <Route
+        path="/story/*"
         element={
           <ProtectedRoute children={<DashboardLayout />} />
-        } 
+        }
       />
-      
+
       {/* Astrology routes */}
-      <Route 
-        path="/astrology/*" 
+      <Route
+        path="/astrology/*"
         element={
           <ProtectedRoute children={<DashboardLayout />} />
-        } 
+        }
       />
-      
+
       {/* Technical Analysis route */}
-      <Route 
-        path="/technical-analysis" 
+      <Route
+        path="/technical-analysis"
         element={
           <ProtectedRoute children={<DashboardLayout />} />
-        } 
+        }
       />
-      
+
       {/* Admin route */}
-      <Route 
-        path="/admin" 
+      <Route
+        path="/admin"
         element={
           <ProtectedRoute children={<DashboardLayout />} />
-        } 
+        }
       />
-      
+
       {/* Developer route */}
-      <Route 
-        path="/developer" 
+      <Route
+        path="/developer"
         element={
           <ProtectedRoute children={<DashboardLayout />} />
-        } 
+        }
       />
-      
+
       {/* Subscription callback routes */}
-      <Route 
-        path="/subscription/success" 
-        element={<SubscriptionSuccess />} 
+      <Route
+        path="/subscription/success"
+        element={<SubscriptionSuccess />}
       />
-      <Route 
-        path="/subscription/error" 
-        element={<SubscriptionError />} 
+      <Route
+        path="/subscription/error"
+        element={<SubscriptionError />}
       />
-      <Route 
-        path="/subscription/pending" 
-        element={<SubscriptionPending />} 
+      <Route
+        path="/subscription/pending"
+        element={<SubscriptionPending />}
       />
     </Routes>
   );
@@ -617,12 +620,11 @@ export default function App() {
           </AuthProvider>
         </ConfirmationProvider>
       </ToastProvider>
-      <Toaster 
-        position="bottom-right" 
+      <Toaster
+        position="bottom-right"
         richColors
         toastOptions={{
           success: {
-            className: 'bg-green-500 text-white border-green-600',
             style: {
               background: '#22c55e',
               color: '#ffffff',

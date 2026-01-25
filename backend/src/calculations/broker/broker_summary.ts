@@ -77,19 +77,19 @@ export class BrokerSummaryCalculator {
    */
   private async findAllDtFiles(): Promise<string[]> {
     console.log("Scanning all DT files in done-summary folder...");
-    
+
     try {
       // Use shared cache for DT files list
       // Type assertion needed due to TypeScript type inference issue
       const allDtFiles = await (doneSummaryCache as any).getDtFilesList();
-      
+
       // Sort by date descending (newest first) - process from newest to oldest
       const sortedFiles = allDtFiles.sort((a: string, b: string) => {
         const dateA = a.split('/')[1] || '';
         const dateB = b.split('/')[1] || '';
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
-      
+
       // OPTIMIZATION: Limit to 7 most recent dates for faster processing
       const MAX_DATES_TO_PROCESS = 7;
       const uniqueDates = [...new Set(sortedFiles.map((f: string) => f.split('/')[1]).filter((v: string | undefined) => v !== undefined))] as string[];
@@ -98,52 +98,52 @@ export class BrokerSummaryCalculator {
         const dateFolder = f.split('/')[1] || '';
         return limitedDates.includes(dateFolder);
       });
-      
+
       if (sortedFiles.length > limitedFiles.length) {
         console.log(`📅 Limiting to ${MAX_DATES_TO_PROCESS} most recent dates (${limitedDates.join(', ')}) from ${uniqueDates.length} total dates`);
       }
-      
+
       // OPTIMIZATION: Pre-check which dates already have broker_summary output (BATCH CHECKING for speed)
       console.log("🔍 Pre-checking existing broker_summary outputs (batch checking)...");
       const filesToProcess: string[] = [];
       let skippedCount = 0;
-      
+
       // Process in batches for parallel checking (faster than sequential)
       const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
       const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
-      
+
       // Helper function untuk exists dengan retry logic
       const existsWithRetry = async (filePath: string, maxRetries = 2): Promise<boolean> => {
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
             return await exists(filePath);
           } catch (error: any) {
-            const isRetryable = 
+            const isRetryable =
               error?.code === 'PARSE_ERROR' ||
               error?.name === 'RestError' ||
               (error?.message && error.message.includes('aborted'));
-            
+
             if (!isRetryable || attempt === maxRetries) {
               return false; // Not retryable or max retries reached
             }
-            
+
             await new Promise(resolve => setTimeout(resolve, 500));
           }
         }
         return false;
       };
-      
+
       for (let i = 0; i < limitedFiles.length; i += CHECK_BATCH_SIZE) {
         const batch = limitedFiles.slice(i, i + CHECK_BATCH_SIZE);
         const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
         const totalBatches = Math.ceil(limitedFiles.length / CHECK_BATCH_SIZE);
-        
+
         // Process batch checks in parallel with concurrency limit
         const checkPromises = batch.map(async (file: string) => {
           const dateFolder = file.split('/')[1] || '';
           const dateSuffix = dateFolder;
           const keyOutputFile = `broker_summary/broker_summary_${dateSuffix}/ALLSUM-broker_summary.csv`;
-          
+
           try {
             const outputExists = await existsWithRetry(keyOutputFile);
             return { file, dateSuffix, exists: outputExists, error: null };
@@ -151,7 +151,7 @@ export class BrokerSummaryCalculator {
             return { file, dateSuffix, exists: false, error: error instanceof Error ? error.message : String(error) };
           }
         });
-        
+
         // Limit concurrency for checks
         const checkResults: { file: string; dateSuffix: string; exists: boolean; error: string | null }[] = [];
         for (let j = 0; j < checkPromises.length; j += MAX_CONCURRENT_CHECKS) {
@@ -159,7 +159,7 @@ export class BrokerSummaryCalculator {
           const results = await Promise.all(concurrentChecks);
           checkResults.push(...results);
         }
-        
+
         // Process results
         for (const result of checkResults) {
           if (result.exists) {
@@ -180,13 +180,13 @@ export class BrokerSummaryCalculator {
             filesToProcess.push(result.file);
           }
         }
-        
+
         // Progress update for large batches
         if (totalBatches > 1 && batchNumber % 5 === 0) {
           console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, limitedFiles.length)}/${limitedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
         }
       }
-      
+
       // Summary log
       if (skippedCount > 5) {
         console.log(`⏭️  ... and ${skippedCount - 5} more dates skipped`);
@@ -195,7 +195,7 @@ export class BrokerSummaryCalculator {
         console.log(`✅ ... and ${filesToProcess.length - 5} more dates need processing`);
       }
       console.log(`📊 Pre-check complete: ${filesToProcess.length} files to process, ${skippedCount} already exist`);
-      
+
       if (filesToProcess.length > 0) {
         console.log(`📋 Processing order (newest first):`);
         const dates = filesToProcess.map((f: string) => f.split('/')[1]).filter((v: string | undefined, i: number, arr: (string | undefined)[]) => v !== undefined && arr.indexOf(v) === i) as string[];
@@ -206,7 +206,7 @@ export class BrokerSummaryCalculator {
           console.log(`   ... and ${dates.length - 10} more dates`);
         }
       }
-      
+
       return filesToProcess;
     } catch (error) {
       console.error('Error scanning DT files:', error);
@@ -221,23 +221,23 @@ export class BrokerSummaryCalculator {
   private async loadAndProcessSingleDtFile(blobName: string): Promise<{ data: TransactionData[], dateSuffix: string } | null> {
     try {
       console.log(`Loading DT file: ${blobName}`);
-      
+
       // Use shared cache for raw content (will cache automatically if not exists)
       const content = await doneSummaryCache.getRawContent(blobName);
-      
+
       if (!content || content.trim().length === 0) {
         console.log(`⚠️ Empty file: ${blobName}`);
         return null;
       }
-      
+
       // Extract date from blob name (done-summary/20251021/DT251021.csv)
       const pathParts = blobName.split('/');
       const dateFolder = pathParts[1] || 'unknown'; // 20251021
       const dateSuffix = dateFolder; // Use full date as suffix
-      
+
       const data = this.parseTransactionData(content);
       console.log(`✅ Loaded ${data.length} transactions from ${blobName}`);
-      
+
       return { data, dateSuffix };
     } catch (error) {
       console.log(`📄 File not found, will create new: ${blobName}`);
@@ -248,40 +248,40 @@ export class BrokerSummaryCalculator {
   private parseTransactionData(content: string): TransactionData[] {
     const lines = content.trim().split('\n');
     const data: TransactionData[] = [];
-    
+
     if (lines.length < 2) return data;
-    
+
     // Parse header to get column indices (using semicolon separator)
     const header = lines[0]?.split(';') || [];
     console.log(`📋 CSV Header: ${header.join(', ')}`);
-    
+
     const getColumnIndex = (columnName: string): number => {
       return header.findIndex(col => col.trim() === columnName);
     };
-    
+
     const stkCodeIndex = getColumnIndex('STK_CODE');
     const brkCod1Index = getColumnIndex('BRK_COD1');
     const brkCod2Index = getColumnIndex('BRK_COD2');
     const stkVolmIndex = getColumnIndex('STK_VOLM');
     const stkPricIndex = getColumnIndex('STK_PRIC');
     const trxCodeIndex = getColumnIndex('TRX_CODE');
-    
+
     // Validate required columns exist
-    if (stkCodeIndex === -1 || brkCod1Index === -1 || brkCod2Index === -1 || 
-        stkVolmIndex === -1 || stkPricIndex === -1 || trxCodeIndex === -1) {
+    if (stkCodeIndex === -1 || brkCod1Index === -1 || brkCod2Index === -1 ||
+      stkVolmIndex === -1 || stkPricIndex === -1 || trxCodeIndex === -1) {
       console.error('❌ Required columns not found in CSV header');
       return data;
     }
-    
+
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
       if (!line || line.trim().length === 0) continue;
-      
+
       const values = line.split(';');
       if (values.length < header.length) continue;
-      
+
       const stockCode = values[stkCodeIndex]?.trim() || '';
-      
+
       // Filter hanya kode emiten 4 huruf - same as original file
       if (stockCode.length === 4) {
         const transaction: TransactionData = {
@@ -292,11 +292,11 @@ export class BrokerSummaryCalculator {
           STK_PRIC: parseFloat(values[stkPricIndex]?.trim() || '0') || 0,
           TRX_CODE: values[trxCodeIndex]?.trim() || ''
         };
-        
+
         data.push(transaction);
       }
     }
-    
+
     console.log(`📊 Loaded ${data.length} transaction records from Azure (4-character stocks only)`);
     return data;
   }
@@ -305,23 +305,23 @@ export class BrokerSummaryCalculator {
    * Create broker summary files for each emiten
    */
   private async createBrokerSummaryPerEmiten(
-    data: TransactionData[], 
+    data: TransactionData[],
     dateSuffix: string
   ): Promise<string[]> {
     console.log("\nCreating broker summary files per emiten...");
-    
+
     // Get unique emiten codes
     const uniqueEmiten = [...new Set(data.map(row => row.STK_CODE))];
     console.log(`Found ${uniqueEmiten.length} unique emiten`);
-    
+
     const createdFiles: string[] = [];
-    
+
     for (const emiten of uniqueEmiten) {
       console.log(`Processing emiten: ${emiten}`);
-      
+
       // Filter data for this emiten
       const emitenData = data.filter(row => row.STK_CODE === emiten);
-      
+
       // Group by buyer broker for this emiten
       const buyerGroups = new Map<string, TransactionData[]>();
       emitenData.forEach(row => {
@@ -331,7 +331,7 @@ export class BrokerSummaryCalculator {
         }
         buyerGroups.get(broker)!.push(row);
       });
-      
+
       // Calculate buyer summary
       const buyerSummary = new Map<string, {
         totalVol: number;
@@ -339,12 +339,12 @@ export class BrokerSummaryCalculator {
         transactionCount: number;
         totalValue: number;
       }>();
-      
+
       buyerGroups.forEach((transactions, broker) => {
         const totalVol = transactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
         const totalValue = transactions.reduce((sum, t) => sum + (t.STK_VOLM * t.STK_PRIC), 0);
         const avgPrice = totalVol > 0 ? totalValue / totalVol : 0;
-        
+
         buyerSummary.set(broker, {
           totalVol,
           avgPrice,
@@ -352,7 +352,7 @@ export class BrokerSummaryCalculator {
           totalValue
         });
       });
-      
+
       // Group by seller broker for this emiten
       const sellerGroups = new Map<string, TransactionData[]>();
       emitenData.forEach(row => {
@@ -362,7 +362,7 @@ export class BrokerSummaryCalculator {
         }
         sellerGroups.get(broker)!.push(row);
       });
-      
+
       // Calculate seller summary
       const sellerSummary = new Map<string, {
         totalVol: number;
@@ -370,12 +370,12 @@ export class BrokerSummaryCalculator {
         transactionCount: number;
         totalValue: number;
       }>();
-      
+
       sellerGroups.forEach((transactions, broker) => {
         const totalVol = transactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
         const totalValue = transactions.reduce((sum, t) => sum + (t.STK_VOLM * t.STK_PRIC), 0);
         const avgPrice = totalVol > 0 ? totalValue / totalVol : 0;
-        
+
         sellerSummary.set(broker, {
           totalVol,
           avgPrice,
@@ -383,15 +383,15 @@ export class BrokerSummaryCalculator {
           totalValue
         });
       });
-      
+
       // Create final summary
       const finalSummary: BrokerSummary[] = [];
       const allBrokers = new Set([...buyerSummary.keys(), ...sellerSummary.keys()]);
-      
+
       allBrokers.forEach(broker => {
         const buyer = buyerSummary.get(broker) || { totalVol: 0, avgPrice: 0, transactionCount: 0, totalValue: 0 };
         const seller = sellerSummary.get(broker) || { totalVol: 0, avgPrice: 0, transactionCount: 0, totalValue: 0 };
-        
+
         // Calculate net values (before SWAPPED)
         const rawNetBuyVol = buyer.totalVol - seller.totalVol;
         const rawNetBuyValue = buyer.totalValue - seller.totalValue;
@@ -399,7 +399,7 @@ export class BrokerSummaryCalculator {
         let netBuyValue = 0;
         let netSellVol = 0;
         let netSellValue = 0;
-        
+
         // If NetBuy is negative, it becomes NetSell (and NetBuy is set to 0)
         // If NetBuy is positive, NetSell is 0 (and NetBuy keeps the value)
         if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
@@ -415,11 +415,11 @@ export class BrokerSummaryCalculator {
           netSellVol = 0;
           netSellValue = 0;
         }
-        
+
         // Calculate averages
         const netBuyerAvg = netBuyVol > 0 ? netBuyValue / netBuyVol : 0;
         const netSellerAvg = netSellVol > 0 ? netSellValue / netSellVol : 0;
-        
+
         // SWAPPED: Kolom Buyer isinya data Seller, kolom Seller isinya data Buyer
         // Ini agar frontend tidak perlu swap lagi (sesuai dengan CSV yang kolomnya tertukar)
         finalSummary.push({
@@ -438,18 +438,18 @@ export class BrokerSummaryCalculator {
           NetSellerAvg: netSellerAvg
         });
       });
-      
+
       // Sort by net buy value descending
       finalSummary.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
-      
+
       // Save to Azure
       const filename = `broker_summary/broker_summary_${dateSuffix}/${emiten}.csv`;
       await this.saveToAzure(filename, finalSummary);
       createdFiles.push(filename);
-      
+
       console.log(`Created ${filename} with ${finalSummary.length} brokers`);
     }
-    
+
     console.log(`Created ${createdFiles.length} broker summary files`);
     return createdFiles;
   }
@@ -459,7 +459,7 @@ export class BrokerSummaryCalculator {
    */
   private createDetailedBrokerSummary(data: TransactionData[]): DetailedBrokerSummary[] {
     console.log("\nCreating detailed broker summary...");
-    
+
     // Calculate buyer data
     const buyerGroups = new Map<string, TransactionData[]>();
     data.forEach(row => {
@@ -469,19 +469,19 @@ export class BrokerSummaryCalculator {
       }
       buyerGroups.get(broker)!.push(row);
     });
-    
+
     const buyerData = new Map<string, {
       vol: number;
       freq: number;
       value: number;
       avg: number;
     }>();
-    
+
     buyerGroups.forEach((transactions, broker) => {
       const vol = transactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
       const value = transactions.reduce((sum, t) => sum + (t.STK_VOLM * t.STK_PRIC), 0);
       const avg = vol > 0 ? value / vol : 0;
-      
+
       buyerData.set(broker, {
         vol,
         freq: transactions.length,
@@ -489,7 +489,7 @@ export class BrokerSummaryCalculator {
         avg
       });
     });
-    
+
     // Calculate seller data
     const sellerGroups = new Map<string, TransactionData[]>();
     data.forEach(row => {
@@ -499,19 +499,19 @@ export class BrokerSummaryCalculator {
       }
       sellerGroups.get(broker)!.push(row);
     });
-    
+
     const sellerData = new Map<string, {
       vol: number;
       freq: number;
       value: number;
       avg: number;
     }>();
-    
+
     sellerGroups.forEach((transactions, broker) => {
       const vol = transactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
       const value = transactions.reduce((sum, t) => sum + (t.STK_VOLM * t.STK_PRIC), 0);
       const avg = vol > 0 ? value / vol : 0;
-      
+
       sellerData.set(broker, {
         vol,
         freq: transactions.length,
@@ -519,15 +519,15 @@ export class BrokerSummaryCalculator {
         avg
       });
     });
-    
+
     // Merge buyer and seller data
     const allBrokers = new Set([...buyerData.keys(), ...sellerData.keys()]);
     const detailedSummary: DetailedBrokerSummary[] = [];
-    
+
     allBrokers.forEach(broker => {
       const buyer = buyerData.get(broker) || { vol: 0, freq: 0, value: 0, avg: 0 };
       const seller = sellerData.get(broker) || { vol: 0, freq: 0, value: 0, avg: 0 };
-      
+
       // SWAPPED: Kolom Buyer isinya data Seller, kolom Seller isinya data Buyer
       // Ini agar frontend tidak perlu swap lagi (sesuai dengan CSV yang kolomnya tertukar)
       detailedSummary.push({
@@ -544,10 +544,10 @@ export class BrokerSummaryCalculator {
         NetBuyValue: buyer.value - seller.value
       });
     });
-    
+
     // Sort by net buy value descending
     detailedSummary.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
-    
+
     console.log(`Detailed broker summary created with ${detailedSummary.length} brokers`);
     return detailedSummary;
   }
@@ -560,14 +560,14 @@ export class BrokerSummaryCalculator {
       console.log(`No data to save for ${filename}`);
       return filename;
     }
-    
+
     // Convert to CSV format
     const headers = Object.keys(data[0]);
     const csvContent = [
       headers.join(','),
       ...data.map(row => headers.map(header => row[header]).join(','))
     ].join('\n');
-    
+
     await uploadText(filename, csvContent, 'text/csv');
     console.log(`Saved ${data.length} records to ${filename}`);
     return filename;
@@ -581,10 +581,10 @@ export class BrokerSummaryCalculator {
     const pathParts = blobName.split('/');
     const dateFolder = pathParts[1] || 'unknown'; // 20251021
     const dateSuffix = dateFolder;
-    
+
     // Note: Pre-checking is done in findAllDtFiles() before batch processing
     // This function only processes files that are confirmed to need processing
-    
+
     // CRITICAL: Pastikan active date sudah di-set SEBELUM load file
     // Active date sudah di-set di generateBrokerSummaryData() SETELAH pre-check
     // Tapi kita perlu memastikan date ini active sebelum load
@@ -593,37 +593,37 @@ export class BrokerSummaryCalculator {
       doneSummaryCache.addActiveProcessingDate(dateSuffix);
       console.log(`📅 Added active processing date ${dateSuffix} before loading file`);
     }
-    
+
     // Load input and process
     const result = await this.loadAndProcessSingleDtFile(blobName);
-    
+
     if (!result) {
       return { success: false, dateSuffix, files: [] };
     }
-    
+
     const { data } = result;
-    
+
     if (data.length === 0) {
       console.log(`⚠️ No transaction data in ${blobName} - skipping`);
       return { success: false, dateSuffix, files: [] };
     }
-    
+
     console.log(`🔄 Processing ${blobName} (${data.length} transactions)...`);
-    
+
     try {
       // Track timing
       const timing = {
         brokerSummary: 0,
         allsum: 0
       };
-      
+
       // Count unique brokers processed in this DT file
       const uniqueBrokers = new Set([
         ...data.map(row => row.BRK_COD1),
         ...data.map(row => row.BRK_COD2)
       ]);
       const brokerCount = uniqueBrokers.size;
-      
+
       // Create broker summary per emiten and detailed summary in parallel
       const startTime = Date.now();
       const [brokerSummaryFiles, detailedSummary] = await Promise.all([
@@ -631,27 +631,27 @@ export class BrokerSummaryCalculator {
         Promise.resolve(this.createDetailedBrokerSummary(data))
       ]);
       timing.brokerSummary = Math.round((Date.now() - startTime) / 1000);
-      
+
       // Save ALLSUM file
       const allsumStartTime = Date.now();
       await this.saveToAzure(`broker_summary/broker_summary_${dateSuffix}/ALLSUM-broker_summary.csv`, detailedSummary);
       timing.allsum = Math.round((Date.now() - allsumStartTime) / 1000);
-      
+
       const allFiles = [
         ...brokerSummaryFiles,
         `broker_summary/broker_summary_${dateSuffix}/ALLSUM-broker_summary.csv`
       ];
-      
+
       console.log(`✅ Completed processing ${blobName} - ${allFiles.length} files created, ${brokerCount} brokers processed`);
-      
+
       // Update progress tracker
       if (progressTracker) {
         progressTracker.processedBrokers += brokerCount;
         await progressTracker.updateProgress();
       }
-      
+
       return { success: true, dateSuffix, files: allFiles, timing, brokerCount };
-      
+
     } catch (error) {
       console.error(`Error processing ${blobName}:`, error);
       return { success: false, dateSuffix, files: [] };
@@ -665,13 +665,13 @@ export class BrokerSummaryCalculator {
   public async generateBrokerSummaryData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     const startTime = Date.now();
     let datesToProcess: Set<string> = new Set();
-    
+
     try {
       console.log(`Starting broker summary analysis for all DT files...`);
-      
+
       // Find all DT files
       const dtFiles = await this.findAllDtFiles();
-      
+
       if (dtFiles.length === 0) {
         console.log(`⚠️ No DT files found in done-summary folder`);
         return {
@@ -680,9 +680,9 @@ export class BrokerSummaryCalculator {
           data: { skipped: true, reason: 'No DT files found' }
         };
       }
-      
+
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
-      
+
       // CRITICAL: JANGAN PRE-COUNT - tidak boleh load input sebelum cek existing
       // Set active processing dates untuk file yang sudah di-filter (yang benar-benar perlu diproses)
       // Extract unique dates from dtFiles
@@ -692,13 +692,13 @@ export class BrokerSummaryCalculator {
           datesToProcess.add(dateMatch[1]);
         }
       });
-      
+
       // Set active dates di cache untuk file yang akan diproses
       datesToProcess.forEach(date => {
         doneSummaryCache.addActiveProcessingDate(date);
       });
       console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
-      
+
       // Create progress tracker based on files processed (not brokers)
       const progressTracker: ProgressTracker = {
         totalBrokers: 0, // No pre-count
@@ -713,19 +713,19 @@ export class BrokerSummaryCalculator {
           }
         }
       };
-      
+
       // Process files in batches (Phase 4: 6 files at a time)
       const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 6 files
       const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 3 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[]; timing?: any; brokerCount?: number }[] = [];
       let processed = 0;
       let successful = 0;
-      
+
       for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
-        
+
         // Update progress before batch (showing DT file progress)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
@@ -733,16 +733,16 @@ export class BrokerSummaryCalculator {
             current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates)`
           });
         }
-        
+
         // Process batch in parallel with concurrency limit, pass progress tracker
         const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName, progressTracker));
         const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
-        
+
         // Force garbage collection after each batch
         if (global.gc) {
           global.gc();
         }
-        
+
         // Collect results
         batchResults.forEach((result) => {
           if (result && result.success !== undefined) {
@@ -753,10 +753,10 @@ export class BrokerSummaryCalculator {
             }
           }
         });
-        
+
         const batchBrokerCount = batchResults.reduce((sum, r) => sum + (r?.brokerCount || 0), 0);
         console.log(`📊 Batch complete: ${successful}/${processed} successful, ${batchBrokerCount} brokers processed`);
-        
+
         // Update progress after batch (based on files processed)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
@@ -764,25 +764,25 @@ export class BrokerSummaryCalculator {
             current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates)`
           });
         }
-        
+
         // Small delay between batches
         if (i + BATCH_SIZE < dtFiles.length) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
-      
+
       const totalFiles = allResults.reduce((sum, result) => sum + result.files.length, 0);
       const totalDuration = Math.round((Date.now() - startTime) / 1000);
-      
+
       // Calculate breakdown of output files by type and aggregate timing
       let brokerSummaryFiles = 0;
       let allsumFiles = 0;
-      
+
       const totalTiming = {
         brokerSummary: 0,
         allsum: 0
       };
-      
+
       allResults.forEach(result => {
         if (result.success) {
           result.files.forEach(file => {
@@ -792,7 +792,7 @@ export class BrokerSummaryCalculator {
               allsumFiles++;
             }
           });
-          
+
           // Aggregate timing if available
           if (result.timing) {
             totalTiming.brokerSummary += result.timing.brokerSummary || 0;
@@ -800,7 +800,7 @@ export class BrokerSummaryCalculator {
           }
         }
       });
-      
+
       console.log(`✅ Broker summary analysis completed!`);
       console.log(`📊 Processed: ${processed}/${dtFiles.length} DT files`);
       console.log(`📊 Successful: ${successful}/${processed} files`);
@@ -810,7 +810,7 @@ export class BrokerSummaryCalculator {
       console.log(`   📋 ALLSUM files: ${allsumFiles} (${totalTiming.allsum}s)`);
       console.log(`✅ Broker Summary calculation completed successfully`);
       console.log(`✅ Broker Summary completed in ${totalDuration}s`);
-      
+
       return {
         success: true,
         message: `Broker summary generated successfully for ${successful}/${processed} DT files`,
@@ -828,7 +828,7 @@ export class BrokerSummaryCalculator {
           results: allResults.filter(r => r.success)
         }
       };
-      
+
     } catch (error) {
       console.error('Error generating broker summary:', error);
       return {
