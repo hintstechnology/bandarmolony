@@ -88,7 +88,7 @@ const formatNumberWithAbbreviation = (num: number | null): string => {
   if (num === null || num === 0) return '-';
   const absNum = Math.abs(num);
   const sign = num < 0 ? '-' : '';
-  
+
   if (absNum >= 1e9) {
     return sign + (absNum / 1e9).toFixed(1) + 'B';
   } else if (absNum >= 1e6) {
@@ -154,8 +154,7 @@ export function StoryAccumulationDistribution() {
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
-  const controlMenuRef = useRef<HTMLDivElement>(null);
-  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
+
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
 
@@ -165,32 +164,32 @@ export function StoryAccumulationDistribution() {
       try {
         setLoading(true);
         setError(null);
-        
+
         // Get available dates first
         const datesResponse = await api.getAccumulationDistributionDates();
         if (!datesResponse.success || !datesResponse.data?.dates || datesResponse.data.dates.length === 0) {
           throw new Error('No accumulation distribution data available');
         }
-        
+
         // Get the latest date (most recent CSV file)
         const latestDate = datesResponse.data.dates.sort().pop();
         if (!latestDate) {
           throw new Error('No valid dates found');
         }
-        
+
         // Set last update from filename
         setLastUpdate(latestDate || '');
-        
+
         // Get data for the latest date
         const dataResponse = await api.getAccumulationDistributionData(latestDate);
         if (!dataResponse.success || !dataResponse.data) {
           throw new Error('Failed to load accumulation distribution data');
         }
-        
+
         // Convert backend data to frontend format
         const convertedData = convertBackendToFrontend(dataResponse.data.accumulationData || []);
         setData(convertedData);
-        
+
       } catch (err: any) {
         console.error('Error loading accumulation distribution data:', err);
         setError(err.message || 'Failed to load data');
@@ -217,61 +216,37 @@ export function StoryAccumulationDistribution() {
     };
   }, []);
 
-  // Update spacer height for fixed control menu
-  useEffect(() => {
-    const updateSpacerHeight = () => {
-      if (controlMenuRef.current) {
-        const height = controlMenuRef.current.offsetHeight;
-        setControlSpacerHeight(Math.max(height + 16, 48));
-      }
-    };
 
-    updateSpacerHeight();
-    window.addEventListener('resize', updateSpacerHeight);
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined' && controlMenuRef.current) {
-      resizeObserver = new ResizeObserver(() => updateSpacerHeight());
-      resizeObserver.observe(controlMenuRef.current);
-    }
-
-    return () => {
-      window.removeEventListener('resize', updateSpacerHeight);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-    };
-  }, [normalize, movingAverage, volumeChange, selectedTickers, tickerInput]);
 
   const dates = data.length > 0 ? Object.keys(data[0]?.dates || {}) : [];
-  
+
   // Get all volume change columns
   const volumeColumns = ['vol1d', 'vol3d', 'vol5d', 'vol10d', 'vol20d', 'vol50d', 'vol100d'];
-  
+
   // Get all MA indicator columns
   const maColumns = ['ma5', 'ma10', 'ma20', 'ma50', 'ma100', 'ma200'];
-  
+
   // Format volume change column names
   const getVolumeColumnName = (volKey: string) => {
     return volKey.replace('vol', 'V%');
   };
-  
+
   // Format MA column names
   const getMAColumnName = (maKey: string) => {
     return `>${maKey}`;
   };
-  
+
   // Get unique tickers for filter dropdown
   const allTickers = [...new Set(data.map(item => item.symbol))].sort();
   const filteredTickers = (tickerInput
     ? allTickers.filter(ticker => ticker.toLowerCase().includes(tickerInput.toLowerCase()))
     : []).slice(0, 10);
-  
+
   // Filter data based on ticker selection
   const filteredData = selectedTickers.length === 0
-    ? data 
+    ? data
     : data.filter(item => selectedTickers.includes(item.symbol));
-  
+
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -279,13 +254,13 @@ export function StoryAccumulationDistribution() {
     }
     setSortConfig({ key, direction });
   };
-  
+
   const sortedData = [...filteredData].sort((a, b) => {
     if (!sortConfig) return 0;
-    
+
     let aValue: any;
     let bValue: any;
-    
+
     switch (sortConfig.key) {
       case 'symbol':
         aValue = a.symbol;
@@ -318,7 +293,7 @@ export function StoryAccumulationDistribution() {
         }
         break;
     }
-    
+
     if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
     if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
     return 0;
@@ -402,8 +377,8 @@ export function StoryAccumulationDistribution() {
   return (
     <div className="space-y-6">
       {/* Top Control Bar */}
-      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
-        <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:sticky lg:top-0 lg:z-40">
+        <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label htmlFor="tickerFilter" className="text-sm font-medium whitespace-nowrap">
               Ticker:
@@ -506,7 +481,7 @@ export function StoryAccumulationDistribution() {
               )}
             </div>
           </div>
-          
+
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Options:</label>
             <div className="flex flex-wrap items-center gap-3">
@@ -520,7 +495,7 @@ export function StoryAccumulationDistribution() {
                 />
                 <label htmlFor="normalize" className="text-sm font-medium">Normalize</label>
               </div>
-              
+
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -531,7 +506,7 @@ export function StoryAccumulationDistribution() {
                 />
                 <label htmlFor="movingAverage" className="text-sm font-medium">Moving Average</label>
               </div>
-              
+
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -542,14 +517,14 @@ export function StoryAccumulationDistribution() {
                 />
                 <label htmlFor="volumeChange" className="text-sm font-medium">Volume Change</label>
               </div>
-              
+
               <Button onClick={resetSettings} variant="outline" size="sm" className="flex items-center gap-2 h-8">
                 <Undo2 className="w-4 h-4 rotate-180" />
                 Reset
               </Button>
             </div>
           </div>
-          
+
           {lastUpdate && (
             <div className="text-right w-full md:w-auto md:ml-auto">
               <p className="text-sm text-muted-foreground">
@@ -559,8 +534,7 @@ export function StoryAccumulationDistribution() {
           )}
         </div>
       </div>
-      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-      <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
+
 
       {/* Market Maker Analysis Summary Table */}
       <Card className="p-0 bg-card">
@@ -569,7 +543,7 @@ export function StoryAccumulationDistribution() {
             {/* Header */}
             <div className="bg-muted border-b border-border sticky top-0 z-20">
               <div className="flex w-full">
-                <div 
+                <div
                   className="flex-1 p-1 border-r border-border font-medium text-xs bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[60px]"
                   onClick={() => handleSort('symbol')}
                 >
@@ -577,14 +551,13 @@ export function StoryAccumulationDistribution() {
                   <div className="ml-0.5 flex flex-col">
                     <span className={`text-[8px] ${sortConfig?.key === 'symbol' && sortConfig.direction === 'asc' ? 'text-primary' : 'text-muted-foreground'}`}>↑</span>
                     <span className={`text-[8px] ${sortConfig?.key === 'symbol' && sortConfig.direction === 'desc' ? 'text-primary' : 'text-muted-foreground'}`}>↓</span>
-                </div>
+                  </div>
                 </div>
                 {dates.map((date) => (
-                  <div 
-                    key={date} 
-                    className={`flex-1 p-1 border-r border-border font-medium text-xs text-center bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[50px] ${
-                      date.startsWith('W-') ? 'bg-blue-500/10 dark:bg-blue-500/20' : ''
-                    }`}
+                  <div
+                    key={date}
+                    className={`flex-1 p-1 border-r border-border font-medium text-xs text-center bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[50px] ${date.startsWith('W-') ? 'bg-blue-500/10 dark:bg-blue-500/20' : ''
+                      }`}
                     onClick={() => handleSort(date)}
                   >
                     <span>{date}</span>
@@ -594,7 +567,7 @@ export function StoryAccumulationDistribution() {
                     </div>
                   </div>
                 ))}
-                <div 
+                <div
                   className="flex-1 p-1 border-r border-border font-medium text-xs text-center bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[50px]"
                   onClick={() => handleSort('percent1d')}
                 >
@@ -605,7 +578,7 @@ export function StoryAccumulationDistribution() {
                   </div>
                 </div>
                 {volumeChange && volumeColumns.map((volKey) => (
-                  <div 
+                  <div
                     key={volKey}
                     className="flex-1 p-1 border-r border-border font-medium text-xs text-center bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[50px]"
                     onClick={() => handleSort(volKey)}
@@ -618,14 +591,14 @@ export function StoryAccumulationDistribution() {
                   </div>
                 ))}
                 {movingAverage && maColumns.map((maKey) => (
-                  <div 
+                  <div
                     key={maKey}
                     className="flex-1 p-1 border-r border-border font-medium text-xs text-center bg-muted flex items-center justify-center min-w-[50px]"
                   >
                     <span>{getMAColumnName(maKey)}</span>
                   </div>
                 ))}
-                <div 
+                <div
                   className="flex-1 p-1 border-r border-border font-medium text-xs text-center bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[60px]"
                   onClick={() => handleSort('price')}
                 >
@@ -635,7 +608,7 @@ export function StoryAccumulationDistribution() {
                     <span className={`text-[8px] ${sortConfig?.key === 'price' && sortConfig.direction === 'desc' ? 'text-primary' : 'text-muted-foreground'}`}>↓</span>
                   </div>
                 </div>
-                <div 
+                <div
                   className="flex-1 p-1 font-medium text-xs text-center bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[60px]"
                   onClick={() => handleSort('volume')}
                 >
@@ -649,46 +622,44 @@ export function StoryAccumulationDistribution() {
             </div>
 
             {/* Data Rows */}
-              {paginatedData.map((row) => {
-                return (
-                <div key={row.symbol} className={`flex w-full border-b border-border hover:bg-muted/20 ${
-                  row.suspend ? 'bg-red-500/10 dark:bg-red-500/20' : ''
-                }`}>
+            {paginatedData.map((row) => {
+              return (
+                <div key={row.symbol} className={`flex w-full border-b border-border hover:bg-muted/20 ${row.suspend ? 'bg-red-500/10 dark:bg-red-500/20' : ''
+                  }`}>
                   <div className="flex-1 p-1 border-r border-border font-medium text-xs bg-card flex items-center justify-center min-w-[60px]">
                     <span>{row.symbol}</span>
-                    </div>
-                    {dates.map((date) => {
+                  </div>
+                  {dates.map((date) => {
                     let displayValue: number | null = row.dates[date] ?? null;
-                    
+
                     // Use moving average if enabled
                     if (movingAverage) {
                       displayValue = row.movingAverage[date] ?? null;
                     }
-                    
+
                     // Normalize if enabled
                     if (normalize && displayValue !== null) {
                       displayValue = normalizeValue(displayValue, minValue, maxValue);
                     }
-                    
-                      return (
-                        <div 
-                          key={`${row.symbol}-${date}`}
-                        className={`flex-1 p-1 border-r border-border text-center text-xs min-w-[50px] ${
-                          normalize ? getNormalizedColor(displayValue) : ''
-                        } ${getTextColor(displayValue)}`}
+
+                    return (
+                      <div
+                        key={`${row.symbol}-${date}`}
+                        className={`flex-1 p-1 border-r border-border text-center text-xs min-w-[50px] ${normalize ? getNormalizedColor(displayValue) : ''
+                          } ${getTextColor(displayValue)}`}
                       >
-                        {normalize 
+                        {normalize
                           ? (displayValue !== null ? displayValue.toFixed(1) : '-')
                           : formatNumberWithAbbreviation(displayValue)
                         }
-                        </div>
-                      );
-                    })}
+                      </div>
+                    );
+                  })}
                   <div className={`flex-1 p-1 border-r border-border text-center text-xs min-w-[50px] ${getPercent1dColor(row.percent1d)}`}>
                     {row.percent1d >= 0 ? '+' : ''}{row.percent1d.toFixed(1)}%
                   </div>
                   {volumeChange && volumeColumns.map((volKey) => (
-                    <div 
+                    <div
                       key={volKey}
                       className={`flex-1 p-1 border-r border-border text-center text-xs min-w-[50px] ${getTextColor(row.volumeChanges[volKey as keyof typeof row.volumeChanges])}`}
                     >
@@ -699,12 +670,12 @@ export function StoryAccumulationDistribution() {
                     const maValue = row.maIndicators[maKey as keyof typeof row.maIndicators];
                     const formatted = formatMovingAverage(maValue);
                     return (
-                    <div 
-                      key={maKey}
+                      <div
+                        key={maKey}
                         className={`flex-1 p-1 border-r border-border text-center text-xs font-bold min-w-[50px] ${formatted.color}`}
-                    >
+                      >
                         {formatted.symbol}
-                    </div>
+                      </div>
                     );
                   })}
                   <div className="flex-1 p-1 border-r border-border text-center text-xs bg-card min-w-[60px]">
@@ -712,78 +683,78 @@ export function StoryAccumulationDistribution() {
                   </div>
                   <div className="flex-1 p-1 text-center text-xs bg-card min-w-[60px]">
                     {formatPrice(row.volume)}
-                    </div>
                   </div>
-                );
-              })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Pagination Controls */}
+        {sortedData.length > 0 && (
+          <div className="border-t border-border bg-muted/30 px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Items per page:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="px-2 py-1 text-sm border border-border rounded-md bg-background text-foreground"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+                <option value={500}>500</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                Showing {startIndex + 1} - {Math.min(endIndex, sortedData.length)} of {sortedData.length}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="p-2 border border-border rounded-md bg-background text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+                aria-label="First page"
+              >
+                <ChevronFirst className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="p-2 border border-border rounded-md bg-background text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+                aria-label="Previous page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-sm text-foreground px-2">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className="p-2 border border-border rounded-md bg-background text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+                aria-label="Next page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                className="p-2 border border-border rounded-md bg-background text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+                aria-label="Last page"
+              >
+                <ChevronLast className="w-4 h-4" />
+              </button>
             </div>
           </div>
-
-          {/* Pagination Controls */}
-          {sortedData.length > 0 && (
-            <div className="border-t border-border bg-muted/30 px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Items per page:</span>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="px-2 py-1 text-sm border border-border rounded-md bg-background text-foreground"
-                >
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={200}>200</option>
-                  <option value={500}>500</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">
-                  Showing {startIndex + 1} - {Math.min(endIndex, sortedData.length)} of {sortedData.length}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setCurrentPage(1)}
-                  disabled={currentPage === 1}
-                  className="p-2 border border-border rounded-md bg-background text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
-                  aria-label="First page"
-                >
-                  <ChevronFirst className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
-                  className="p-2 border border-border rounded-md bg-background text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
-                  aria-label="Previous page"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className="text-sm text-foreground px-2">
-                  Page {currentPage} of {totalPages}
-                </span>
-                <button
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage === totalPages}
-                  className="p-2 border border-border rounded-md bg-background text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
-                  aria-label="Next page"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={currentPage === totalPages}
-                  className="p-2 border border-border rounded-md bg-background text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
-                  aria-label="Last page"
-                >
-                  <ChevronLast className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          )}
-        </Card>
+        )}
+      </Card>
     </div>
   );
 }

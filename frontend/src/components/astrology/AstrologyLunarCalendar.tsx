@@ -419,7 +419,7 @@ export function AstrologyLunarCalendar() {
   const [stockDataCache, setStockDataCache] = useState<Map<string, AstrologyData[]>>(new Map());
   const stockSearchRef = useRef<HTMLDivElement>(null);
   const menuContainerRef = useRef<HTMLDivElement>(null);
-  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
+
 
   // Load available stocks from stockList.ts
   useEffect(() => {
@@ -478,42 +478,7 @@ export function AstrologyLunarCalendar() {
     };
   }, []);
 
-  // Monitor menu height to detect if it wraps to 2 rows
-  useEffect(() => {
-    const checkMenuHeight = () => {
-      if (menuContainerRef.current) {
-        const menuHeight = menuContainerRef.current.offsetHeight;
-        // If menu height is more than ~50px, it's likely 2 rows (single row is usually ~40-45px)
-        setIsMenuTwoRows(menuHeight > 50);
-      }
-    };
 
-    // Check initially
-    checkMenuHeight();
-
-    // Check on window resize
-    window.addEventListener('resize', checkMenuHeight);
-
-    // Use ResizeObserver for more accurate detection
-    let resizeObserver: ResizeObserver | null = null;
-    if (menuContainerRef.current) {
-      resizeObserver = new ResizeObserver(() => {
-        checkMenuHeight();
-      });
-      resizeObserver.observe(menuContainerRef.current);
-    }
-
-    // Also check when filters change (affects menu height)
-    const timeoutId = setTimeout(checkMenuHeight, 100);
-
-    return () => {
-      window.removeEventListener('resize', checkMenuHeight);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-      clearTimeout(timeoutId);
-    };
-  }, [selectedStock, priceFilter, spikeFilter, showPivot]);
 
   // When ALL is selected, show combined data from all stocks
   // When specific stock is selected, show data for that stock only
@@ -662,7 +627,7 @@ export function AstrologyLunarCalendar() {
       <div className="h-full flex flex-col w-full">
         {/* Top Controls - Compact without Card */}
         {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
-        <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+        <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:sticky lg:top-0 lg:z-40">
           <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
             {/* Stock Selection */}
             <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
@@ -814,8 +779,7 @@ export function AstrologyLunarCalendar() {
           </div>
         </div>
 
-        {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-        <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+
 
         <div className="flex-1 min-h-0 overflow-y-auto space-y-6 py-4 sm:py-6 px-4 sm:px-6">
           {/* Main Astrology Table */}

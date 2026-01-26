@@ -39,8 +39,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
   // Control menu ref and spacer height for fixed positioning
-  const controlMenuRef = useRef<HTMLDivElement>(null);
-  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
+
 
   // Constants for search display
   const MAX_DISPLAYED = 10;
@@ -162,31 +161,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Update spacer height for fixed control menu
-  useEffect(() => {
-    const updateSpacerHeight = () => {
-      if (controlMenuRef.current) {
-        const height = controlMenuRef.current.offsetHeight;
-        setControlSpacerHeight(Math.max(height + 16, 48));
-      }
-    };
 
-    updateSpacerHeight();
-    window.addEventListener('resize', updateSpacerHeight);
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined' && controlMenuRef.current) {
-      resizeObserver = new ResizeObserver(() => updateSpacerHeight());
-      resizeObserver.observe(controlMenuRef.current);
-    }
-
-    return () => {
-      window.removeEventListener('resize', updateSpacerHeight);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-    };
-  }, [stockInput, selectedView]);
 
   // Process real shareholders data for pie chart - memoized to prevent infinite loops
   const ownershipData = useMemo(() => {
@@ -345,8 +320,8 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
   return (
     <div className="space-y-6">
       {/* Header Controls */}
-      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
-        <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:sticky lg:top-0 lg:z-40">
+        <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
           <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium whitespace-nowrap">
@@ -446,7 +421,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
           </div>
         </div>
       </div>
-      <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
+
 
       {/* Loading State */}
       {loading && (

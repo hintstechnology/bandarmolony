@@ -348,7 +348,7 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
   return (
     <div className="w-full h-full flex flex-col bg-[#0a0f20]">
       {/* Top Controls - Compact Horizontal Ribbon */}
-      <div className={`bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:fixed lg:top-14 ${sidebarOpen ? "lg:left-64" : "lg:left-16"} lg:right-0 z-40 transition-all duration-300`}>
+      <div className={`bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:sticky lg:top-0 z-40 transition-all duration-300`}>
         <div className="flex flex-row flex-wrap items-center gap-x-6 gap-y-1">
 
           {/* Ticker Selection */}
@@ -486,8 +486,7 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
         </div>
       </div>
 
-      {/* Spacer for fixed header */}
-      <div className="h-0 lg:h-[45px]"></div>
+
 
       {/* Main Content: Pivot Table */}
       <div className="flex-1 min-h-0 overflow-auto dark-pivot-theme">

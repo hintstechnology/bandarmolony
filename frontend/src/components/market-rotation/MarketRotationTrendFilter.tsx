@@ -45,8 +45,9 @@ export function MarketRotationTrendFilter() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const menuContainerRef = useRef<HTMLDivElement>(null);
-  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
-  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState(false);
+  const [controlSpacerHeight, setControlSpacerHeight] = useState(38);
+
 
   const itemsPerPage = 15;
 
@@ -55,16 +56,16 @@ export function MarketRotationTrendFilter() {
     let mounted = true;
     (async () => {
       console.log('🔄 TREND: Loading trend data for timeframe:', selectedTimeframe);
-      
+
       try {
         setLoading(true);
         setError(null);
-        
+
         const response = await api.getTrendFilterData(selectedTimeframe);
-        
+
         if (response.success && response.data) {
           console.log('✅ TREND: Data loaded:', response.data);
-          
+
           // Parse summary data - will be calculated from actual loaded data
 
           // Parse stocks data
@@ -73,7 +74,7 @@ export function MarketRotationTrendFilter() {
           const sideways: TrendStock[] = [];
           const downtrend: TrendStock[] = [];
           const sectorsSet = new Set<string>();
-          
+
           stocks.forEach((stock: any) => {
             const trendStock: TrendStock = {
               Symbol: stock.Symbol || '',
@@ -85,13 +86,13 @@ export function MarketRotationTrendFilter() {
               Period: stock.Period || selectedTimeframe
             };
             sectorsSet.add(trendStock.Sector);
-            
+
             const trendLower = trendStock.Trend?.toLowerCase().trim() || '';
             const changePct = trendStock.ChangePct;
-            
+
             // Debug logging for each stock
             console.log(`🔍 Stock Debug: ${trendStock.Symbol} - trend="${trendLower}", changePct=${changePct}%`);
-            
+
             // Derive trend from changePct (sum over period) to guard against bad backend labels
             const derivedLower = changePct > 1 ? 'uptrend' : changePct < -1 ? 'downtrend' : 'sideways';
             if (trendLower !== derivedLower) {
@@ -106,42 +107,42 @@ export function MarketRotationTrendFilter() {
               downtrend.push({ ...trendStock, Trend: 'Downtrend' });
             }
           });
-          
+
           console.log('📊 TREND: Parsed trend data:', {
             uptrend: uptrend.length,
             sideways: sideways.length,
             downtrend: downtrend.length,
             sectors: sectorsSet.size
           });
-          
+
           // Calculate summary from actual loaded data
           const totalStocks = uptrend.length + sideways.length + downtrend.length;
           const summaries: SummaryItem[] = [
-            { 
-              trend: 'Uptrend', 
-              count: uptrend.length, 
-              percentage: totalStocks > 0 ? parseFloat(((uptrend.length / totalStocks) * 100).toFixed(1)) : 0, 
-              color: '#10b981' 
+            {
+              trend: 'Uptrend',
+              count: uptrend.length,
+              percentage: totalStocks > 0 ? parseFloat(((uptrend.length / totalStocks) * 100).toFixed(1)) : 0,
+              color: '#10b981'
             },
-            { 
-              trend: 'Sideways', 
-              count: sideways.length, 
-              percentage: totalStocks > 0 ? parseFloat(((sideways.length / totalStocks) * 100).toFixed(1)) : 0, 
-              color: '#f59e0b' 
+            {
+              trend: 'Sideways',
+              count: sideways.length,
+              percentage: totalStocks > 0 ? parseFloat(((sideways.length / totalStocks) * 100).toFixed(1)) : 0,
+              color: '#f59e0b'
             },
-            { 
-              trend: 'Downtrend', 
-              count: downtrend.length, 
-              percentage: totalStocks > 0 ? parseFloat(((downtrend.length / totalStocks) * 100).toFixed(1)) : 0, 
-              color: '#ef4444' 
+            {
+              trend: 'Downtrend',
+              count: downtrend.length,
+              percentage: totalStocks > 0 ? parseFloat(((downtrend.length / totalStocks) * 100).toFixed(1)) : 0,
+              color: '#ef4444'
             }
           ];
-          
+
           console.log('📊 TREND: Calculated summary from loaded data:', {
             totalStocks,
             summaries: summaries.map(s => `${s.trend}: ${s.count} (${s.percentage}%)`)
           });
-          
+
           if (mounted) {
             setTrendData({ uptrend, sideways, downtrend });
             setSectors(['All Sectors', ...Array.from(sectorsSet).sort()]);
@@ -182,7 +183,7 @@ export function MarketRotationTrendFilter() {
 
     // Check on window resize
     window.addEventListener('resize', checkMenuHeight);
-    
+
     // Use ResizeObserver for more accurate detection
     let resizeObserver: ResizeObserver | null = null;
     if (menuContainerRef.current) {
@@ -239,10 +240,10 @@ export function MarketRotationTrendFilter() {
     const sectorFiltered = selectedSector === "All Sectors" ? data : data.filter((s: TrendStock) => s.Sector === selectedSector);
     const filtered = query
       ? sectorFiltered.filter(
-          (stock: TrendStock) =>
-            stock.Symbol.toLowerCase().includes(query) ||
-            stock.Name.toLowerCase().includes(query),
-        )
+        (stock: TrendStock) =>
+          stock.Symbol.toLowerCase().includes(query) ||
+          stock.Name.toLowerCase().includes(query),
+      )
       : sectorFiltered;
 
     const startIndex = (currentPage as any)[trendType] * itemsPerPage;
@@ -259,27 +260,27 @@ export function MarketRotationTrendFilter() {
     const uptrendData = getPaginatedData('uptrend');
     const sidewaysData = getPaginatedData('sideways');
     const downtrendData = getPaginatedData('downtrend');
-    
+
     const totalFiltered = uptrendData.totalItems + sidewaysData.totalItems + downtrendData.totalItems;
-    
+
     return [
-      { 
-        trend: 'Uptrend', 
-        count: uptrendData.totalItems, 
-        percentage: totalFiltered > 0 ? parseFloat(((uptrendData.totalItems / totalFiltered) * 100).toFixed(1)) : 0, 
-        color: '#10b981' 
+      {
+        trend: 'Uptrend',
+        count: uptrendData.totalItems,
+        percentage: totalFiltered > 0 ? parseFloat(((uptrendData.totalItems / totalFiltered) * 100).toFixed(1)) : 0,
+        color: '#10b981'
       },
-      { 
-        trend: 'Sideways', 
-        count: sidewaysData.totalItems, 
-        percentage: totalFiltered > 0 ? parseFloat(((sidewaysData.totalItems / totalFiltered) * 100).toFixed(1)) : 0, 
-        color: '#f59e0b' 
+      {
+        trend: 'Sideways',
+        count: sidewaysData.totalItems,
+        percentage: totalFiltered > 0 ? parseFloat(((sidewaysData.totalItems / totalFiltered) * 100).toFixed(1)) : 0,
+        color: '#f59e0b'
       },
-      { 
-        trend: 'Downtrend', 
-        count: downtrendData.totalItems, 
-        percentage: totalFiltered > 0 ? parseFloat(((downtrendData.totalItems / totalFiltered) * 100).toFixed(1)) : 0, 
-        color: '#ef4444' 
+      {
+        trend: 'Downtrend',
+        count: downtrendData.totalItems,
+        percentage: totalFiltered > 0 ? parseFloat(((downtrendData.totalItems / totalFiltered) * 100).toFixed(1)) : 0,
+        color: '#ef4444'
       }
     ];
   };
@@ -324,9 +325,9 @@ export function MarketRotationTrendFilter() {
     return (
       <div className="text-center py-8 text-red-500">
         <p>{error}</p>
-        <Button 
-          variant="outline" 
-          size="sm" 
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => window.location.reload()}
           className="mt-2"
         >
@@ -341,7 +342,7 @@ export function MarketRotationTrendFilter() {
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
-      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:sticky lg:top-0 lg:z-40">
         <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
           {/* Search Bar */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
@@ -456,8 +457,7 @@ export function MarketRotationTrendFilter() {
         </div>
       </div>
 
-      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-      <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+
 
       {/* Search Results Info */}
       {searchQuery && (
@@ -470,163 +470,162 @@ export function MarketRotationTrendFilter() {
 
       <div className="space-y-6 px-4">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {getFilteredSummary().map((item, index) => (
-          <Card key={index} className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{item.trend}</p>
-                <p className="text-2xl font-semibold">{item.count}</p>
-                <p className="text-sm text-muted-foreground">
-                  {item.percentage}% {selectedSector !== "All Sectors" ? `of ${selectedSector}` : "of market"}
-                </p>
+          {getFilteredSummary().map((item, index) => (
+            <Card key={index} className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">{item.trend}</p>
+                  <p className="text-2xl font-semibold">{item.count}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {item.percentage}% {selectedSector !== "All Sectors" ? `of ${selectedSector}` : "of market"}
+                  </p>
+                </div>
+                <div
+                  className="w-12 h-12 rounded-lg flex items-center justify-center"
+                  style={{ backgroundColor: `${item.color}20` }}
+                >
+                  {item.trend === "Uptrend" && (
+                    <TrendingUp className="w-6 h-6" style={{ color: item.color }} />
+                  )}
+                  {item.trend === "Sideways" && (
+                    <Minus className="w-6 h-6" style={{ color: item.color }} />
+                  )}
+                  {item.trend === "Downtrend" && (
+                    <TrendingDown className="w-6 h-6" style={{ color: item.color }} />
+                  )}
+                </div>
               </div>
-              <div
-                className="w-12 h-12 rounded-lg flex items-center justify-center"
-                style={{ backgroundColor: `${item.color}20` }}
-              >
-                {item.trend === "Uptrend" && (
-                  <TrendingUp className="w-6 h-6" style={{ color: item.color }} />
-                )}
-                {item.trend === "Sideways" && (
-                  <Minus className="w-6 h-6" style={{ color: item.color }} />
-                )}
-                {item.trend === "Downtrend" && (
-                  <TrendingDown className="w-6 h-6" style={{ color: item.color }} />
-                )}
-              </div>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          ))}
         </div>
 
         <div className="space-y-6">
           {Object.entries(filteredData).map(
-          ([trendType, _stocks]) => {
-            const paginatedResult = getPaginatedData(trendType);
-            return (
-              <Card key={trendType} className="p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  {getTrendIcon(trendType)}
-                  <div>
-                    <h3 className="font-semibold capitalize">
-                      {trendType} Stocks
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      {trendType === 'uptrend' && 'Sum open-to-close > +1%'}
-                      {trendType === 'sideways' && 'Sum open-to-close between -1% to +1%'}
-                      {trendType === 'downtrend' && 'Sum open-to-close < -1%'}
-                    </p>
+            ([trendType, _stocks]) => {
+              const paginatedResult = getPaginatedData(trendType);
+              return (
+                <Card key={trendType} className="p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    {getTrendIcon(trendType)}
+                    <div>
+                      <h3 className="font-semibold capitalize">
+                        {trendType} Stocks
+                      </h3>
+                      <p className="text-xs text-muted-foreground">
+                        {trendType === 'uptrend' && 'Sum open-to-close > +1%'}
+                        {trendType === 'sideways' && 'Sum open-to-close between -1% to +1%'}
+                        {trendType === 'downtrend' && 'Sum open-to-close < -1%'}
+                      </p>
+                    </div>
+                    <Badge variant="secondary">
+                      {paginatedResult.totalItems} stocks
+                    </Badge>
                   </div>
-                  <Badge variant="secondary">
-                    {paginatedResult.totalItems} stocks
-                  </Badge>
-                </div>
 
-                <div className="-mx-4 overflow-x-auto sm:mx-0">
-                  <div className="min-w-[640px] px-4 sm:min-w-[800px] sm:px-0 mx-auto w-full">
-                    <table className="w-full">
-                      <thead className="bg-background">
-                        <tr className="border-b border-border">
-                          <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Symbol</th>
-                          <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Name</th>
-                          <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Price</th>
-                          <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Sum Open-Close %</th>
-                          <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Sector</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paginatedResult.data.map((stock: TrendStock, index: number) => (
-                          <tr
-                            key={index}
-                            className="border-b border-border/50 hover:bg-muted/50 transition-colors"
-                          >
-                            <td className="py-2 sm:py-3 px-3">
-                              <span className="font-medium">{stock.Symbol}</span>
-                            </td>
-                            <td className="py-2 sm:py-3 px-3">
-                              <span className="text-xs sm:text-sm text-muted-foreground">{stock.Name}</span>
-                            </td>
-                            <td className="py-2 sm:py-3 px-3 text-right">
-                              <span className="font-medium">{stock.Price.toLocaleString()}</span>
-                            </td>
-                            <td className="py-2 sm:py-3 px-3 text-right">
-                              <span
-                                className={`font-medium ${
-                                  stock.ChangePct > 0
+                  <div className="-mx-4 overflow-x-auto sm:mx-0">
+                    <div className="min-w-[640px] px-4 sm:min-w-[800px] sm:px-0 mx-auto w-full">
+                      <table className="w-full">
+                        <thead className="bg-background">
+                          <tr className="border-b border-border">
+                            <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Symbol</th>
+                            <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Name</th>
+                            <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Price</th>
+                            <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Sum Open-Close %</th>
+                            <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Sector</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {paginatedResult.data.map((stock: TrendStock, index: number) => (
+                            <tr
+                              key={index}
+                              className="border-b border-border/50 hover:bg-muted/50 transition-colors"
+                            >
+                              <td className="py-2 sm:py-3 px-3">
+                                <span className="font-medium">{stock.Symbol}</span>
+                              </td>
+                              <td className="py-2 sm:py-3 px-3">
+                                <span className="text-xs sm:text-sm text-muted-foreground">{stock.Name}</span>
+                              </td>
+                              <td className="py-2 sm:py-3 px-3 text-right">
+                                <span className="font-medium">{stock.Price.toLocaleString()}</span>
+                              </td>
+                              <td className="py-2 sm:py-3 px-3 text-right">
+                                <span
+                                  className={`font-medium ${stock.ChangePct > 0
                                     ? "text-green-600"
                                     : stock.ChangePct < 0
                                       ? "text-red-600"
                                       : "text-muted-foreground"
-                                }`}
-                              >
-                                {stock.ChangePct > 0 ? "+" : ""}
-                                {stock.ChangePct}%
-                              </span>
-                            </td>
-                            <td className="py-2 sm:py-3 px-3">
-                              <Badge variant="outline" className="text-[10px] sm:text-xs">{stock.Sector}</Badge>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Pagination Controls */}
-                {paginatedResult.totalPages > 1 && (
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4 pt-4 border-t border-border">
-                    <div className="text-xs sm:text-sm text-muted-foreground">
-                      Showing{" "}
-                      {paginatedResult.currentPage *
-                        itemsPerPage +
-                        1}{" "}
-                      -{" "}
-                      {Math.min(
-                        (paginatedResult.currentPage + 1) *
-                          itemsPerPage,
-                        paginatedResult.totalItems,
-                      )}{" "}
-                      of {paginatedResult.totalItems} stocks
+                                    }`}
+                                >
+                                  {stock.ChangePct > 0 ? "+" : ""}
+                                  {stock.ChangePct}%
+                                </span>
+                              </td>
+                              <td className="py-2 sm:py-3 px-3">
+                                <Badge variant="outline" className="text-[10px] sm:text-xs">{stock.Sector}</Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                     <div className="flex items-center gap-2 self-start sm:self-auto">
-                       <Button
-                         variant="outline"
-                         size="sm"
-                         onClick={() =>
-                           handlePrevPage(trendType)
-                         }
-                         disabled={
-                           paginatedResult.currentPage === 0
-                         }
-                         className="w-8 h-8 p-0 hover:bg-primary/10 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                       >
-                         <ChevronLeft className="w-3 h-3" />
-                       </Button>
-                       <span className="text-sm w-12 h-8 flex items-center justify-center border border-border rounded">
-                         {paginatedResult.currentPage + 1} /{" "}
-                         {paginatedResult.totalPages}
-                       </span>
-                       <Button
-                         variant="outline"
-                         size="sm"
-                         onClick={() =>
-                           handleNextPage(trendType)
-                         }
-                         disabled={
-                           paginatedResult.currentPage ===
-                           paginatedResult.totalPages - 1
-                         }
-                         className="w-8 h-8 p-0 hover:bg-primary/10 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                       >
-                         <ChevronRight className="w-3 h-3" />
-                       </Button>
-                     </div>
                   </div>
-                )}
-              </Card>
-            );
-          }
+
+                  {/* Pagination Controls */}
+                  {paginatedResult.totalPages > 1 && (
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4 pt-4 border-t border-border">
+                      <div className="text-xs sm:text-sm text-muted-foreground">
+                        Showing{" "}
+                        {paginatedResult.currentPage *
+                          itemsPerPage +
+                          1}{" "}
+                        -{" "}
+                        {Math.min(
+                          (paginatedResult.currentPage + 1) *
+                          itemsPerPage,
+                          paginatedResult.totalItems,
+                        )}{" "}
+                        of {paginatedResult.totalItems} stocks
+                      </div>
+                      <div className="flex items-center gap-2 self-start sm:self-auto">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            handlePrevPage(trendType)
+                          }
+                          disabled={
+                            paginatedResult.currentPage === 0
+                          }
+                          className="w-8 h-8 p-0 hover:bg-primary/10 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <ChevronLeft className="w-3 h-3" />
+                        </Button>
+                        <span className="text-sm w-12 h-8 flex items-center justify-center border border-border rounded">
+                          {paginatedResult.currentPage + 1} /{" "}
+                          {paginatedResult.totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            handleNextPage(trendType)
+                          }
+                          disabled={
+                            paginatedResult.currentPage ===
+                            paginatedResult.totalPages - 1
+                          }
+                          className="w-8 h-8 p-0 hover:bg-primary/10 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <ChevronRight className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              );
+            }
           )}
         </div>
       </div>

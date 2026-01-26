@@ -663,7 +663,7 @@ export default function BaZiCycleAnalyzer() {
   const endDateRef = useRef<HTMLInputElement>(null);
   const anchorDateRef = useRef<HTMLInputElement>(null);
   const menuContainerRef = useRef<HTMLDivElement>(null);
-  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
+
 
   const filteredTickers = useMemo(() => {
     const q = (tickerSearchQuery || '').toLowerCase().trim();
@@ -783,42 +783,7 @@ export default function BaZiCycleAnalyzer() {
     };
   }, []);
 
-  // Monitor menu height to detect if it wraps to 2 rows
-  useEffect(() => {
-    const checkMenuHeight = () => {
-      if (menuContainerRef.current) {
-        const menuHeight = menuContainerRef.current.offsetHeight;
-        // If menu height is more than ~50px, it's likely 2 rows (single row is usually ~40-45px)
-        setIsMenuTwoRows(menuHeight > 50);
-      }
-    };
 
-    // Check initially
-    checkMenuHeight();
-
-    // Check on window resize
-    window.addEventListener('resize', checkMenuHeight);
-
-    // Use ResizeObserver for more accurate detection
-    let resizeObserver: ResizeObserver | null = null;
-    if (menuContainerRef.current) {
-      resizeObserver = new ResizeObserver(() => {
-        checkMenuHeight();
-      });
-      resizeObserver.observe(menuContainerRef.current);
-    }
-
-    // Also check when filters change (affects menu height)
-    const timeoutId = setTimeout(checkMenuHeight, 100);
-
-    return () => {
-      window.removeEventListener('resize', checkMenuHeight);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-      clearTimeout(timeoutId);
-    };
-  }, [params.ticker, params.anchorMethod, params.anchorDate, params.startDate, params.endDate]);
 
   const onUpload = async (f: File | null) => {
     setErr(null);
@@ -1007,7 +972,7 @@ export default function BaZiCycleAnalyzer() {
       <div className="w-full">
         {/* Top Controls - Compact without Card */}
         {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
-        <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+        <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:sticky lg:top-0 lg:z-40">
           <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
             {/* Stock Selection */}
             <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
@@ -1285,8 +1250,8 @@ export default function BaZiCycleAnalyzer() {
               onClick={runAnalysis}
               disabled={analyzing || rows.length === 0}
               className={`h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto ${loading || rows.length === 0
-                  ? ''
-                  : ''
+                ? ''
+                : ''
                 }`}
               aria-disabled={loading || rows.length === 0}
               title={rows.length === 0 ? 'Load data dulu sebelum menjalankan analisis' : 'Jalankan analisis'}
@@ -1297,8 +1262,7 @@ export default function BaZiCycleAnalyzer() {
           </div>
         </div>
 
-        {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-        <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+
 
         <div className="w-full space-y-8 p-4 sm:p-6 md:p-10">
           {/* Error and Loading Messages */}

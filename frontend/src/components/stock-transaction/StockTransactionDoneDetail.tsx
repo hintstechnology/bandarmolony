@@ -1895,7 +1895,7 @@ export function StockTransactionDoneDetail() {
     <div className="w-full">
       {/* Top Controls - Compact without Card, similar to DoneSummary */}
       {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
-      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:sticky lg:top-0 lg:z-40">
         <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-2 md:gap-x-7 md:gap-y-0.2">
           {/* Ticker Selection */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
@@ -2301,8 +2301,7 @@ export function StockTransactionDoneDetail() {
         </div>
       </div >
 
-      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-      < div className="h-0 lg:h-[38px]" ></div >
+
 
       {/* Main Content Area with Table and Side Panel */}
       < div className="flex flex-row relative" >

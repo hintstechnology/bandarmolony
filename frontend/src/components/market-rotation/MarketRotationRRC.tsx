@@ -176,13 +176,13 @@ export default function MarketRotationRRC() {
   const endDateRef = useRef<HTMLInputElement>(null);
   const isLoadingRef = useRef(false);
   const menuContainerRef = useRef<HTMLDivElement>(null);
-  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState(false);
   const [chartViewportHeight, setChartViewportHeight] = useState<number>(600);
 
   // Calculate available viewport height
   useEffect(() => {
     const HEADER_H = 56; // h-14 in header
-    const MENU_H = isMenuTwoRows ? 60 : 38; // menu height
+    const MENU_H = 38; // menu height
     const MAIN_PADDING_V = 32; // Reduced padding
     const GAPS = 16;
 
@@ -197,7 +197,7 @@ export default function MarketRotationRRC() {
     recalc();
     window.addEventListener('resize', recalc);
     return () => window.removeEventListener('resize', recalc);
-  }, [isMenuTwoRows]);
+  }, []);
 
   // Visibility states for indexes and items (for showing/hiding in chart without removing from selection)
   const [indexVisibility, setIndexVisibility] = useState<Record<string, boolean>>({});
@@ -1076,7 +1076,7 @@ export default function MarketRotationRRC() {
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
-      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:sticky lg:top-0 lg:z-40">
         <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
           {/* Stock/Sector Dropdown */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
@@ -1172,8 +1172,7 @@ export default function MarketRotationRRC() {
         </div>
       </div>
 
-      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-      <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+
 
       <div className="space-y-6">
         <React.Fragment>

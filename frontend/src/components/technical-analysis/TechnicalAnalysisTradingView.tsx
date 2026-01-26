@@ -540,8 +540,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
 
   // New: measure controls height and compute available viewport height for the chart
   const controlsContainerRef = useRef<HTMLDivElement | null>(null);
-  const menuContainerRef = useRef<HTMLDivElement>(null);
-  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
+
   // const [chartViewportHeight, setChartViewportHeight] = useState<number>(600);
   useEffect(() => {
     const HEADER_H = 56; // h-14 in header
@@ -687,6 +686,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   }, [indicatorChartHeight, chartViewportHeight, horizontalScale, verticalScale, rsiSettings, volumeHistogramSettings, pageId]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const priceRef = useRef<any | null>(null);
   const volRef = useRef<any | null>(null);
@@ -2612,7 +2612,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         <>
           {/* Top Controls - Compact without Card */}
           {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
-          <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40" ref={controlsContainerRef}>
+          <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:sticky lg:top-0 lg:z-40" ref={controlsContainerRef}>
             <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
               {/* Symbol/Ticker selector */}
               <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
@@ -2786,8 +2786,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             </div>
           </div>
 
-          {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-          <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+
         </>
       )}
 

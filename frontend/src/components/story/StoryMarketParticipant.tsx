@@ -580,14 +580,12 @@ interface StoryMarketParticipantProps {
   selectedStock?: string;
   hideMarketAnalysis?: boolean;
   hideForeignFlowAnalysis?: boolean;
-  disableFixedControlPanel?: boolean;
 }
 
 export function StoryMarketParticipant({
   selectedStock: propSelectedStock,
   hideMarketAnalysis = false,
   hideForeignFlowAnalysis = false,
-  disableFixedControlPanel = false
 }: StoryMarketParticipantProps) {
   const [selectedStock, setSelectedStock] = useState(propSelectedStock || 'BBRI');
   const [stockInput, setStockInput] = useState(propSelectedStock || 'BBRI');
@@ -604,8 +602,7 @@ export function StoryMarketParticipant({
   const [loading, setLoading] = useState(false);
 
   // Control menu ref and spacer height for fixed positioning
-  const controlMenuRef = useRef<HTMLDivElement>(null);
-  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
+
 
   // Initialize date range with default values (last 30 trading days)
   // Use lazy initialization to ensure it's only calculated once
@@ -849,31 +846,7 @@ export function StoryMarketParticipant({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Update spacer height for fixed control menu
-  useEffect(() => {
-    const updateSpacerHeight = () => {
-      if (controlMenuRef.current) {
-        const height = controlMenuRef.current.offsetHeight;
-        setControlSpacerHeight(Math.max(height + 16, 48));
-      }
-    };
 
-    updateSpacerHeight();
-    window.addEventListener('resize', updateSpacerHeight);
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined' && controlMenuRef.current) {
-      resizeObserver = new ResizeObserver(() => updateSpacerHeight());
-      resizeObserver.observe(controlMenuRef.current);
-    }
-
-    return () => {
-      window.removeEventListener('resize', updateSpacerHeight);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-    };
-  }, [stockInput, layoutMode, tempDateRange, dataLimit]);
 
   // Constants for stock display
   const MAX_DISPLAYED = 10;
@@ -884,8 +857,8 @@ export function StoryMarketParticipant({
   return (
     <div className="space-y-4">
       {/* Controls */}
-      <div className={`bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg ${!disableFixedControlPanel ? 'lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40' : 'relative'}`}>
-        <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:sticky lg:top-0 lg:z-40">
+        <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
           {/* Stock Search */}
           <div className="flex items-center gap-2 w-full md:w-auto md:min-w-[280px] md:max-w-[320px]">
             <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
@@ -1035,7 +1008,7 @@ export function StoryMarketParticipant({
           </div>
         </div>
       </div>
-      <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
+
 
       {/* Main Chart Layout */}
       <div className="space-y-4">
