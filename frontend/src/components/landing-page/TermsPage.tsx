@@ -39,7 +39,7 @@ const sections = [
 
 export function TermsPage() {
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
+    <div className="relative min-h-screen bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
       <Helmet>
         <title>BandarmoloNY - Terms & Conditions</title>
         <meta name="description" content="Read BandarmoloNY's Terms & Conditions covering service usage, payment terms, data ownership, liability limitations, and user responsibilities for our trading analysis platform." />

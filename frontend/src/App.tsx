@@ -400,7 +400,7 @@ function DashboardLayout() {
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 flex flex-col min-h-0 bg-[#0a0f20]">
+        <main className="flex-1 flex flex-col overflow-y-auto min-h-0 bg-[#0a0f20]">
           {renderMainContent(sidebarOpen)}
         </main>
       </div>
