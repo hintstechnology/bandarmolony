@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import update from 'immutability-helper';
 import { PivotData, getSort, sortAs } from './Utilities';
 import PivotTable from './PivotTable';
-import Sortable from 'react-sortablejs';
+import Sortable from 'sortablejs';
 import Draggable from 'react-draggable';
 import { Loader2 } from 'lucide-react';
 
@@ -17,9 +17,61 @@ const normalize = (obj: any) => {
     return obj;
 };
 
-const SortableComponent = normalize(Sortable);
-const DraggableComponent = normalize(Draggable);
-const PivotTableComponent = normalize(PivotTable);
+// Components
+const DraggableComponent = Draggable;
+const PivotTableComponent = PivotTable;
+
+class SortableJSWrapper extends React.Component<any> {
+    containerRef: React.RefObject<HTMLElement>;
+    sortableInstance: Sortable | null = null;
+
+    constructor(props: any) {
+        super(props);
+        this.containerRef = React.createRef();
+    }
+
+    componentDidMount() {
+        if (this.containerRef.current) {
+            const onChanged = () => {
+                if (this.sortableInstance && this.props.onChange) {
+                    this.props.onChange(this.sortableInstance.toArray());
+                }
+            };
+
+            this.sortableInstance = Sortable.create(this.containerRef.current, {
+                ...this.props.options,
+                onAdd: onChanged,
+                onUpdate: onChanged,
+                onRemove: () => {
+                    // Ignore remove events to prevent race conditions with the destination list
+                    // The destination list will handle the state update (pull model)
+                }
+            });
+        }
+    }
+
+    componentWillUnmount() {
+        if (this.sortableInstance) {
+            this.sortableInstance.destroy();
+            this.sortableInstance = null;
+        }
+    }
+
+    // We don't need to manually update Sortable instance on prop change usually
+    // because React will re-render the children, and Sortable respects that (mostly).
+    // But if options change dynamically, we might need code here. For now, static options.
+
+    render() {
+        const { tag: Tag = 'div', className, style, children } = this.props;
+        return (
+            <Tag ref={this.containerRef} className={className} style={style}>
+                {children}
+            </Tag>
+        );
+    }
+}
+
+
 
 interface DraggableAttributeProps {
     name: string;
@@ -50,64 +102,38 @@ export class DraggableAttribute extends React.Component<DraggableAttributeProps,
         this.state = {
             open: false,
             filterText: '',
-            displayLimit: 10,
+            displayLimit: 100, // Default limit for filter values
         };
-        this.filterBoxRef = React.createRef();
-        this.handleClickOutside = this.handleClickOutside.bind(this);
+        this.filterBoxRef = React.createRef<HTMLDivElement>();
     }
 
-    override componentDidMount() {
+    componentDidMount() {
         document.addEventListener('mousedown', this.handleClickOutside);
     }
 
-    override componentWillUnmount() {
+    componentWillUnmount() {
         document.removeEventListener('mousedown', this.handleClickOutside);
     }
 
-    handleClickOutside(event: MouseEvent) {
+    // Handle clicks outside the filter box to close it
+    handleClickOutside = (event: MouseEvent) => {
         if (
             this.state.open &&
             this.filterBoxRef.current &&
             !this.filterBoxRef.current.contains(event.target as Node)
         ) {
-            const attrButton = (event.target as HTMLElement).closest('.pvtAttr');
-            const isOurButton = attrButton && attrButton.parentElement?.getAttribute('data-id') === this.props.name;
+            // Check if the click was on the toggle button (pvtTriangle) or the attribute label
+            // We use a broader check to ensure we don't interfere with the toggle logic
+            // But implementing a simple connection check or ref check on the button is hard from here
+            // So we rely on the fact that if it's open, and we click outside, we close.
+            // The toggle button click handler will toggle it again if we are not careful.
+            // However, usually the toggle button stops propagation.
 
-            if (!isOurButton) {
-                this.setState({ open: false });
-            }
+            this.setState({ open: false });
         }
-    }
+    };
 
-    getHour(time: any): string {
-        const s = String(time);
-        if (s.length === 5 && s.endsWith(':00')) return s;
-        if (s.includes(':')) return s.split(':')[0] + ':00';
-        const t = s.padStart(6, '0');
-        return t.substring(0, 2) + ':00';
-    }
-
-    getFullTime(time: any): string {
-        const s = String(time);
-        if (s.includes(':')) return s;
-        const t = s.padStart(6, '0');
-        return `${t.substring(0, 2)}:${t.substring(2, 4)}:${t.substring(4, 6)}`;
-    }
-
-    toggleHour(hour: string, e: React.MouseEvent) {
-        e.stopPropagation();
-        const values = Object.keys(this.props.attrValues);
-        const valuesInHour = values.filter(v => this.getHour(v) === hour);
-        const allSelected = valuesInHour.every(v => !(v in this.props.valueFilter));
-
-        if (allSelected) {
-            this.props.addValuesToFilter(this.props.name, valuesInHour);
-        } else {
-            this.props.removeValuesFromFilter(this.props.name, valuesInHour);
-        }
-    }
-
-    toggleValue(value: any) {
+    toggleValue(value: string) {
         if (value in this.props.valueFilter) {
             this.props.removeValuesFromFilter(this.props.name, [value]);
         } else {
@@ -122,7 +148,7 @@ export class DraggableAttribute extends React.Component<DraggableAttributeProps,
             .includes(this.state.filterText.toLowerCase().trim());
     }
 
-    selectOnly(e: any, value: any) {
+    selectOnly(e: React.MouseEvent, value: string) {
         e.stopPropagation();
         this.props.setValuesInFilter(
             this.props.name,
@@ -131,176 +157,137 @@ export class DraggableAttribute extends React.Component<DraggableAttributeProps,
     }
 
     getFilterBox() {
-        const isTrxTime = this.props.name === 'TRX_TIME';
+        const showMenu = this.state.open;
         const values = Object.keys(this.props.attrValues);
+        const shown = values.filter(this.matchesFilter.bind(this)).sort(this.props.sorter);
 
-        const shown = values
-            .filter(this.matchesFilter.bind(this))
-            .sort(this.props.sorter);
-
-        let groupedShown: string[] = [];
-        if (isTrxTime && this.props.groupByHour) {
-            const hours = new Set<string>();
-            shown.forEach(v => hours.add(this.getHour(v)));
-            groupedShown = Array.from(hours).sort();
+        if (!showMenu) {
+            return null;
         }
 
         return (
-            <DraggableComponent handle=".pvtDragHandle">
-                <div
-                    className="pvtFilterBox"
-                    ref={this.filterBoxRef}
-                    style={{
-                        display: 'block',
-                        cursor: 'initial',
-                        zIndex: this.props.zIndex,
-                    }}
-                    onClick={() => this.props.moveFilterBoxToTop(this.props.name)}
-                >
-                    <a
-                        onClick={() => this.setState({ open: false })}
-                        className="pvtCloseX"
-                    >
-                        ×
-                    </a>
-                    <span className="pvtDragHandle">☰</span>
-                    <h4>{this.props.name}</h4>
-
-                    <p>
-                        <input
-                            type="text"
-                            placeholder="Filter values"
-                            className="pvtSearch"
-                            value={this.state.filterText}
-                            onChange={e =>
-                                this.setState({
-                                    filterText: e.target.value,
-                                    displayLimit: 10,
-                                })
-                            }
-                        />
-                        <br />
-                        {isTrxTime && (
-                            <label className="flex items-center gap-2 mb-2 cursor-pointer text-xs text-blue-400 hover:text-blue-300">
-                                <input
-                                    type="checkbox"
-                                    checked={this.props.groupByHour}
-                                    onChange={e => {
-                                        this.props.toggleGroupByHour?.(e.target.checked);
-                                        this.setState({ displayLimit: 10 });
-                                    }}
-                                    className="w-3 h-3"
-                                />
+            <div
+                className="pvtFilterBox"
+                ref={this.filterBoxRef}
+                style={{
+                    display: 'block',
+                    cursor: 'initial',
+                    zIndex: this.props.zIndex,
+                }}
+                onClick={() => this.props.moveFilterBoxToTop(this.props.name)}
+            >
+                <div className="pvtSearchContainer">
+                    <p>{this.props.name}</p>
+                    <input
+                        type="text"
+                        placeholder="Filter values"
+                        className="pvtSearch"
+                        value={this.state.filterText}
+                        onChange={e =>
+                            this.setState({
+                                filterText: e.target.value,
+                            })
+                        }
+                    />
+                    {this.props.groupByHour !== undefined && (
+                        <div className="flex items-center gap-1.5 mt-2 mb-1" onClick={(e) => e.stopPropagation()}>
+                            <input
+                                type="checkbox"
+                                checked={this.props.groupByHour}
+                                onChange={(e) => this.props.toggleGroupByHour?.(e.target.checked)}
+                                className="rounded border-gray-300 w-3 h-3 text-primary focus:ring-primary"
+                                id={`group-hour-${this.props.name}`}
+                            />
+                            <label
+                                htmlFor={`group-hour-${this.props.name}`}
+                                className="text-[10px] text-muted-foreground cursor-pointer select-none"
+                            >
                                 Group by Hour
                             </label>
-                        )}
-                        <a
-                            role="button"
-                            className="pvtButton"
-                            onClick={() =>
-                                this.props.removeValuesFromFilter(
-                                    this.props.name,
-                                    Object.keys(this.props.attrValues).filter(
-                                        this.matchesFilter.bind(this)
-                                    )
-                                )
-                            }
-                        >
-                            Select {this.props.groupByHour ? groupedShown.length : shown.length}
-                        </a>{' '}
-                        <a
-                            role="button"
-                            className="pvtButton"
-                            onClick={() =>
-                                this.props.addValuesToFilter(
-                                    this.props.name,
-                                    Object.keys(this.props.attrValues).filter(
-                                        this.matchesFilter.bind(this)
-                                    )
-                                )
-                            }
-                        >
-                            Deselect {this.props.groupByHour ? groupedShown.length : shown.length}
-                        </a>
-                    </p>
-
-                    <div
-                        className="pvtCheckContainer"
-                        onScroll={e => {
-                            const container = e.target as HTMLDivElement;
-                            if (
-                                container.scrollHeight - container.scrollTop - container.clientHeight <
-                                50
-                            ) {
-                                const list = this.props.groupByHour ? groupedShown : shown;
-                                if (this.state.displayLimit < list.length) {
-                                    this.setState({
-                                        displayLimit: this.state.displayLimit + 10,
-                                    });
-                                }
-                            }
-                        }}
-                    >
-                        {this.props.groupByHour ? (
-                            groupedShown.slice(0, this.state.displayLimit).map(hour => {
-                                const valuesInHour = values.filter(v => this.getHour(v) === hour);
-                                const someSelected = valuesInHour.some(v => !(v in this.props.valueFilter));
-                                const allSelected = valuesInHour.every(v => !(v in this.props.valueFilter));
-
-                                return (
-                                    <p
-                                        key={hour}
-                                        onClick={(e) => this.toggleHour(hour, e)}
-                                        className={allSelected ? 'selected' : (someSelected ? 'partial-selected' : '')}
-                                        style={{ fontWeight: 'bold' }}
-                                    >
-                                        <a className="pvtOnlySpacer">&nbsp;</a>
-                                        {hour}
-                                    </p>
-                                );
-                            })
-                        ) : (
-                            shown.slice(0, this.state.displayLimit).map(x => (
-                                <p
-                                    key={x}
-                                    onClick={() => this.toggleValue(x)}
-                                    className={x in this.props.valueFilter ? '' : 'selected'}
-                                >
-                                    <a className="pvtOnly" onClick={e => this.selectOnly(e, x)}>
-                                        only
-                                    </a>
-                                    <a className="pvtOnlySpacer">&nbsp;</a>
-                                    {x === '' ? <em>null</em> : (isTrxTime ? this.getFullTime(x) : x)}
-                                </p>
-                            ))
-                        )}
-                    </div>
+                        </div>
+                    )}
                 </div>
-            </DraggableComponent>
+
+                <div
+                    className="pvtCheckContainer"
+                    style={{
+                        maxHeight: '250px',
+                        overflowY: 'auto',
+                        borderBottom: '1px solid #ddd'
+                    }}
+                >
+                    {shown.slice(0, this.state.displayLimit).map(x => ( // Use displayLimit
+                        <p
+                            key={x}
+                            onClick={() => this.toggleValue(x)}
+                            className={x in this.props.valueFilter ? '' : 'selected'}
+                        >
+                            <a className="pvtOnly" onClick={e => this.selectOnly(e, x)}>
+                                only
+                            </a>
+                            <a className="pvtOnlySpacer">&nbsp;</a>
+                            {x === '' ? <em>null</em> : x}
+                        </p>
+                    ))}
+                    {shown.length > this.state.displayLimit && (
+                        <p className="pvtMore" style={{ textAlign: 'center', color: '#888' }}>
+                            ...and {shown.length - this.state.displayLimit} more...
+                        </p>
+                    )}
+                </div>
+                <div className="pvtFilterBoxButtons" style={{ padding: '5px', textAlign: 'center' }}>
+                    <button
+                        onClick={() => this.props.setValuesInFilter(this.props.name, [])}
+                        style={{ marginRight: '5px', cursor: 'pointer', padding: '2px 5px' }}
+                    >
+                        Select All
+                    </button>
+                    <button
+                        onClick={() => this.props.addValuesToFilter(this.props.name, Object.keys(this.props.attrValues))}
+                        style={{ cursor: 'pointer', padding: '2px 5px' }}
+                    >
+                        Deselect All
+                    </button>
+                </div>
+            </div>
         );
     }
 
-    toggleFilterBox() {
+    toggleFilter(e: any) {
+        e.stopPropagation();
         this.setState({ open: !this.state.open });
         this.props.moveFilterBoxToTop(this.props.name);
     }
 
-    override render() {
+    render() {
         const filtered =
             Object.keys(this.props.valueFilter).length !== 0
                 ? 'pvtFilteredAttribute'
                 : '';
+
+        // Compute classes conditionally
+        const baseClasses = `pvtAttr ${filtered} `;
+        // If sorting or other features need classes, add them here.
+        // For now, we will add 'cursor-pointer' or similar if needed,
+        // but react-sortablejs handles the drag handle.
+
         return (
-            <li data-id={this.props.name}>
+            <div
+                className={baseClasses}
+                data-id={this.props.name} // Important for SortableJS
+            >
+                {this.props.name}
                 <span
-                    className={'pvtAttr ' + filtered}
-                    onClick={this.toggleFilterBox.bind(this)}
+                    className="pvtTriangle"
+                    onClick={this.toggleFilter.bind(this)}
                 >
-                    {this.props.name}
-                    <span className="pvtTriangle">▾</span>
+                    {' '}
+                    &#x25BE;
                 </span>
-                {this.state.open ? this.getFilterBox() : null}
-            </li>
+                {this.getFilterBox()}
+
+                {this.getFilterBox()}
+            </div>
         );
     }
 }
@@ -472,11 +459,24 @@ class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUISt
                     }
                 }
 
-                if (this.state.groupByHour && record['TRX_TIME'] !== undefined) {
+                if (record['TRX_TIME'] !== undefined) {
                     const time = record['TRX_TIME'];
                     if (time !== null) {
-                        const t = String(time).padStart(6, '0');
-                        record['TRX_TIME'] = t.substring(0, 2) + ':00';
+                        // Assuming time is number or string like '093000' or 93000
+                        // Convert to padded string '093000'
+                        let t = String(time);
+                        // Only format if it looks like raw format (no colons)
+                        if (!t.includes(':')) {
+                            t = t.padStart(6, '0');
+                            if (this.state.groupByHour) {
+                                record['TRX_TIME'] = t.substring(0, 2) + ':00';
+                            } else {
+                                record['TRX_TIME'] = `${t.substring(0, 2)}:${t.substring(2, 4)}:${t.substring(4, 6)}`;
+                            }
+                        } else if (this.state.groupByHour) {
+                            // If already formatted (HH:mm:ss), just take hour
+                            record['TRX_TIME'] = t.substring(0, 2) + ':00';
+                        }
                     }
                 }
 
@@ -565,7 +565,8 @@ class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUISt
 
     makeDnDCell(items: any[], onChange: any, classes: string) {
         return (
-            <SortableComponent
+            <SortableJSWrapper
+                key={items.join(',')}
                 options={{
                     group: 'shared',
                     ghostClass: 'pvtPlaceholder',
@@ -589,7 +590,7 @@ class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUISt
                         moveFilterBoxToTop={this.moveFilterBoxToTop.bind(this)}
                         removeValuesFromFilter={this.removeValuesFromFilter.bind(this)}
                         zIndex={this.state.zIndices[x] || this.state.maxZIndex}
-                        groupByHour={x === 'TRX_TIME' ? this.state.groupByHour : false}
+                        groupByHour={x === 'TRX_TIME' ? this.state.groupByHour : undefined}
                         toggleGroupByHour={(val: boolean) => {
                             this.setState({ isProcessing: true }, () => {
                                 setTimeout(() => {
@@ -599,7 +600,7 @@ class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUISt
                         }}
                     />
                 ))}
-            </SortableComponent>
+            </SortableJSWrapper>
         );
     }
 
@@ -679,7 +680,14 @@ class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUISt
                         !this.props.hiddenFromDragDrop.includes(x)
                 )
                 .sort(sortAs(this.state.unusedOrder)),
-            (order: any) => this.setState({ unusedOrder: order }),
+            (order: any) => {
+                this.setState({ unusedOrder: order });
+                // When moving to unused, ensure we remove from rows/cols if it came from there
+                this.sendPropUpdate({
+                    rows: { $set: this.props.rows.filter((x: any) => !order.includes(x)) },
+                    cols: { $set: this.props.cols.filter((x: any) => !order.includes(x)) }
+                });
+            },
             'pvtAxisContainer pvtHorizList pvtUnused'
         );
 
