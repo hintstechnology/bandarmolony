@@ -223,34 +223,8 @@ const getAllUniquePrices = (_stock: string, dates: string[], stockPriceDataByDat
   return Array.from(priceSet).sort((a, b) => b - a);
 };
 
-// Helper function to get data for specific price and date
-const getDataForPriceAndDate = (_stock: string, date: string, price: number, stockPriceDataByDate: { [date: string]: PriceData[] }): PriceData | null => {
-  const data = stockPriceDataByDate[date] || [];
-  return data.find(item => item.price === price) || null;
-};
 
 
-// Helper function to find max values across all dates for horizontal layout
-const findMaxValuesHorizontal = (_stock: string, dates: string[], stockPriceDataByDate: { [date: string]: PriceData[] }) => {
-  let maxBFreq = 0, maxBLot = 0, maxBOrd = 0, maxSLot = 0, maxSFreq = 0, maxSOrd = 0, maxTFreq = 0, maxTLot = 0, maxTOrd = 0;
-
-  dates.forEach(date => {
-    const data = stockPriceDataByDate[date] || [];
-    data.forEach(item => {
-      if (item.bFreq > maxBFreq) maxBFreq = item.bFreq;
-      if (item.bLot > maxBLot) maxBLot = item.bLot;
-      if (item.bOrd > maxBOrd) maxBOrd = item.bOrd;
-      if (item.sLot > maxSLot) maxSLot = item.sLot;
-      if (item.sFreq > maxSFreq) maxSFreq = item.sFreq;
-      if (item.sOrd > maxSOrd) maxSOrd = item.sOrd;
-      if (item.tFreq > maxTFreq) maxTFreq = item.tFreq;
-      if (item.tLot > maxTLot) maxTLot = item.tLot;
-      if (item.tOrd > maxTOrd) maxTOrd = item.tOrd;
-    });
-  });
-
-  return { maxBFreq, maxBLot, maxBOrd, maxSLot, maxSFreq, maxSOrd, maxTFreq, maxTLot, maxTOrd };
-};
 
 // Helper function to get broker data for specific price, broker and date (DEPRECATED - moved inside component)
 // const getBrokerDataForPriceBrokerAndDate = (stock: string, date: string, price: number, broker: string, brokerDataByDate: { [date: string]: BrokerBreakdownData[] }): BrokerBreakdownData | null => {
@@ -375,9 +349,13 @@ const getTradingDays = (count: number): string[] => {
   return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 };
 
-// Helper function to get last 3 trading days
 const getLastThreeTradingDays = (): string[] => {
   return getTradingDays(3);
+};
+
+const formatDisplayDate = (dateString: string): string => {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
 };
 
 // Page ID for menu preferences
@@ -414,6 +392,542 @@ const loadPreferences = (): Partial<UserPreferences> | null => {
 const savePreferences = (prefs: Partial<UserPreferences>) => {
   menuPreferencesService.savePreferences(PAGE_ID, prefs);
 };
+
+interface PriceRowProps {
+  price: number;
+  visibleDates: string[];
+  dataByDateMap: Map<string, Map<number, PriceData>>;
+  rowTotal: PriceData;
+  ohlcData: any[] | undefined;
+  showOrdColumns: boolean;
+  showFrequency: boolean;
+  priceIndex: number;
+  totalPrices: number;
+}
+
+const PriceRow = React.memo(({
+  price,
+  visibleDates,
+  dataByDateMap,
+  rowTotal,
+  ohlcData,
+  showOrdColumns,
+  showFrequency,
+  priceIndex,
+  totalPrices
+}: PriceRowProps) => {
+  return (
+    <tr className={`hover:bg-accent/50 ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`}>
+      {visibleDates.map((date, dateIndex) => {
+        const data = dataByDateMap.get(date)?.get(price) || null;
+
+        // Calculate background and wick styling based on OHLC
+        let bgClass = '';
+        const ohlc = ohlcData?.find(row => {
+          const rowDate = new Date(row.time * 1000).toISOString().split('T')[0];
+          return rowDate === date;
+        });
+
+        if (ohlc) {
+          if (ohlc.close >= ohlc.open && price >= ohlc.open && price <= ohlc.close) {
+            bgClass = 'bg-green-500/20';
+          } else if (ohlc.close < ohlc.open && price >= ohlc.close && price <= ohlc.open) {
+            bgClass = 'bg-red-500/20';
+          }
+        }
+
+        const isWick = ohlc && (
+          (price >= ohlc.low && price < Math.min(ohlc.open, ohlc.close)) ||
+          (price > Math.max(ohlc.open, ohlc.close) && price <= ohlc.high)
+        );
+        const wickBorderClassL = isWick ? 'border-l-2 border-gray-500' : '';
+        const wickBorderClassR = isWick ? 'border-r-2 border-gray-500' : '';
+
+        let ohlcBorderClass = '';
+        let hasBottomOhlcBorder = false;
+        let hasTopOhlcBorder = false;
+        if (ohlc) {
+          if (ohlc.close < ohlc.open) {
+            if (price === ohlc.open) { ohlcBorderClass = 'border-t-2 border-t-gray-500'; hasTopOhlcBorder = true; }
+            else if (price === ohlc.close) { ohlcBorderClass = 'border-b-2 border-b-gray-500'; hasBottomOhlcBorder = true; }
+          } else {
+            if (price === ohlc.open && price === ohlc.close) {
+              ohlcBorderClass = 'border-t-2 border-t-gray-500 border-b-2 border-b-gray-500';
+              hasTopOhlcBorder = true; hasBottomOhlcBorder = true;
+            } else if (price === ohlc.open) { ohlcBorderClass = 'border-b-2 border-b-gray-500'; hasBottomOhlcBorder = true; }
+            else if (price === ohlc.close) { ohlcBorderClass = 'border-t-2 border-t-gray-500'; hasTopOhlcBorder = true; }
+          }
+        }
+
+        const cellClass = (align: string, border: string, textColor: string = 'text-white') => {
+          let finalBorder = border;
+          if (hasBottomOhlcBorder) finalBorder = finalBorder.replace('border-b-2 border-white', '');
+          if (hasTopOhlcBorder) finalBorder = finalBorder.replace('border-t-2 border-white', '');
+          return `${align} py-[1px] px-[4px] font-bold ${bgClass} ${textColor} ${finalBorder} ${ohlcBorderClass}`;
+        };
+
+        if (!data) {
+          return (
+            <React.Fragment key={date}>
+              <td className={`text-center py-[1px] px-[6px] font-bold ${bgClass} text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${priceIndex === totalPrices - 1 && !hasBottomOhlcBorder ? 'border-b-2 border-white' : ''} ${ohlcBorderClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {ohlc && (price < ohlc.low || price > ohlc.high) ? '-' : formatNumber(price)}
+              </td>
+              {showOrdColumns && (
+                <>
+                  <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '')}>-</td>
+                  <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '')}>-</td>
+                </>
+              )}
+              {showFrequency && <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '')}>-</td>}
+              {showFrequency && <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '')}>-</td>}
+              <td className={cellClass('text-right', `${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''} ${wickBorderClassR}`)}>-</td>
+              <td className={cellClass('text-right', `${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''} ${wickBorderClassL}`)}>-</td>
+              {showFrequency && <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '')}>-</td>}
+              {showFrequency && <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '')}>-</td>}
+              {showOrdColumns && (
+                <>
+                  <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '')}>-</td>
+                  <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '')}>-</td>
+                </>
+              )}
+              {showFrequency && <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '')}>-</td>}
+              <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
+              {showOrdColumns && (
+                <td className={cellClass('text-right', `${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
+              )}
+            </React.Fragment>
+          );
+        }
+
+        return (
+          <React.Fragment key={date}>
+            <td className={`text-center py-[1px] px-[6px] font-bold ${bgClass} text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${priceIndex === totalPrices - 1 && !hasBottomOhlcBorder ? 'border-b-2 border-white' : ''} ${ohlcBorderClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {ohlc && (price < ohlc.low || price > ohlc.high) ? '-' : formatNumber(price)}
+            </td>
+            {showOrdColumns && (
+              <>
+                <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '', data.bOrd > 0 && data.sOrd > 0 ? getComparisonColor(data.bLot / data.bOrd, data.sLot / data.sOrd, true) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {formatRatio(data.bLot, data.bOrd)}
+                </td>
+                <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '', getComparisonColor(data.bOrd, data.sOrd, true))} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {formatNumberWithAbbreviation(data.bOrd)}
+                </td>
+              </>
+            )}
+            {showFrequency && (
+              <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '', data.bFreq > 0 && data.sFreq > 0 ? getComparisonColor(data.bLot / data.bFreq, data.sLot / data.sFreq, true) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {formatRatio(data.bLot, data.bFreq)}
+              </td>
+            )}
+            {showFrequency && (
+              <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '', getComparisonColor(data.bFreq, data.sFreq, true))} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {formatNumberWithAbbreviation(data.bFreq)}
+              </td>
+            )}
+            <td className={cellClass('text-right', `${priceIndex === totalPrices - 1 && !isWick ? 'border-b-2 border-white' : ''} ${wickBorderClassR}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {formatNumber(data.bLot)}
+            </td>
+            <td className={cellClass('text-right', `${priceIndex === totalPrices - 1 && !isWick ? 'border-b-2 border-white' : ''} ${wickBorderClassL}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {formatNumber(data.sLot)}
+            </td>
+            {showFrequency && (
+              <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '', getComparisonColor(data.bFreq, data.sFreq, false))} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {formatNumberWithAbbreviation(data.sFreq)}
+              </td>
+            )}
+            {showFrequency && (
+              <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '', data.bFreq > 0 && data.sFreq > 0 ? getComparisonColor(data.bLot / data.bFreq, data.sLot / data.sFreq, false) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {formatRatio(data.sLot, data.sFreq)}
+              </td>
+            )}
+            {showOrdColumns && (
+              <>
+                <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '', getComparisonColor(data.bOrd, data.sOrd, false))} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {formatNumberWithAbbreviation(data.sOrd)}
+                </td>
+                <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '', data.bOrd > 0 && data.sOrd > 0 ? getComparisonColor(data.bLot / data.bOrd, data.sLot / data.sOrd, false) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {formatRatio(data.sLot, data.sOrd)}
+                </td>
+              </>
+            )}
+            {showFrequency && (
+              <td className={cellClass('text-right', priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : '')} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {formatNumberWithAbbreviation(data.tFreq)}
+              </td>
+            )}
+            <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {formatNumberWithAbbreviation(data.tLot)}
+            </td>
+            {showOrdColumns && (
+              <td className={cellClass('text-right', `${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {formatNumberWithAbbreviation(data.tOrd)}
+              </td>
+            )}
+          </React.Fragment>
+        );
+      })}
+
+      {/* Row Grand Totals */}
+      <td className={`text-center py-[1px] px-[5px] font-bold text-white ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {formatNumber(price)}
+      </td>
+      {showOrdColumns && (
+        <>
+          <td className={`text-right py-[1px] px-[5px] font-bold ${rowTotal.bOrd > 0 && rowTotal.sOrd > 0 ? getComparisonColor(rowTotal.bLot / rowTotal.bOrd, rowTotal.sLot / rowTotal.sOrd, true) : 'text-white'} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {formatRatio(rowTotal.bLot, rowTotal.bOrd)}
+          </td>
+          <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(rowTotal.bOrd, rowTotal.sOrd, true)} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {formatNumberWithAbbreviation(rowTotal.bOrd)}
+          </td>
+        </>
+      )}
+      {showFrequency && (
+        <td className={`text-right py-[1px] px-[5px] font-bold ${rowTotal.bFreq > 0 && rowTotal.sFreq > 0 ? getComparisonColor(rowTotal.bLot / rowTotal.bFreq, rowTotal.sLot / rowTotal.sFreq, true) : 'text-white'} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {formatRatio(rowTotal.bLot, rowTotal.bFreq)}
+        </td>
+      )}
+      {showFrequency && (
+        <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(rowTotal.bFreq, rowTotal.sFreq, true)} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {formatNumberWithAbbreviation(rowTotal.bFreq)}
+        </td>
+      )}
+      <td className={`text-right py-[1px] px-[5px] font-bold text-white ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {formatNumber(rowTotal.bLot)}
+      </td>
+      <td className={`text-right py-[1px] px-[5px] font-bold text-white ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {formatNumber(rowTotal.sLot)}
+      </td>
+      {showFrequency && (
+        <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(rowTotal.bFreq, rowTotal.sFreq, false)} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {formatNumberWithAbbreviation(rowTotal.sFreq)}
+        </td>
+      )}
+      {showFrequency && (
+        <td className={`text-right py-[1px] px-[5px] font-bold ${rowTotal.bFreq > 0 && rowTotal.sFreq > 0 ? getComparisonColor(rowTotal.bLot / rowTotal.bFreq, rowTotal.sLot / rowTotal.sFreq, false) : 'text-white'} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {formatRatio(rowTotal.sLot, rowTotal.sFreq)}
+        </td>
+      )}
+      {showOrdColumns && (
+        <>
+          <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(rowTotal.bOrd, rowTotal.sOrd, false)} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {formatNumberWithAbbreviation(rowTotal.sOrd)}
+          </td>
+          <td className={`text-right py-[1px] px-[5px] font-bold ${rowTotal.bOrd > 0 && rowTotal.sOrd > 0 ? getComparisonColor(rowTotal.bLot / rowTotal.bOrd, rowTotal.sLot / rowTotal.sOrd, false) : 'text-white'} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {formatRatio(rowTotal.sLot, rowTotal.sOrd)}
+          </td>
+        </>
+      )}
+      {showFrequency && (
+        <td className={`text-right py-[1px] px-[5px] font-bold text-white ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {formatNumberWithAbbreviation(rowTotal.tFreq)}
+        </td>
+      )}
+      <td className={`text-right py-[1px] px-[5px] font-bold text-white ${!showOrdColumns ? 'border-r-2 border-white' : ''} ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {formatNumberWithAbbreviation(rowTotal.tLot)}
+      </td>
+      {showOrdColumns && (
+        <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white ${priceIndex === totalPrices - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {formatNumberWithAbbreviation(rowTotal.tOrd)}
+        </td>
+      )}
+    </tr>
+  );
+});
+
+interface StockSummaryTableProps {
+  stock: string;
+  visibleDates: string[];
+  processedData: any;
+  ohlcData: any[] | undefined;
+  showOrdColumns: boolean;
+  showFrequency: boolean;
+  selectedBrokers: string[];
+}
+
+const StockSummaryTable = React.memo(({
+  stock,
+  visibleDates,
+  processedData,
+  ohlcData,
+  showOrdColumns,
+  showFrequency,
+  selectedBrokers
+}: StockSummaryTableProps) => {
+  const { allPrices, dataByDateMap, rowTotals, dateTotals, grandTotals } = processedData;
+
+  const baseCols = 4;
+  const freqCols = showFrequency ? 5 : 0;
+  const ordCols = showOrdColumns ? 5 : 0;
+  const colSpan = baseCols + freqCols + ordCols;
+
+  const getBlockWidth = () => {
+    let width = 50 + 60 + 60 + 65;
+    if (showOrdColumns) width += 55 + 45 + 45 + 50 + 45;
+    if (showFrequency) width += 50 + 45 + 45 + 50 + 45;
+    return width;
+  };
+
+  const blockWidth = getBlockWidth();
+  const tableWidth = blockWidth * (visibleDates.length + 1);
+
+  return (
+    <Card key={stock}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ChevronDown className="w-5 h-5" />
+          {selectedBrokers.length > 0
+            ? `${stock} - ${selectedBrokers.join(', ')}`
+            : stock}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto -mx-4 sm:mx-0">
+          <div className="px-4 sm:px-0 pb-4 w-fit">
+            <div className="mb-2">
+              <span className="text-sm font-semibold text-foreground">{stock}</span>
+            </div>
+            <table className="text-[12px] border-collapse" style={{ tableLayout: 'fixed', width: `${tableWidth}px` }}>
+              <colgroup>
+                {[...visibleDates, 'TOTAL'].map((_, i) => (
+                  <React.Fragment key={i}>
+                    <col className="w-[50px]" />
+                    {showOrdColumns && (
+                      <>
+                        <col className="w-[55px]" />
+                        <col className="w-[45px]" />
+                      </>
+                    )}
+                    {showFrequency && (
+                      <>
+                        <col className="w-[50px]" />
+                        <col className="w-[45px]" />
+                      </>
+                    )}
+                    <col className="w-[60px]" />
+                    <col className="w-[60px]" />
+                    {showFrequency && (
+                      <>
+                        <col className="w-[45px]" />
+                        <col className="w-[50px]" />
+                      </>
+                    )}
+                    {showOrdColumns && (
+                      <>
+                        <col className="w-[45px]" />
+                        <col className="w-[50px]" />
+                      </>
+                    )}
+                    {showFrequency && <col className="w-[45px]" />}
+                    <col className="w-[65px]" />
+                    {showOrdColumns && <col className="w-[45px]" />}
+                  </React.Fragment>
+                ))}
+              </colgroup>
+              <thead>
+                <tr className="border-t-2 border-white bg-[#3a4252]">
+                  {visibleDates.map((date, dateIndex) => (
+                    <th key={date} colSpan={colSpan} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
+                      {formatDisplayDate(date)}
+                    </th>
+                  ))}
+                  <th colSpan={colSpan} className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
+                    Total
+                  </th>
+                </tr>
+                <tr className="bg-[#3a4252]">
+                  {visibleDates.map((date, dateIndex) => (
+                    <React.Fragment key={date}>
+                      <th className={`text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>Price</th>
+                      {showOrdColumns && (
+                        <>
+                          <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BLot/O</th>
+                          <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BOr</th>
+                        </>
+                      )}
+                      {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BLot/F</th>}
+                      {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BFreq</th>}
+                      <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BLot</th>
+                      <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SLot</th>
+                      {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SFreq</th>}
+                      {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SLot/F</th>}
+                      {showOrdColumns && (
+                        <>
+                          <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SOr</th>
+                          <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SLot/O</th>
+                        </>
+                      )}
+                      {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">TFreq</th>}
+                      <th className={`text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap ${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TLot</th>
+                      {showOrdColumns && (
+                        <th className={`text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap ${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TOr</th>
+                      )}
+                    </React.Fragment>
+                  ))}
+                  <th className={`text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>Price</th>
+                  {showOrdColumns && (
+                    <>
+                      <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BLot/O</th>
+                      <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BOr</th>
+                    </>
+                  )}
+                  {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BLot/F</th>}
+                  {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BFreq</th>}
+                  <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BLot</th>
+                  <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SLot</th>
+                  {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SFreq</th>}
+                  {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SLot/F</th>}
+                  {showOrdColumns && (
+                    <>
+                      <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SOr</th>
+                      <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SLot/O</th>
+                    </>
+                  )}
+                  {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">TFreq</th>}
+                  {showOrdColumns ? (
+                    <>
+                      <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">TLot</th>
+                      <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap border-r-2 border-white">TOr</th>
+                    </>
+                  ) : (
+                    <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap border-r-2 border-white">TLot</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody className="text-[12px]">
+                {allPrices.map((price: number, idx: number) => (
+                  <PriceRow
+                    key={`${stock}-${price}`}
+                    price={price}
+                    visibleDates={visibleDates}
+                    dataByDateMap={dataByDateMap}
+                    rowTotal={rowTotals.get(price)!}
+                    stock={stock}
+                    ohlcData={ohlcData}
+                    showOrdColumns={showOrdColumns}
+                    showFrequency={showFrequency}
+                    priceIndex={idx}
+                    totalPrices={allPrices.length}
+                  />
+                ))}
+                {/* Total Row */}
+                <tr className="border-t-2 border-b-2 border-white font-bold">
+                  {visibleDates.map((date, dateIndex) => {
+                    const totals = dateTotals.get(date);
+                    return (
+                      <React.Fragment key={date}>
+                        <td className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>-</td>
+                        {showOrdColumns && (
+                          <>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bOrd > 0 && totals.sOrd > 0 ? getComparisonColor(totals.bLot / totals.bOrd, totals.sLot / totals.sOrd, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {formatRatioTotals(totals.bLot, totals.bOrd)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bOrd, totals.sOrd, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {formatNumberWithAbbreviationTotals(totals.bOrd)}
+                            </td>
+                          </>
+                        )}
+                        {showFrequency && (
+                          <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bFreq > 0 && totals.sFreq > 0 ? getComparisonColor(totals.bLot / totals.bFreq, totals.sLot / totals.sFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {formatRatioTotals(totals.bLot, totals.bFreq)}
+                          </td>
+                        )}
+                        {showFrequency && (
+                          <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bFreq, totals.sFreq, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {formatNumberWithAbbreviationTotals(totals.bFreq)}
+                          </td>
+                        )}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumberWithAbbreviationTotals(totals.bLot)}</td>
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumberWithAbbreviationTotals(totals.sLot)}</td>
+                        {showFrequency && (
+                          <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bFreq, totals.sFreq, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {formatNumberWithAbbreviationTotals(totals.sFreq)}
+                          </td>
+                        )}
+                        {showFrequency && (
+                          <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bFreq > 0 && totals.sFreq > 0 ? getComparisonColor(totals.bLot / totals.bFreq, totals.sLot / totals.sFreq, false) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {formatRatioTotals(totals.sLot, totals.sFreq)}
+                          </td>
+                        )}
+                        {showOrdColumns && (
+                          <>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bOrd, totals.sOrd, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {formatNumberWithAbbreviationTotals(totals.sOrd)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bOrd > 0 && totals.sOrd > 0 ? getComparisonColor(totals.bLot / totals.bOrd, totals.sLot / totals.sOrd, false) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {formatRatioTotals(totals.sLot, totals.sOrd)}
+                            </td>
+                          </>
+                        )}
+                        {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumberWithAbbreviationTotals(totals.tFreq)}</td>}
+                        <td className={`text-right py-[1px] px-[6px] font-bold text-white ${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumberWithAbbreviationTotals(totals.tLot)}</td>
+                        {showOrdColumns && (
+                          <td className={`text-right py-[1px] px-[6px] font-bold text-white ${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumberWithAbbreviationTotals(totals.tOrd)}</td>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                  {/* Grand Total Footer Cells */}
+                  <td className={`text-center py-[1px] px-[5px] font-bold text-white ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>TOTAL</td>
+                  {showOrdColumns && (
+                    <>
+                      <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotals.bOrd > 0 && grandTotals.sOrd > 0 ? getComparisonColor(grandTotals.bLot / grandTotals.bOrd, grandTotals.sLot / grandTotals.sOrd, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {formatRatioTotals(grandTotals.bLot, grandTotals.bOrd)}
+                      </td>
+                      <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotals.bOrd, grandTotals.sOrd, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {formatNumberWithAbbreviationTotals(grandTotals.bOrd)}
+                      </td>
+                    </>
+                  )}
+                  {showFrequency && (
+                    <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotals.bFreq > 0 && grandTotals.sFreq > 0 ? getComparisonColor(grandTotals.bLot / grandTotals.bFreq, grandTotals.sLot / grandTotals.sFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatRatioTotals(grandTotals.bLot, grandTotals.bFreq)}
+                    </td>
+                  )}
+                  {showFrequency && (
+                    <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotals.bFreq, grandTotals.sFreq, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviationTotals(grandTotals.bFreq)}
+                    </td>
+                  )}
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumberWithAbbreviationTotals(grandTotals.bLot)}</td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumberWithAbbreviationTotals(grandTotals.sLot)}</td>
+                  {showFrequency && (
+                    <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotals.bFreq, grandTotals.sFreq, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviationTotals(grandTotals.sFreq)}
+                    </td>
+                  )}
+                  {showFrequency && (
+                    <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotals.bFreq > 0 && grandTotals.sFreq > 0 ? getComparisonColor(grandTotals.bLot / grandTotals.bFreq, grandTotals.sLot / grandTotals.sFreq, false) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatRatioTotals(grandTotals.sLot, grandTotals.sFreq)}
+                    </td>
+                  )}
+                  {showOrdColumns && (
+                    <>
+                      <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotals.bOrd, grandTotals.sOrd, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {formatNumberWithAbbreviationTotals(grandTotals.sOrd)}
+                      </td>
+                      <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotals.bOrd > 0 && grandTotals.sOrd > 0 ? getComparisonColor(grandTotals.bLot / grandTotals.bOrd, grandTotals.sLot / grandTotals.sOrd, false) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {formatRatioTotals(grandTotals.sLot, grandTotals.sOrd)}
+                      </td>
+                    </>
+                  )}
+                  {showFrequency && <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumberWithAbbreviation(grandTotals.tFreq)}</td>}
+                  {showOrdColumns ? (
+                    <>
+                      <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumberWithAbbreviation(grandTotals.tLot)}</td>
+                      <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumberWithAbbreviation(grandTotals.tOrd)}</td>
+                    </>
+                  ) : (
+                    <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumberWithAbbreviation(grandTotals.tLot)}</td>
+                  )}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+});
 
 interface StockTransactionDoneSummaryProps {
   selectedStock?: string;
@@ -557,7 +1071,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
 
   // Menu container ref for responsive layout
   const menuContainerRef = useRef<HTMLDivElement>(null);
-  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
+
 
   // Helper functions
   const handleStockSelect = (stock: string) => {
@@ -620,33 +1134,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
     loadStockList();
   }, []);
 
-  // Monitor menu height to detect if it wraps to 2 rows
-  useEffect(() => {
-    const checkMenuHeight = () => {
-      if (menuContainerRef.current) {
-        const menuHeight = menuContainerRef.current.offsetHeight;
-        setIsMenuTwoRows(menuHeight > 50);
-      }
-    };
 
-    checkMenuHeight();
-    window.addEventListener('resize', checkMenuHeight);
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (menuContainerRef.current) {
-      resizeObserver = new ResizeObserver(() => {
-        checkMenuHeight();
-      });
-      resizeObserver.observe(menuContainerRef.current);
-    }
-
-    return () => {
-      window.removeEventListener('resize', checkMenuHeight);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-    };
-  }, [selectedBrokers, selectedStocks, startDate, endDate]);
 
 
   // Handle click outside to close dropdowns
@@ -989,14 +1477,6 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
   }, [shouldFetchData, selectedStocks, selectedDates, selectedBrokers, invFilter, boardFilter, showToast]);
 
 
-  const formatDisplayDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
-  };
-
-
-
-  // Calculate global visible dates (union of all dates that have data across all selected stocks)
   const globalVisibleDates = useMemo(() => {
     const datesWithData = new Set<string>();
     selectedStocks.forEach(stock => {
@@ -1011,720 +1491,84 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
     return selectedDates.filter(date => datesWithData.has(date));
   }, [selectedStocks, selectedDates, priceDataByStockAndDate]);
 
-  const renderHorizontalSummaryView = (stock: string) => {
-    const stockPriceDataByDate = priceDataByStockAndDate[stock] || {};
+  // Memoized data processing for all stocks to optimize rendering
+  const processedStockData = useMemo(() => {
+    if (!isDataReady) return new Map();
 
-    // Use global visible dates for all tables to ensure consistent width
-    const visibleDates = globalVisibleDates;
+    const stockMap = new Map();
 
-    console.log('Rendering summary view for stock:', stock, {
-      selectedDates,
-      visibleDates,
-      stockPriceDataByDate,
-      stockPriceDataByDateKeys: Object.keys(stockPriceDataByDate)
+    selectedStocks.forEach(stock => {
+      const stockPriceDataByDate = priceDataByStockAndDate[stock] || {};
+      const visibleDates = globalVisibleDates;
+
+      // Convert Array to Map for O(1) lookup: date -> price -> data
+      const dataByDateMap = new Map<string, Map<number, PriceData>>();
+      visibleDates.forEach(date => {
+        const dateMap = new Map<number, PriceData>();
+        const dateData = stockPriceDataByDate[date] || [];
+        dateData.forEach(item => dateMap.set(item.price, item));
+        dataByDateMap.set(date, dateMap);
+      });
+
+      // All unique prices (pre-calculated to avoid repeat logic during render)
+      const allPrices = getAllUniquePrices(stock, visibleDates, stockPriceDataByDate, ohlcDataByStock[stock]);
+
+      // Pre-calculate row totals (Grand Total column)
+      const rowTotals = new Map<number, PriceData>();
+      allPrices.forEach(price => {
+        let bFreq = 0, sFreq = 0, bLot = 0, sLot = 0, bOrd = 0, sOrd = 0;
+        visibleDates.forEach(date => {
+          const data = dataByDateMap.get(date)?.get(price);
+          if (data) {
+            bFreq += data.bFreq || 0;
+            sFreq += data.sFreq || 0;
+            bLot += data.bLot || 0;
+            sLot += data.sLot || 0;
+            bOrd += data.bOrd || 0;
+            sOrd += data.sOrd || 0;
+          }
+        });
+        rowTotals.set(price, {
+          price,
+          bFreq, sFreq, bLot, sLot, bOrd, sOrd,
+          tFreq: bFreq + sFreq,
+          tLot: bLot + sLot,
+          tOrd: bOrd + sOrd
+        });
+      });
+
+      // Pre-calculate date totals (Footer row)
+      const dateTotals = new Map<string, any>();
+      visibleDates.forEach(date => {
+        const dateData = stockPriceDataByDate[date] || [];
+        dateTotals.set(date, calculateTotals(dateData));
+      });
+
+      // Pre-calculate grand grand totals
+      const grandTotals = Array.from(dateTotals.values()).reduce((acc, curr) => ({
+        bFreq: acc.bFreq + curr.bFreq,
+        bLot: acc.bLot + curr.bLot,
+        bOrd: acc.bOrd + curr.bOrd,
+        sLot: acc.sLot + curr.sLot,
+        sFreq: acc.sFreq + curr.sFreq,
+        sOrd: acc.sOrd + curr.sOrd,
+        tFreq: acc.tFreq + curr.tFreq,
+        tLot: acc.tLot + curr.tLot,
+        tOrd: acc.tOrd + curr.tOrd
+      }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
+
+      stockMap.set(stock, {
+        allPrices,
+        dataByDateMap,
+        rowTotals,
+        dateTotals,
+        grandTotals
+      });
     });
 
-    const allPrices = getAllUniquePrices(stock, visibleDates, stockPriceDataByDate, ohlcDataByStock[stock]);
-    console.log('All prices found:', allPrices);
+    return stockMap;
+  }, [isDataReady, selectedStocks, globalVisibleDates, priceDataByStockAndDate, ohlcDataByStock]);
 
-    const maxValues = findMaxValuesHorizontal(stock, visibleDates, stockPriceDataByDate);
-    console.log('Max values:', maxValues);
-
-    // Calculate column span based on showFrequency and showOrdColumns
-    // Base columns: Price, BLot, SLot, TLot = 4
-    // Optional: BFreq, BLot/F (2), SFreq, SLot/F (2), TFreq (1) = 5 (if showFrequency)
-    // Optional: BLot/BOr, BOr (2), SOr, SLot/SOr (2), TOr (1) = 5 (if showOrdColumns)
-    const baseCols = 4;
-    const freqCols = showFrequency ? 5 : 0;
-    const ordCols = showOrdColumns ? 5 : 0;
-    const colSpan = baseCols + freqCols + ordCols;
-
-    const getBlockWidth = () => {
-      let width = 50 + 60 + 60 + 65; // Price(50) + BLot(60) + SLot(60) + TLot(65)
-      if (showOrdColumns) {
-        width += 55 + 45; // BLot/O, BOr
-        width += 45 + 50; // SOr, SLot/O
-        width += 45; // TOr
-      }
-      if (showFrequency) {
-        width += 50 + 45; // BLot/F, BFreq
-        width += 45 + 50; // SFreq, SLot/F
-        width += 45; // TFreq
-      }
-      return width;
-    };
-
-    const blockWidth = getBlockWidth();
-    const tableWidth = blockWidth * (visibleDates.length + 1);
-
-    return (
-      <Card key={stock}>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ChevronDown className="w-5 h-5" />
-            {selectedBrokers.length > 0
-              ? `${stock} - ${selectedBrokers.join(', ')}`
-              : stock}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto -mx-4 sm:mx-0">
-            <div className="px-4 sm:px-0 pb-4 w-fit">
-              {/* Ticker label at top left of table */}
-              <div className="mb-2">
-                <span className="text-sm font-semibold text-foreground">{stock}</span>
-              </div>
-              <table className="text-[12px] border-collapse" style={{ tableLayout: 'fixed', width: `${tableWidth}px` }}>
-                <colgroup>
-                  {[...visibleDates, 'TOTAL'].map((_, i) => (
-                    <React.Fragment key={i}>
-                      <col className="w-[50px]" />
-                      {showOrdColumns && (
-                        <>
-                          <col className="w-[55px]" />
-                          <col className="w-[45px]" />
-                        </>
-                      )}
-                      {showFrequency && (
-                        <>
-                          <col className="w-[50px]" />
-                          <col className="w-[45px]" />
-                        </>
-                      )}
-                      <col className="w-[60px]" />
-                      <col className="w-[60px]" />
-                      {showFrequency && (
-                        <>
-                          <col className="w-[45px]" />
-                          <col className="w-[50px]" />
-                        </>
-                      )}
-                      {showOrdColumns && (
-                        <>
-                          <col className="w-[45px]" />
-                          <col className="w-[50px]" />
-                        </>
-                      )}
-                      {showFrequency && <col className="w-[45px]" />}
-                      <col className="w-[65px]" />
-                      {showOrdColumns && <col className="w-[45px]" />}
-                    </React.Fragment>
-                  ))}
-                </colgroup>
-                <thead>
-                  {/* Main Header Row - Dates */}
-                  <tr className="border-t-2 border-white bg-[#3a4252]">
-                    {visibleDates.map((date, dateIndex) => (
-                      <th key={date} colSpan={colSpan} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
-                        {formatDisplayDate(date)}
-                      </th>
-                    ))}
-                    <th colSpan={colSpan} className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
-                      Total
-                    </th>
-                  </tr>
-                  {/* Sub Header Row - Metrics */}
-                  <tr className="bg-[#3a4252]">
-                    {visibleDates.map((date, dateIndex) => (
-                      <React.Fragment key={date}>
-                        <th className={`text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>Price</th>
-                        {showOrdColumns && (
-                          <>
-                            <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BLot/O</th>
-                            <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BOr</th>
-                          </>
-                        )}
-                        {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BLot/F</th>}
-                        {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BFreq</th>}
-                        <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">BLot</th>
-                        <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SLot</th>
-                        {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SFreq</th>}
-                        {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SLot/F</th>}
-                        {showOrdColumns && (
-                          <>
-                            <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SOr</th>
-                            <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">SLot/O</th>
-                          </>
-                        )}
-                        {showFrequency && <th className="text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap">TFreq</th>}
-                        <th className={`text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap ${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TLot</th>
-                        {showOrdColumns && (
-                          <th className={`text-center py-[1px] px-[4px] font-bold text-white whitespace-nowrap ${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TOr</th>
-                        )}
-                      </React.Fragment>
-                    ))}
-                    <th className={`text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>Price</th>
-                    {showOrdColumns && (
-                      <>
-                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BLot/O</th>
-                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BOr</th>
-                      </>
-                    )}
-                    {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BLot/F</th>}
-                    {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BFreq</th>}
-                    <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">BLot</th>
-                    <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SLot</th>
-                    {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SFreq</th>}
-                    {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SLot/F</th>}
-                    {showOrdColumns && (
-                      <>
-                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SOr</th>
-                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">SLot/O</th>
-                      </>
-                    )}
-                    {showFrequency && <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">TFreq</th>}
-                    {showOrdColumns ? (
-                      <>
-                        <th className="text-center py-[1px] px-[3px] font-bold text-white whitespace-nowrap">TLot</th>
-                        <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap border-r-2 border-white">TOr</th>
-                      </>
-                    ) : (
-                      <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap border-r-2 border-white">TLot</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody className="text-[12px]">
-                  {allPrices.map((price, priceIndex) => {
-                    return (
-                      <tr key={price} className={`hover:bg-accent/50 ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`}>
-                        {visibleDates.map((date, dateIndex) => {
-                          // Get data for this specific date and price (only if exists in CSV for this date)
-                          const dateData = stockPriceDataByDate[date] || [];
-                          const data = dateData.find(item => item.price === price) || null;
-
-                          // Calculate background color based on OHLC
-                          let bgClass = '';
-                          let textClass = 'text-white'; // Default text color
-
-                          const stockOhlc = ohlcDataByStock[stock] || [];
-                          // Find OHLC row matching the date
-                          // OHLC time is in seconds, convert to date string YYYY-MM-DD
-                          // We need to match date string from selectedDates (YYYY-MM-DD)
-                          // Note: selectedDates are in local time formatted YYYY-MM-DD
-                          // OHLC time from API is typically UTC midnight or market open
-                          // We need to be careful with timezone.
-                          // But typically api.getStockData returns daily candles.
-                          const ohlc = stockOhlc.find(row => {
-                            const rowDate = new Date(row.time * 1000).toISOString().split('T')[0];
-                            // Simple string comparison might fail if timezones differ significantly
-                            // But let's assume API dates align with selected dates
-                            return rowDate === date;
-                          });
-
-                          if (ohlc) {
-                            if (ohlc.close >= ohlc.open && price >= ohlc.open && price <= ohlc.close) {
-                              bgClass = 'bg-green-500/20'; // Bullish Range
-                            } else if (ohlc.close < ohlc.open && price >= ohlc.close && price <= ohlc.open) {
-                              bgClass = 'bg-red-500/20'; // Bearish Range
-                            }
-                          }
-
-                          const isWick = ohlc && (
-                            (price >= ohlc.low && price < Math.min(ohlc.open, ohlc.close)) ||
-                            (price > Math.max(ohlc.open, ohlc.close) && price <= ohlc.high)
-                          );
-                          const wickBorderClassL = isWick ? 'border-l-2 border-gray-500' : '';
-                          const wickBorderClassR = isWick ? 'border-r-2 border-gray-500' : '';
-
-                          let ohlcBorderClass = '';
-                          let hasBottomOhlcBorder = false;
-                          let hasTopOhlcBorder = false;
-                          if (ohlc) {
-                            if (ohlc.close < ohlc.open) {
-                              // Bearish
-                              if (price === ohlc.open) {
-                                ohlcBorderClass = 'border-t-2 border-t-gray-500';
-                                hasTopOhlcBorder = true;
-                              } else if (price === ohlc.close) {
-                                ohlcBorderClass = 'border-b-2 border-b-gray-500';
-                                hasBottomOhlcBorder = true;
-                              }
-                            } else {
-                              // Bullish or Doji
-                              if (price === ohlc.open && price === ohlc.close) {
-                                // Doji case: Open == Close == Price
-                                ohlcBorderClass = 'border-t-2 border-t-gray-500 border-b-2 border-b-gray-500';
-                                hasTopOhlcBorder = true;
-                                hasBottomOhlcBorder = true;
-                              } else if (price === ohlc.open) {
-                                ohlcBorderClass = 'border-b-2 border-b-gray-500';
-                                hasBottomOhlcBorder = true;
-                              } else if (price === ohlc.close) {
-                                ohlcBorderClass = 'border-t-2 border-t-gray-500';
-                                hasTopOhlcBorder = true;
-                              }
-                            }
-                          }
-
-                          // Helper to combine classes
-                          const cellClass = (align: string, border: string, textColor: string = 'text-white') => {
-                            // If we have an OHLC bottom border, and the caller is trying to add a white bottom border,
-                            // we prioritize the OHLC grey border by removing the white one.
-                            let finalBorder = border;
-                            if (hasBottomOhlcBorder) {
-                              finalBorder = finalBorder.replace('border-b-2 border-white', '');
-                            }
-                            if (hasTopOhlcBorder) {
-                              finalBorder = finalBorder.replace('border-t-2 border-white', '');
-                            }
-                            // ohlcBorderClass is put at the end to ensure it takes priority
-                            return `${align} py-[1px] px-[4px] font-bold ${bgClass} ${textColor} ${finalBorder} ${ohlcBorderClass}`;
-                          };
-
-                          // If no data for this price in this date, show empty cells
-                          if (!data) {
-                            return (
-                              <React.Fragment key={date}>
-                                <td className={`text-center py-[1px] px-[6px] font-bold ${bgClass} text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${priceIndex === allPrices.length - 1 && !hasBottomOhlcBorder ? 'border-b-2 border-white' : ''} ${ohlcBorderClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {ohlc && (price < ohlc.low || price > ohlc.high) ? '-' : formatNumber(price)}
-                                </td>
-                                {showOrdColumns && (
-                                  <>
-                                    <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>
-                                    <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>
-                                  </>
-                                )}
-                                {showFrequency && <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>}
-                                {showFrequency && <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>}
-                                <td className={cellClass('text-right', `${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''} ${wickBorderClassR}`)}>-</td>
-                                <td className={cellClass('text-right', `${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''} ${wickBorderClassL}`)}>-</td>
-                                {showFrequency && <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>}
-                                {showFrequency && <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>}
-                                {showOrdColumns && (
-                                  <>
-                                    <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>
-                                    <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>
-                                  </>
-                                )}
-                                {showFrequency && <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')}>-</td>}
-                                <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
-                                {showOrdColumns && (
-                                  <td className={cellClass('text-right', `${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)}>-</td>
-                                )}
-                              </React.Fragment>
-                            );
-                          }
-
-                          return (
-                            <React.Fragment key={date}>
-                              {/* Price */}
-                              <td className={`text-center py-[1px] px-[6px] font-bold ${bgClass} text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${priceIndex === allPrices.length - 1 && !hasBottomOhlcBorder ? 'border-b-2 border-white' : ''} ${ohlcBorderClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {ohlc && (price < ohlc.low || price > ohlc.high) ? '-' : formatNumber(price)}
-                              </td>
-                              {/* BLot/BOr */}
-                              {showOrdColumns && (
-                                <>
-                                  <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data && data.bOrd > 0 && data.sOrd > 0 ? getComparisonColor(data.bLot / data.bOrd, data.sLot / data.sOrd, true) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {data ? formatRatio(data.bLot, data.bOrd) : '-'}
-                                  </td>
-                                  {/* BOr */}
-                                  <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data ? getComparisonColor(data.bOrd, data.sOrd, true) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {data ? formatNumberWithAbbreviation(data.bOrd) : '-'}
-                                  </td>
-                                </>
-                              )}
-                              {/* BLot/Freq */}
-                              {showFrequency && (
-                                <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data && data.bFreq > 0 && data.sFreq > 0 ? getComparisonColor(data.bLot / data.bFreq, data.sLot / data.sFreq, true) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {data ? formatRatio(data.bLot, data.bFreq) : '-'}
-                                </td>
-                              )}
-                              {/* BFreq */}
-                              {showFrequency && (
-                                <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data ? getComparisonColor(data.bFreq, data.sFreq, true) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {data ? formatNumberWithAbbreviation(data.bFreq) : '-'}
-                                </td>
-                              )}
-                              {/* BLot */}
-                              <td className={cellClass('text-right', `${priceIndex === allPrices.length - 1 && !isWick ? 'border-b-2 border-white' : ''} ${wickBorderClassR}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {data ? formatNumber(data.bLot) : '-'}
-                              </td>
-                              {/* SLot */}
-                              <td className={cellClass('text-right', `${priceIndex === allPrices.length - 1 && !isWick ? 'border-b-2 border-white' : ''} ${wickBorderClassL}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {data ? formatNumber(data.sLot) : '-'}
-                              </td>
-                              {/* SFreq */}
-                              {showFrequency && (
-                                <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data ? getComparisonColor(data.bFreq, data.sFreq, false) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {data ? formatNumberWithAbbreviation(data.sFreq) : '-'}
-                                </td>
-                              )}
-                              {/* SLot/Freq */}
-                              {showFrequency && (
-                                <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data && data.bFreq > 0 && data.sFreq > 0 ? getComparisonColor(data.bLot / data.bFreq, data.sLot / data.sFreq, false) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {data ? formatRatio(data.sLot, data.sFreq) : '-'}
-                                </td>
-                              )}
-                              {/* SOr */}
-                              {showOrdColumns && (
-                                <>
-                                  <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data ? getComparisonColor(data.bOrd, data.sOrd, false) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {data ? formatNumberWithAbbreviation(data.sOrd) : '-'}
-                                  </td>
-                                  {/* SLot/SOr */}
-                                  <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '', data && data.bOrd > 0 && data.sOrd > 0 ? getComparisonColor(data.bLot / data.bOrd, data.sLot / data.sOrd, false) : 'text-white')} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {data ? formatRatio(data.sLot, data.sOrd) : '-'}
-                                  </td>
-                                </>
-                              )}
-                              {/* TFreq */}
-                              {showFrequency && (
-                                <td className={cellClass('text-right', priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : '')} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {data ? formatNumberWithAbbreviation(data.tFreq) : '-'}
-                                </td>
-                              )}
-                              {/* TLot */}
-                              <td className={cellClass('text-right', `${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {data ? formatNumberWithAbbreviation(data.tLot) : '-'}
-                              </td>
-                              {/* TOr */}
-                              {showOrdColumns && (
-                                <td className={cellClass('text-right', `${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-r-white' : ''} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`)} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {data ? formatNumberWithAbbreviation(data.tOrd) : '-'}
-                                </td>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                        {/* Grand Total Column for each row */}
-                        {(() => {
-                          const totalBFreq = visibleDates.reduce((sum, date) => {
-                            const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
-                            return sum + (data?.bFreq || 0);
-                          }, 0);
-                          const totalSFreq = visibleDates.reduce((sum, date) => {
-                            const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
-                            return sum + (data?.sFreq || 0);
-                          }, 0);
-                          const totalBLot = visibleDates.reduce((sum, date) => {
-                            const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
-                            return sum + (data?.bLot || 0);
-                          }, 0);
-                          const totalSLot = visibleDates.reduce((sum, date) => {
-                            const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
-                            return sum + (data?.sLot || 0);
-                          }, 0);
-                          const totalBOrd = visibleDates.reduce((sum, date) => {
-                            const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
-                            return sum + (data?.bOrd || 0);
-                          }, 0);
-                          const totalSOrd = visibleDates.reduce((sum, date) => {
-                            const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
-                            return sum + (data?.sOrd || 0);
-                          }, 0);
-                          const totalBLotPerFreq = totalBFreq > 0 ? totalBLot / totalBFreq : 0;
-                          const totalSLotPerFreq = totalSFreq > 0 ? totalSLot / totalSFreq : 0;
-                          const totalBLotPerOrd = totalBOrd > 0 ? totalBLot / totalBOrd : 0;
-                          const totalSLotPerOrd = totalSOrd > 0 ? totalSLot / totalSOrd : 0;
-
-                          return (
-                            <>
-                              <td className={`text-center py-[1px] px-[5px] font-bold text-white ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumber(price)}
-                              </td>
-                              {showOrdColumns && (
-                                <>
-                                  <td className={`text-right py-[1px] px-[5px] font-bold ${totalBOrd > 0 && totalSOrd > 0 ? getComparisonColor(totalBLotPerOrd, totalSLotPerOrd, true) : 'text-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatRatio(totalBLot, totalBOrd)}
-                                  </td>
-                                  <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(totalBOrd, totalSOrd, true)} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatNumberWithAbbreviation(totalBOrd)}
-                                  </td>
-                                </>
-                              )}
-                              {showFrequency && (
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalBFreq > 0 && totalSFreq > 0 ? getComparisonColor(totalBLotPerFreq, totalSLotPerFreq, true) : 'text-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {formatRatio(totalBLot, totalBFreq)}
-                                </td>
-                              )}
-                              {showFrequency && (
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(totalBFreq, totalSFreq, true)} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {formatNumberWithAbbreviation(totalBFreq)}
-                                </td>
-                              )}
-                              <td className={`text-right py-[1px] px-[5px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumber(totalBLot)}
-                              </td>
-                              <td className={`text-right py-[1px] px-[5px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumber(totalSLot)}
-                              </td>
-                              {showFrequency && (
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(totalBFreq, totalSFreq, false)} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {formatNumberWithAbbreviation(totalSFreq)}
-                                </td>
-                              )}
-                              {showFrequency && (
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalBFreq > 0 && totalSFreq > 0 ? getComparisonColor(totalBLotPerFreq, totalSLotPerFreq, false) : 'text-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {formatRatio(totalSLot, totalSFreq)}
-                                </td>
-                              )}
-                              {showOrdColumns && (
-                                <>
-                                  <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(totalBOrd, totalSOrd, false)} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatNumberWithAbbreviation(totalSOrd)}
-                                  </td>
-                                  <td className={`text-right py-[1px] px-[5px] font-bold ${totalBOrd > 0 && totalSOrd > 0 ? getComparisonColor(totalBLotPerOrd, totalSLotPerOrd, false) : 'text-white'} ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatRatio(totalSLot, totalSOrd)}
-                                  </td>
-                                </>
-                              )}
-                              {showFrequency && (
-                                <td className={`text-right py-[1px] px-[5px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {formatNumberWithAbbreviation(visibleDates.reduce((sum, date) => {
-                                    const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
-                                    return sum + (data?.tFreq || 0);
-                                  }, 0))}
-                                </td>
-                              )}
-                              {showOrdColumns ? (
-                                <>
-                                  <td className={`text-right py-[1px] px-[5px] font-bold text-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatNumberWithAbbreviation(visibleDates.reduce((sum, date) => {
-                                      const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
-                                      return sum + (data?.tLot || 0);
-                                    }, 0))}
-                                  </td>
-                                  <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-r-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatNumberWithAbbreviation(visibleDates.reduce((sum, date) => {
-                                      const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
-                                      return sum + (data?.tOrd || 0);
-                                    }, 0))}
-                                  </td>
-                                </>
-                              ) : (
-                                <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white ${priceIndex === allPrices.length - 1 ? 'border-b-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                  {formatNumberWithAbbreviation(visibleDates.reduce((sum, date) => {
-                                    const data = getDataForPriceAndDate(stock, date, price, stockPriceDataByDate);
-                                    return sum + (data?.tLot || 0);
-                                  }, 0))}
-                                </td>
-                              )}
-                            </>
-                          );
-                        })()}
-                      </tr>
-                    );
-                  }).filter(Boolean)}
-                  {/* Total Row */}
-                  <tr className="border-t-2 border-b-2 border-white font-bold">
-                    {visibleDates.map((date, dateIndex) => {
-                      const dateData = stockPriceDataByDate[date] || [];
-                      const totals = calculateTotals(dateData);
-                      return (
-                        <React.Fragment key={date}>
-                          {/* Price - empty for Total row */}
-                          <td className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>
-                            -
-                          </td>
-                          {/* BLot/BOr */}
-                          {showOrdColumns && (
-                            <>
-                              <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bOrd > 0 && totals.sOrd > 0 ? getComparisonColor(totals.bLot / totals.bOrd, totals.sLot / totals.sOrd, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatRatioTotals(totals.bLot, totals.bOrd)}
-                              </td>
-                              {/* BOr */}
-                              <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bOrd, totals.sOrd, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumberWithAbbreviationTotals(totals.bOrd)}
-                              </td>
-                            </>
-                          )}
-                          {/* BLot/Freq */}
-                          {showFrequency && (
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bFreq > 0 && totals.sFreq > 0 ? getComparisonColor(totals.bLot / totals.bFreq, totals.sLot / totals.sFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatRatioTotals(totals.bLot, totals.bFreq)}
-                            </td>
-                          )}
-                          {/* BFreq */}
-                          {showFrequency && (
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bFreq, totals.sFreq, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviationTotals(totals.bFreq)}
-                            </td>
-                          )}
-                          {/* BLot */}
-                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumberWithAbbreviationTotals(totals.bLot)}
-                          </td>
-                          {/* SLot */}
-                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumberWithAbbreviationTotals(totals.sLot)}
-                          </td>
-                          {/* SFreq */}
-                          {showFrequency && (
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bFreq, totals.sFreq, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviationTotals(totals.sFreq)}
-                            </td>
-                          )}
-                          {/* SLot/Freq */}
-                          {showFrequency && (
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bFreq > 0 && totals.sFreq > 0 ? getComparisonColor(totals.bLot / totals.bFreq, totals.sLot / totals.sFreq, false) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatRatioTotals(totals.sLot, totals.sFreq)}
-                            </td>
-                          )}
-                          {/* SOr */}
-                          {showOrdColumns && (
-                            <>
-                              <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bOrd, totals.sOrd, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumberWithAbbreviationTotals(totals.sOrd)}
-                              </td>
-                              {/* SLot/SOr */}
-                              <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bOrd > 0 && totals.sOrd > 0 ? getComparisonColor(totals.bLot / totals.bOrd, totals.sLot / totals.sOrd, false) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatRatioTotals(totals.sLot, totals.sOrd)}
-                              </td>
-                            </>
-                          )}
-                          {/* TFreq */}
-                          {showFrequency && (
-                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviationTotals(totals.tFreq)}
-                            </td>
-                          )}
-                          {/* TLot */}
-                          <td className={`text-right py-[1px] px-[6px] font-bold text-white ${!showOrdColumns && dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrdColumns && dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumberWithAbbreviationTotals(totals.tLot)}
-                          </td>
-                          {/* TOr */}
-                          {showOrdColumns && (
-                            <td className={`text-right py-[1px] px-[6px] font-bold text-white ${dateIndex < visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === visibleDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviationTotals(totals.tOrd)}
-                            </td>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                    {/* Grand Total Column */}
-                    {(() => {
-                      const grandTotalBFreq = visibleDates.reduce((sum, date) => {
-                        const dateData = stockPriceDataByDate[date] || [];
-                        const totals = calculateTotals(dateData);
-                        return sum + totals.bFreq;
-                      }, 0);
-                      const grandTotalSFreq = visibleDates.reduce((sum, date) => {
-                        const dateData = stockPriceDataByDate[date] || [];
-                        const totals = calculateTotals(dateData);
-                        return sum + totals.sFreq;
-                      }, 0);
-                      const grandTotalBLot = visibleDates.reduce((sum, date) => {
-                        const dateData = stockPriceDataByDate[date] || [];
-                        const totals = calculateTotals(dateData);
-                        return sum + totals.bLot;
-                      }, 0);
-                      const grandTotalSLot = visibleDates.reduce((sum, date) => {
-                        const dateData = stockPriceDataByDate[date] || [];
-                        const totals = calculateTotals(dateData);
-                        return sum + totals.sLot;
-                      }, 0);
-                      const grandTotalBOrd = visibleDates.reduce((sum, date) => {
-                        const dateData = stockPriceDataByDate[date] || [];
-                        const totals = calculateTotals(dateData);
-                        return sum + totals.bOrd;
-                      }, 0);
-                      const grandTotalSOrd = visibleDates.reduce((sum, date) => {
-                        const dateData = stockPriceDataByDate[date] || [];
-                        const totals = calculateTotals(dateData);
-                        return sum + totals.sOrd;
-                      }, 0);
-                      const grandTotalBLotPerFreq = grandTotalBFreq > 0 ? grandTotalBLot / grandTotalBFreq : 0;
-                      const grandTotalSLotPerFreq = grandTotalSFreq > 0 ? grandTotalSLot / grandTotalSFreq : 0;
-                      const grandTotalBLotPerOrd = grandTotalBOrd > 0 ? grandTotalBLot / grandTotalBOrd : 0;
-                      const grandTotalSLotPerOrd = grandTotalSOrd > 0 ? grandTotalSLot / grandTotalSOrd : 0;
-                      const grandTotalTFreq = visibleDates.reduce((sum, date) => {
-                        const dateData = stockPriceDataByDate[date] || [];
-                        const totals = calculateTotals(dateData);
-                        return sum + totals.tFreq;
-                      }, 0);
-                      const grandTotalTLot = visibleDates.reduce((sum, date) => {
-                        const dateData = stockPriceDataByDate[date] || [];
-                        const totals = calculateTotals(dateData);
-                        return sum + totals.tLot;
-                      }, 0);
-                      const grandTotalTOrd = visibleDates.reduce((sum, date) => {
-                        const dateData = stockPriceDataByDate[date] || [];
-                        const totals = calculateTotals(dateData);
-                        return sum + totals.tOrd;
-                      }, 0);
-
-                      return (
-                        <>
-                          <td className={`text-center py-[1px] px-[5px] font-bold text-white ${visibleDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
-                            TOTAL
-                          </td>
-                          {showOrdColumns && (
-                            <>
-                              <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotalBOrd > 0 && grandTotalSOrd > 0 ? getComparisonColor(grandTotalBLotPerOrd, grandTotalSLotPerOrd, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatRatioTotals(grandTotalBLot, grandTotalBOrd)}
-                              </td>
-                              <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotalBOrd, grandTotalSOrd, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumberWithAbbreviationTotals(grandTotalBOrd)}
-                              </td>
-                            </>
-                          )}
-                          {showFrequency && (
-                            <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotalBFreq > 0 && grandTotalSFreq > 0 ? getComparisonColor(grandTotalBLotPerFreq, grandTotalSLotPerFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatRatioTotals(grandTotalBLot, grandTotalBFreq)}
-                            </td>
-                          )}
-                          {showFrequency && (
-                            <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotalBFreq, grandTotalSFreq, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviationTotals(grandTotalBFreq)}
-                            </td>
-                          )}
-                          <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumberWithAbbreviationTotals(grandTotalBLot)}
-                          </td>
-                          <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatNumberWithAbbreviationTotals(grandTotalSLot)}
-                          </td>
-                          {showFrequency && (
-                            <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotalBFreq, grandTotalSFreq, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviationTotals(grandTotalSFreq)}
-                            </td>
-                          )}
-                          {showFrequency && (
-                            <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotalBFreq > 0 && grandTotalSFreq > 0 ? getComparisonColor(grandTotalBLotPerFreq, grandTotalSLotPerFreq, false) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatRatioTotals(grandTotalSLot, grandTotalSFreq)}
-                            </td>
-                          )}
-                          {showOrdColumns && (
-                            <>
-                              <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotalBOrd, grandTotalSOrd, false)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumberWithAbbreviationTotals(grandTotalSOrd)}
-                              </td>
-                              <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotalBOrd > 0 && grandTotalSOrd > 0 ? getComparisonColor(grandTotalBLotPerOrd, grandTotalSLotPerOrd, false) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatRatioTotals(grandTotalSLot, grandTotalSOrd)}
-                              </td>
-                            </>
-                          )}
-                          {showFrequency && (
-                            <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviation(grandTotalTFreq)}
-                            </td>
-                          )}
-                          {showOrdColumns ? (
-                            <>
-                              <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumberWithAbbreviation(grandTotalTLot)}
-                              </td>
-                              <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                {formatNumberWithAbbreviation(grandTotalTOrd)}
-                              </td>
-                            </>
-                          ) : (
-                            <td className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatNumberWithAbbreviation(grandTotalTLot)}
-                            </td>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  };
 
 
   const formatDateForInput = (date: string | undefined) => {
@@ -1742,7 +1586,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       {/* On small/medium screens menu scrolls bersama konten. Hanya di layar besar (lg+) yang fixed di top. */}
-      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:sticky lg:top-0 lg:z-40">
         <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-2 md:gap-x-7 md:gap-y-0.2">
           {/* Ticker Selection */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
@@ -2239,8 +2083,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
         </div>
       </div>
 
-      {/* Spacer untuk header fixed - hanya dibutuhkan di layar besar (lg+) */}
-      <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[35px]"}></div>
+
 
       {/* Loading State */}
       {loading && (
@@ -2261,7 +2104,22 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
 
       {/* Main Data Display */}
       <div className="pt-2 space-y-6">
-        {!loading && !error && isDataReady && selectedStocks.map(stock => renderHorizontalSummaryView(stock))}
+        {!loading && !error && isDataReady && selectedStocks.map(stock => {
+          const processedData = processedStockData.get(stock);
+          if (!processedData) return null;
+          return (
+            <StockSummaryTable
+              key={stock}
+              stock={stock}
+              visibleDates={globalVisibleDates}
+              processedData={processedData}
+              ohlcData={ohlcDataByStock[stock] || []}
+              showOrdColumns={showOrdColumns}
+              showFrequency={showFrequency}
+              selectedBrokers={selectedBrokers}
+            />
+          );
+        })}
       </div>
     </div>
   );

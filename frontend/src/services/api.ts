@@ -107,6 +107,18 @@ const authenticatedFetch = async (
   return response;
 };
 
+// Helper for safe JSON parsing
+const safeJson = async (res: Response) => {
+  try {
+    const text = await res.text();
+    if (!text || text.trim() === '') return {};
+    return JSON.parse(text);
+  } catch (err) {
+    console.warn('safeJson: Failed to parse response', err);
+    return {};
+  }
+};
+
 export const api = {
   // Market Rotation Outputs (Azure-backed)
   async listMarketRotationOutputs(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend'): Promise<{ success: boolean; data?: { prefix: string; files: string[] }; error?: string }> {
@@ -1761,8 +1773,8 @@ export const api = {
   // Trend Filter API
   async getTrendFilterStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/trend-filter/status`);
-      const json = await res.json();
+      const res = await authenticatedFetch(`${API_URL}/api/trend-filter/status`);
+      const json = await safeJson(res);
       if (!res.ok) throw new Error(json.error || 'Failed to get trend filter status');
       return { success: true, data: json.data };
     } catch (err: any) {
@@ -1772,11 +1784,11 @@ export const api = {
 
   async generateTrendFilter(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/trend-filter/generate`, {
+      const res = await authenticatedFetch(`${API_URL}/api/trend-filter/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
-      const json = await res.json();
+      const json = await safeJson(res);
       if (!res.ok) throw new Error(json.error || 'Failed to generate trend filter');
       return { success: true, data: json.data };
     } catch (err: any) {
@@ -1789,8 +1801,8 @@ export const api = {
       const url = period
         ? `${API_URL}/api/trend-filter/data/${period}`
         : `${API_URL}/api/trend-filter/data`;
-      const res = await fetch(url);
-      const json = await res.json();
+      const res = await authenticatedFetch(url);
+      const json = await safeJson(res);
       if (!res.ok) throw new Error(json.error || 'Failed to get trend filter data');
       return { success: true, data: json.data };
     } catch (err: any) {
@@ -1800,8 +1812,8 @@ export const api = {
 
   async getTrendFilterPeriods(): Promise<{ success: boolean; data?: string[]; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/trend-filter/periods`);
-      const json = await res.json();
+      const res = await authenticatedFetch(`${API_URL}/api/trend-filter/periods`);
+      const json = await safeJson(res);
       if (!res.ok) throw new Error(json.error || 'Failed to get trend filter periods');
       return { success: true, data: json.data };
     } catch (err: any) {

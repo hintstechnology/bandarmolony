@@ -1529,8 +1529,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const [brokerVisibility, setBrokerVisibility] = useState<Record<string, boolean>>({});
   const [defaultBrokers, setDefaultBrokers] = useState<string[]>([]);
   const [hasUserSelectedBrokers, setHasUserSelectedBrokers] = useState(false);
-  const controlMenuRef = useRef<HTMLDivElement>(null);
-  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
+
+
   const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Temporary filter (can be changed before Show button clicked)
   const [displayedFdFilter, setDisplayedFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Actual filter used for data display (updated when Show button clicked)
   const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG
@@ -1644,34 +1644,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     });
   }, [selectedBrokers]);
 
-  useEffect(() => {
-    if (hideControls) {
-      return;
-    }
 
-    const updateSpacerHeight = () => {
-      if (controlMenuRef.current) {
-        const height = controlMenuRef.current.offsetHeight;
-        setControlSpacerHeight(Math.max(height, 48));
-      }
-    };
-
-    updateSpacerHeight();
-    window.addEventListener('resize', updateSpacerHeight);
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined' && controlMenuRef.current) {
-      resizeObserver = new ResizeObserver(() => updateSpacerHeight());
-      resizeObserver.observe(controlMenuRef.current);
-    }
-
-    return () => {
-      window.removeEventListener('resize', updateSpacerHeight);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-    };
-  }, [hideControls, selectedTicker, selectedBrokers, startDate, endDate, topBrokersCount]);
 
   const visibleBrokers = useMemo(
     () => {
@@ -4112,8 +4085,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
       {!hideControls && (
         <>
           {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
-          <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
-            <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+          <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:sticky lg:top-0 lg:z-40">
+            <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
               {/* Ticker Selection */}
               {!disableTickerSelection && (
                 <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
@@ -4937,8 +4910,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
               </button>
             </div>
           </div>
-          {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-          <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
+
         </>
       )}
 

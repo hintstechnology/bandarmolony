@@ -84,14 +84,14 @@ export function MarketRotationSeasonality() {
   const indexDropdownRef = useRef<HTMLDivElement>(null);
   const sectorDropdownRef = useRef<HTMLDivElement>(null);
   const controlPanelRef = useRef<HTMLDivElement>(null);
-  
+
   // Keyboard navigation state
   const [stockDropdownIndex, setStockDropdownIndex] = useState(-1);
   const [indexDropdownIndex, setIndexDropdownIndex] = useState(-1);
   const [sectorDropdownIndex, setSectorDropdownIndex] = useState(-1);
-  
+
   // Control panel spacer height for fixed positioning
-  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
+
 
   // API data states
   const [indexData, setIndexData] = useState<ApiSeasonalityData[]>([]);
@@ -108,7 +108,7 @@ export function MarketRotationSeasonality() {
   const loadSeasonalityData = async (type: 'index' | 'sector' | 'stock') => {
     setLoading(prev => ({ ...prev, [type]: true }));
     setError(null);
-    
+
     try {
       console.log(`🔄 Loading ${type} data from API...`);
       const response = await api.getSeasonalityData(type, undefined, undefined);
@@ -118,7 +118,7 @@ export function MarketRotationSeasonality() {
           dataLength: response.data.data?.length,
           fileName: response.data.fileName
         });
-        
+
         if (type === 'index') {
           setIndexData(response.data.data);
         } else if (type === 'sector') {
@@ -192,38 +192,7 @@ export function MarketRotationSeasonality() {
     };
   }, []);
 
-  // Update spacer height for fixed control panel
-  // Match BrokerSummaryPage: single row ~38px, two rows ~60px
-  useEffect(() => {
-    const updateSpacerHeight = () => {
-      if (controlPanelRef.current) {
-        const height = controlPanelRef.current.offsetHeight;
-        // Match BrokerSummaryPage logic: if height > 50px, it's likely 2 rows
-        // Single row is usually ~38px, two rows is usually ~60px
-        if (height > 50) {
-          setControlSpacerHeight(60);
-        } else {
-          setControlSpacerHeight(38);
-        }
-      }
-    };
 
-    updateSpacerHeight();
-    window.addEventListener('resize', updateSpacerHeight);
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined' && controlPanelRef.current) {
-      resizeObserver = new ResizeObserver(() => updateSpacerHeight());
-      resizeObserver.observe(controlPanelRef.current);
-    }
-
-    return () => {
-      window.removeEventListener('resize', updateSpacerHeight);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-    };
-  }, []);
 
   const addIndex = (index: string) => {
     if (!selectedIndices.includes(index)) {
@@ -236,7 +205,7 @@ export function MarketRotationSeasonality() {
 
   const getFilteredIndices = () => {
     const availableIndices = getAvailableIndices();
-    return availableIndices.filter(index => 
+    return availableIndices.filter(index =>
       index.toLowerCase().includes(indexSearchQuery.toLowerCase()) &&
       !selectedIndices.includes(index)
     );
@@ -261,7 +230,7 @@ export function MarketRotationSeasonality() {
 
   const getFilteredSectors = () => {
     const availableSectors = getAvailableSectors();
-    return availableSectors.filter(sector => 
+    return availableSectors.filter(sector =>
       sector.toLowerCase().includes(sectorSearchQuery.toLowerCase()) &&
       !selectedSectors.includes(sector)
     );
@@ -282,7 +251,7 @@ export function MarketRotationSeasonality() {
 
   const getFilteredStocks = () => {
     const availableStocksFromApi = getAvailableStocks();
-    return availableStocksFromApi.filter(stock => 
+    return availableStocksFromApi.filter(stock =>
       stock.toLowerCase().includes(searchQuery.toLowerCase()) &&
       !selectedStocks.includes(stock)
     );
@@ -295,17 +264,17 @@ export function MarketRotationSeasonality() {
   // Keyboard navigation handlers
   const handleStockKeyDown = (e: React.KeyboardEvent) => {
     const availableStocks = getFilteredStocks();
-    
+
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setStockDropdownIndex(prev => 
+        setStockDropdownIndex(prev =>
           prev < availableStocks.length - 1 ? prev + 1 : 0
         );
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setStockDropdownIndex(prev => 
+        setStockDropdownIndex(prev =>
           prev > 0 ? prev - 1 : availableStocks.length - 1
         );
         break;
@@ -324,17 +293,17 @@ export function MarketRotationSeasonality() {
 
   const handleIndexKeyDown = (e: React.KeyboardEvent) => {
     const availableIndices = getFilteredIndices();
-    
+
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setIndexDropdownIndex(prev => 
+        setIndexDropdownIndex(prev =>
           prev < availableIndices.length - 1 ? prev + 1 : 0
         );
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setIndexDropdownIndex(prev => 
+        setIndexDropdownIndex(prev =>
           prev > 0 ? prev - 1 : availableIndices.length - 1
         );
         break;
@@ -353,17 +322,17 @@ export function MarketRotationSeasonality() {
 
   const handleSectorKeyDown = (e: React.KeyboardEvent) => {
     const availableSectors = getFilteredSectors();
-    
+
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setSectorDropdownIndex(prev => 
+        setSectorDropdownIndex(prev =>
           prev < availableSectors.length - 1 ? prev + 1 : 0
         );
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setSectorDropdownIndex(prev => 
+        setSectorDropdownIndex(prev =>
           prev > 0 ? prev - 1 : availableSectors.length - 1
         );
         break;
@@ -383,18 +352,18 @@ export function MarketRotationSeasonality() {
   // Convert API data to frontend format
   const convertApiDataToSeasonality = (apiData: ApiSeasonalityData[]): SeasonalityData => {
     const result: SeasonalityData = {};
-    
+
     console.log(`📊 Converting ${apiData.length} API items to seasonality data`);
-    
+
     // Check for duplicates in API data
     const keys = apiData.map(item => item.Ticker || item.Sector || '').filter(Boolean);
     const uniqueKeys = [...new Set(keys)];
     const duplicates = keys.filter((key, index) => keys.indexOf(key) !== index);
-    
+
     if (duplicates.length > 0) {
       console.warn(`⚠️ Found ${duplicates.length} duplicate keys in API data:`, duplicates.slice(0, 10));
     }
-    
+
     apiData.forEach((item, index) => {
       const key = item.Ticker || item.Sector || '';
       if (key) {
@@ -416,7 +385,7 @@ export function MarketRotationSeasonality() {
         console.warn(`⚠️ Item ${index} has no valid key:`, item);
       }
     });
-    
+
     console.log(`📊 Converted to ${Object.keys(result).length} seasonality entries (${uniqueKeys.length} unique keys from ${keys.length} total)`);
     return result;
   };
@@ -434,13 +403,13 @@ export function MarketRotationSeasonality() {
     const stocks = stockData.map(item => item.Ticker || '').filter(Boolean);
     // Remove duplicates and sort
     const uniqueStocks = [...new Set(stocks)].sort();
-    
+
     // Check for duplicates
     const duplicates = stocks.filter((stock, index) => stocks.indexOf(stock) !== index);
     if (duplicates.length > 0) {
       console.warn(`⚠️ Found ${duplicates.length} duplicate stocks in frontend data:`, duplicates.slice(0, 10));
     }
-    
+
     console.log(`📊 Available stocks: ${uniqueStocks.length} (from ${stocks.length} total entries)`);
     console.log(`📊 Stock data sample:`, stockData.slice(0, 3));
     console.log(`📊 First 10 unique stocks:`, uniqueStocks.slice(0, 10));
@@ -495,12 +464,12 @@ export function MarketRotationSeasonality() {
   return (
     <div className="space-y-6">
       {/* Display Options - Fixed at top on large screens */}
-      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:sticky lg:top-0 lg:z-40">
         <div ref={controlPanelRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium whitespace-nowrap" style={{ paddingTop: '8px', paddingBottom: '8px' }}>Display Options:</span>
           </div>
-          
+
           <div className="flex flex-col sm:flex-row gap-4">
             {/* Index toggle */}
             <label className="flex items-center gap-2 cursor-pointer">
@@ -512,7 +481,7 @@ export function MarketRotationSeasonality() {
               />
               <span className="text-sm font-medium">Index</span>
             </label>
-            
+
             {/* Sector toggle */}
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -523,7 +492,7 @@ export function MarketRotationSeasonality() {
               />
               <span className="text-sm font-medium">Sector</span>
             </label>
-            
+
             {/* Stock toggle */}
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -537,9 +506,8 @@ export function MarketRotationSeasonality() {
           </div>
         </div>
       </div>
-      
-      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-      <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
+
+
 
       {/* Index Seasonality */}
       {showIndex && (
@@ -575,65 +543,63 @@ export function MarketRotationSeasonality() {
                 </div>
 
                 {/* Add Index Dropdown */}
-              {showAddIndex && (
-                <div className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
-                  {indexSearchQuery ? (
-                    <>
-                      {getFilteredIndices().slice(0, 8).map((index, idx) => (
-                        <button
-                          key={index}
-                          onClick={() => addIndex(index)}
-                          className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
-                            idx === indexDropdownIndex ? 'bg-accent' : ''
-                          }`}
-                        >
-                          <span className="font-medium">{index}</span>
-                          <Plus className="h-3 w-3 text-muted-foreground" />
-                        </button>
-                      ))}
-                      {getFilteredIndices().length > 8 && (
-                        <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                          + {getFilteredIndices().length - 8} more indices. Continue typing to search...
-                        </div>
-                      )}
-                      {getFilteredIndices().length === 0 && (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
-                          {getAvailableIndices().filter(index => !selectedIndices.includes(index)).length === 0 
-                            ? 'All indices already selected' 
-                            : 'No indices found'
-                          }
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {getAvailableIndices()
-                        .filter(index => !selectedIndices.includes(index))
-                        .slice(0, 8)
-                        .map((index, idx) => (
+                {showAddIndex && (
+                  <div className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+                    {indexSearchQuery ? (
+                      <>
+                        {getFilteredIndices().slice(0, 8).map((index, idx) => (
                           <button
                             key={index}
                             onClick={() => addIndex(index)}
-                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
-                              idx === indexDropdownIndex ? 'bg-accent' : ''
-                            }`}
+                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${idx === indexDropdownIndex ? 'bg-accent' : ''
+                              }`}
                           >
                             <span className="font-medium">{index}</span>
                             <Plus className="h-3 w-3 text-muted-foreground" />
                           </button>
                         ))}
-                      {getAvailableIndices().filter(index => !selectedIndices.includes(index)).length > 8 && (
-                        <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                          + {getAvailableIndices().filter(index => !selectedIndices.includes(index)).length - 8} more indices. Type to search...
-                        </div>
-                      )}
-                      {getAvailableIndices().filter(index => !selectedIndices.includes(index)).length === 0 && (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">All indices already selected</div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
+                        {getFilteredIndices().length > 8 && (
+                          <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                            + {getFilteredIndices().length - 8} more indices. Continue typing to search...
+                          </div>
+                        )}
+                        {getFilteredIndices().length === 0 && (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            {getAvailableIndices().filter(index => !selectedIndices.includes(index)).length === 0
+                              ? 'All indices already selected'
+                              : 'No indices found'
+                            }
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {getAvailableIndices()
+                          .filter(index => !selectedIndices.includes(index))
+                          .slice(0, 8)
+                          .map((index, idx) => (
+                            <button
+                              key={index}
+                              onClick={() => addIndex(index)}
+                              className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${idx === indexDropdownIndex ? 'bg-accent' : ''
+                                }`}
+                            >
+                              <span className="font-medium">{index}</span>
+                              <Plus className="h-3 w-3 text-muted-foreground" />
+                            </button>
+                          ))}
+                        {getAvailableIndices().filter(index => !selectedIndices.includes(index)).length > 8 && (
+                          <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                            + {getAvailableIndices().filter(index => !selectedIndices.includes(index)).length - 8} more indices. Type to search...
+                          </div>
+                        )}
+                        {getAvailableIndices().filter(index => !selectedIndices.includes(index)).length === 0 && (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">All indices already selected</div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -646,9 +612,9 @@ export function MarketRotationSeasonality() {
           ) : error ? (
             <div className="text-center py-8 text-red-500">
               <p>{error}</p>
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => loadSeasonalityData('index')}
                 className="mt-2"
               >
@@ -672,7 +638,7 @@ export function MarketRotationSeasonality() {
                       </div>
                     ))}
                   </div>
-                  
+
                   {/* Data rows */}
                   {selectedIndices.map((index) => {
                     const currentData = getCurrentIndexData();
@@ -691,10 +657,10 @@ export function MarketRotationSeasonality() {
                           </button>
                         </div>
                         {currentData[index].map((monthData, monthIndex) => (
-                          <div 
+                          <div
                             key={monthIndex}
                             className="flex items-center justify-center rounded-md text-xs sm:text-sm font-medium transition-colors hover:opacity-80"
-                            style={{ 
+                            style={{
                               backgroundColor: getPerformanceColor(monthData.performance),
                               color: getTextColor(monthData.performance),
                               aspectRatio: '1 / 1',
@@ -753,65 +719,63 @@ export function MarketRotationSeasonality() {
                 </div>
 
                 {/* Add Sector Dropdown */}
-              {showAddSector && (
-                <div className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
-                  {sectorSearchQuery ? (
-                    <>
-                      {getFilteredSectors().slice(0, 8).map((sector, idx) => (
-                        <button
-                          key={sector}
-                          onClick={() => addSector(sector)}
-                          className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
-                            idx === sectorDropdownIndex ? 'bg-accent' : ''
-                          }`}
-                        >
-                          <span className="font-medium">{sector}</span>
-                          <Plus className="h-3 w-3 text-muted-foreground" />
-                        </button>
-                      ))}
-                      {getFilteredSectors().length > 8 && (
-                        <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                          + {getFilteredSectors().length - 8} more sectors. Continue typing to search...
-                        </div>
-                      )}
-                      {getFilteredSectors().length === 0 && (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
-                          {getAvailableSectors().filter(sector => !selectedSectors.includes(sector)).length === 0 
-                            ? 'All sectors already selected' 
-                            : 'No sectors found'
-                          }
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {getAvailableSectors()
-                        .filter(sector => !selectedSectors.includes(sector))
-                        .slice(0, 8)
-                        .map((sector, idx) => (
+                {showAddSector && (
+                  <div className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+                    {sectorSearchQuery ? (
+                      <>
+                        {getFilteredSectors().slice(0, 8).map((sector, idx) => (
                           <button
                             key={sector}
                             onClick={() => addSector(sector)}
-                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
-                              idx === sectorDropdownIndex ? 'bg-accent' : ''
-                            }`}
+                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${idx === sectorDropdownIndex ? 'bg-accent' : ''
+                              }`}
                           >
                             <span className="font-medium">{sector}</span>
                             <Plus className="h-3 w-3 text-muted-foreground" />
                           </button>
                         ))}
-                      {getAvailableSectors().filter(sector => !selectedSectors.includes(sector)).length > 8 && (
-                        <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                          + {getAvailableSectors().filter(sector => !selectedSectors.includes(sector)).length - 8} more sectors. Type to search...
-                        </div>
-                      )}
-                      {getAvailableSectors().filter(sector => !selectedSectors.includes(sector)).length === 0 && (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">All sectors already selected</div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
+                        {getFilteredSectors().length > 8 && (
+                          <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                            + {getFilteredSectors().length - 8} more sectors. Continue typing to search...
+                          </div>
+                        )}
+                        {getFilteredSectors().length === 0 && (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            {getAvailableSectors().filter(sector => !selectedSectors.includes(sector)).length === 0
+                              ? 'All sectors already selected'
+                              : 'No sectors found'
+                            }
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {getAvailableSectors()
+                          .filter(sector => !selectedSectors.includes(sector))
+                          .slice(0, 8)
+                          .map((sector, idx) => (
+                            <button
+                              key={sector}
+                              onClick={() => addSector(sector)}
+                              className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${idx === sectorDropdownIndex ? 'bg-accent' : ''
+                                }`}
+                            >
+                              <span className="font-medium">{sector}</span>
+                              <Plus className="h-3 w-3 text-muted-foreground" />
+                            </button>
+                          ))}
+                        {getAvailableSectors().filter(sector => !selectedSectors.includes(sector)).length > 8 && (
+                          <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                            + {getAvailableSectors().filter(sector => !selectedSectors.includes(sector)).length - 8} more sectors. Type to search...
+                          </div>
+                        )}
+                        {getAvailableSectors().filter(sector => !selectedSectors.includes(sector)).length === 0 && (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">All sectors already selected</div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -824,9 +788,9 @@ export function MarketRotationSeasonality() {
           ) : error ? (
             <div className="text-center py-8 text-red-500">
               <p>{error}</p>
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => loadSeasonalityData('sector')}
                 className="mt-2"
               >
@@ -926,69 +890,67 @@ export function MarketRotationSeasonality() {
                 </div>
 
                 {/* Add Stock Dropdown */}
-              {showAddStock && (
-                <div className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
-                  {searchQuery ? (
-                    <>
-                      {getFilteredStocks().slice(0, 8).map((stock, idx) => (
-                        <button
-                          key={stock}
-                          onClick={() => addStock(stock)}
-                          className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
-                            idx === stockDropdownIndex ? 'bg-accent' : ''
-                          }`}
-                        >
-                          <span className="font-medium">{stock}</span>
-                          <Plus className="h-3 w-3 text-muted-foreground" />
-                        </button>
-                      ))}
-                      {getFilteredStocks().length > 8 && (
-                        <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                          + {getFilteredStocks().length - 8} more stocks. Continue typing to search...
-                        </div>
-                      )}
-                      {getFilteredStocks().length === 0 && (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
-                          {getAvailableStocks().filter(stock => !selectedStocks.includes(stock)).length === 0 
-                            ? 'All stocks already selected' 
-                            : 'No stocks found'
-                          }
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {(() => {
-                        const availableStocks = getAvailableStocks().filter(stock => !selectedStocks.includes(stock));
-                        return (
-                          <>
-                            {availableStocks.slice(0, 8).map((stock, idx) => (
-                              <button
-                                key={stock}
-                                onClick={() => addStock(stock)}
-                                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
-                                  idx === stockDropdownIndex ? 'bg-accent' : ''
-                                }`}
-                              >
-                                <span className="font-medium">{stock}</span>
-                                <Plus className="h-3 w-3 text-muted-foreground" />
-                              </button>
-                            ))}
-                            {availableStocks.length > 8 && (
-                              <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                                + {availableStocks.length - 8} more stocks. Type to search...
-                              </div>
-                            )}
-                            {availableStocks.length === 0 && (
-                              <div className="px-3 py-2 text-sm text-muted-foreground">All stocks already selected</div>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </>
-                  )}
-                </div>
-              )}
+                {showAddStock && (
+                  <div className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+                    {searchQuery ? (
+                      <>
+                        {getFilteredStocks().slice(0, 8).map((stock, idx) => (
+                          <button
+                            key={stock}
+                            onClick={() => addStock(stock)}
+                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${idx === stockDropdownIndex ? 'bg-accent' : ''
+                              }`}
+                          >
+                            <span className="font-medium">{stock}</span>
+                            <Plus className="h-3 w-3 text-muted-foreground" />
+                          </button>
+                        ))}
+                        {getFilteredStocks().length > 8 && (
+                          <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                            + {getFilteredStocks().length - 8} more stocks. Continue typing to search...
+                          </div>
+                        )}
+                        {getFilteredStocks().length === 0 && (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            {getAvailableStocks().filter(stock => !selectedStocks.includes(stock)).length === 0
+                              ? 'All stocks already selected'
+                              : 'No stocks found'
+                            }
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {(() => {
+                          const availableStocks = getAvailableStocks().filter(stock => !selectedStocks.includes(stock));
+                          return (
+                            <>
+                              {availableStocks.slice(0, 8).map((stock, idx) => (
+                                <button
+                                  key={stock}
+                                  onClick={() => addStock(stock)}
+                                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${idx === stockDropdownIndex ? 'bg-accent' : ''
+                                    }`}
+                                >
+                                  <span className="font-medium">{stock}</span>
+                                  <Plus className="h-3 w-3 text-muted-foreground" />
+                                </button>
+                              ))}
+                              {availableStocks.length > 8 && (
+                                <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                                  + {availableStocks.length - 8} more stocks. Type to search...
+                                </div>
+                              )}
+                              {availableStocks.length === 0 && (
+                                <div className="px-3 py-2 text-sm text-muted-foreground">All stocks already selected</div>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1003,9 +965,9 @@ export function MarketRotationSeasonality() {
           ) : error ? (
             <div className="text-center py-8 text-red-500">
               <p>{error}</p>
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => loadSeasonalityData('stock')}
                 className="mt-2"
               >
@@ -1015,7 +977,7 @@ export function MarketRotationSeasonality() {
             </div>
           ) : selectedStocks.length > 0 ? (
             <div className="mt-4 -mx-4 overflow-x-auto sm:mx-0">
-                <div className="min-w-[680px] px-4 sm:min-w-[800px] sm:px-0 mx-auto w-full">
+              <div className="min-w-[680px] px-4 sm:min-w-[800px] sm:px-0 mx-auto w-full">
                 {/* Header row */}
                 <div
                   className="mb-2 grid gap-2 w-full"

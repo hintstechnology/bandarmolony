@@ -462,7 +462,7 @@ export function BrokerTransaction() {
     // Fallback to default
     return 'RG';
   });
-  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
+
 
   // Toggle untuk show/hide kolom Frequency dan Order
   const [showFrequency, setShowFrequency] = useState<boolean>(() => {
@@ -481,6 +481,7 @@ export function BrokerTransaction() {
     // Fallback to default
     return true;
   });
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState(false); // Track if menu wraps to 2 rows
 
   // Visualisasi label untuk Output dropdown (ditukar untuk display)
   // Logika tetap menggunakan pivotFilter yang asli
@@ -3943,6 +3944,147 @@ export function BrokerTransaction() {
       .map(([stock]) => stock);
   }, [totalSellDataByStock]);
 
+  const allNetDataForTotalMemo = useMemo(() => {
+    const allStocksSet = new Set<string>();
+    totalBuyDataByStock.forEach((_, stock) => allStocksSet.add(stock));
+    totalSellDataByStock.forEach((_, stock) => allStocksSet.add(stock));
+
+    const data = Array.from(allStocksSet).map(stock => {
+      const buyData = totalBuyDataByStock.get(stock);
+      const sellData = totalSellDataByStock.get(stock);
+      const buyValue = buyData?.buyerValue || 0;
+      const buyLot = buyData?.buyerLot || 0;
+      const buyVol = buyData?.buyerVol || 0;
+      const buyFreq = buyData?.buyerFreq || 0;
+      const buyOrdNum = buyData?.buyerOrdNum || 0;
+      const buyLotPerFreq = buyData?.buyerLotPerFreq || 0;
+      const buyLotPerOrdNum = buyData?.buyerLotPerOrdNum || 0;
+      const sellValue = sellData?.sellerValue || 0;
+      const sellLot = sellData?.sellerLot || 0;
+      const sellVol = sellData?.sellerVol || 0;
+      const sellFreq = sellData?.sellerFreq || 0;
+      const sellOrdNum = sellData?.sellerOrdNum || 0;
+      const sellLotPerFreq = sellData?.sellerLotPerFreq || 0;
+      const sellLotPerOrdNum = sellData?.sellerLotPerOrdNum || 0;
+      const netValue = buyValue - sellValue;
+      const netLot = buyLot - sellLot;
+      const netAvg = Math.abs(netLot * 100) !== 0 ? Math.abs(netValue) / Math.abs(netLot * 100) : 0;
+      const netFreq = buyFreq - sellFreq;
+      const netOrdNum = buyOrdNum - sellOrdNum;
+
+      return {
+        stock, netValue, netLot, netVol: buyVol - sellVol, netAvg, netFreq, netOrdNum,
+        buyLotPerFreq, buyLotPerOrdNum, sellLotPerFreq, sellLotPerOrdNum, buyValue, sellValue
+      };
+    });
+
+    const netBuy = data.filter(item => item.netValue > 0 && (Math.abs(item.netLot) > 0 || Math.abs(item.netValue) > 0))
+      .sort((a, b) => b.netValue - a.netValue);
+    const netSell = data.filter(item => item.netValue < 0 && (Math.abs(item.netLot) > 0 || Math.abs(item.netValue) > 0))
+      .sort((a, b) => Math.abs(b.netValue) - Math.abs(a.netValue));
+
+    return { netBuy, netSell };
+  }, [totalBuyDataByStock, totalSellDataByStock]);
+
+  const summaryTotalsMemo = useMemo(() => {
+    let bVal = 0, bLot = 0, bFreq = 0, bOrd = 0;
+    let sVal = 0, sLot = 0, sFreq = 0, sOrd = 0;
+
+    // We can pre-calculate the summary totals for the "Total" section here
+    allNetDataForTotalMemo.netBuy.forEach(item => {
+      bVal += item.netValue;
+      bLot += item.netLot;
+    });
+    allNetDataForTotalMemo.netSell.forEach(item => {
+      sVal += Math.abs(item.netValue);
+      sLot += Math.abs(item.netLot);
+    });
+
+    return {
+      bVal, bLot, bFreq, bOrd,
+      sVal, sLot, sFreq, sOrd,
+      bAvg: bLot > 0 ? bVal / (bLot * 100) : 0,
+      sAvg: sLot > 0 ? sVal / (sLot * 100) : 0
+    };
+  }, [allNetDataForTotalMemo]);
+
+  const dateSummariesMemo = useMemo(() => {
+    const summaries = new Map<string, {
+      buyTotalValue: number;
+      buyTotalLot: number;
+      buyForeignValue: number;
+      sellTotalValue: number;
+      sellTotalLot: number;
+      sellForeignValue: number;
+      buyAvgPrice: number;
+      sellAvgPrice: number;
+    }>();
+
+    transactionData.forEach((dateData, date) => {
+      let buyTotalValue = 0, buyTotalLot = 0, buyForeignValue = 0;
+      let sellTotalValue = 0, sellTotalLot = 0, sellForeignValue = 0;
+
+      dateData.forEach(item => {
+        const buyVal = Number(item.BuyerValue) || 0;
+        const sellVal = Number(item.SellerValue) || 0;
+        const buyLot = Number(item.BLot) || 0;
+        const sellLot = Number(item.SLot) || 0;
+
+        buyTotalValue += buyVal;
+        buyTotalLot += buyLot;
+        sellTotalValue += sellVal;
+        sellTotalLot += sellLot;
+
+        const bCode = (item.BCode || '').toUpperCase();
+        const sCode = (item.SCode || '').toUpperCase();
+        if (bCode && FOREIGN_BROKERS.includes(bCode)) buyForeignValue += buyVal;
+        if (sCode && FOREIGN_BROKERS.includes(sCode)) sellForeignValue += sellVal;
+      });
+
+      summaries.set(date, {
+        buyTotalValue, buyTotalLot, buyForeignValue,
+        sellTotalValue, sellTotalLot, sellForeignValue,
+        buyAvgPrice: buyTotalLot > 0 ? buyTotalValue / (buyTotalLot * 100) : 0,
+        sellAvgPrice: sellTotalLot > 0 ? sellTotalValue / (sellTotalLot * 100) : 0
+      });
+    });
+
+    return summaries;
+  }, [transactionData]);
+
+  // NEW: Memoize NET table sorted stocks for Total column
+  const sortedNetBuyStocksForTotalMemo = useMemo(() => {
+    const allStocksSetForNet = new Set<string>();
+    totalBuyDataByStock.forEach((_, stock) => allStocksSetForNet.add(stock));
+    totalSellDataByStock.forEach((_, stock) => allStocksSetForNet.add(stock));
+
+    return Array.from(allStocksSetForNet)
+      .map(stock => {
+        const buyValue = totalBuyDataByStock.get(stock)?.buyerValue || 0;
+        const sellValue = totalSellDataByStock.get(stock)?.sellerValue || 0;
+        return { stock, netValue: buyValue - sellValue };
+      })
+      .filter(item => item.netValue > 0)
+      .sort((a, b) => b.netValue - a.netValue)
+      .map(i => i.stock);
+  }, [totalBuyDataByStock, totalSellDataByStock]);
+
+  const sortedNetSellStocksForTotalMemo = useMemo(() => {
+    const allStocksSetForNet = new Set<string>();
+    totalBuyDataByStock.forEach((_, stock) => allStocksSetForNet.add(stock));
+    totalSellDataByStock.forEach((_, stock) => allStocksSetForNet.add(stock));
+
+    return Array.from(allStocksSetForNet)
+      .map(stock => {
+        const buyValue = totalBuyDataByStock.get(stock)?.buyerValue || 0;
+        const sellValue = totalSellDataByStock.get(stock)?.sellerValue || 0;
+        return { stock, netValue: buyValue - sellValue };
+      })
+      .filter(item => item.netValue < 0)
+      .sort((a, b) => Math.abs(b.netValue) - Math.abs(a.netValue))
+      .map(i => i.stock);
+  }, [totalBuyDataByStock, totalSellDataByStock]);
+
   // Calculate max rows for virtual scrolling - use max rows from all sections (Buy, Sell, Net Buy, Net Sell)
   // FIXED: Use all dates from buyStocksByDate/sellStocksByDate/etc, not selectedDates to prevent re-calculation on input change
   const maxRows = useMemo(() => {
@@ -4367,16 +4509,9 @@ export function BrokerTransaction() {
                         })}
                         {/* Total Column - aggregate Buy and Sell data separately by stock code */}
                         {(() => {
-                          // CRITICAL: Total column ALWAYS uses sorted stocks from aggregated data
-                          // Sort by buyerValue (highest to lowest) for Buy section
-                          const sortedBuyStocks = Array.from(totalBuyDataByStock.entries())
-                            .sort((a, b) => b[1].buyerValue - a[1].buyerValue)
-                            .map(([stock]) => stock);
-
-                          // Sort by sellerValue (highest to lowest) for Sell section
-                          const sortedSellStocks = Array.from(totalSellDataByStock.entries())
-                            .sort((a, b) => b[1].sellerValue - a[1].sellerValue)
-                            .map(([stock]) => stock);
+                          // OPTIMIZED: Use memoized sorted stocks
+                          const sortedBuyStocks = sortedTotalBuyStocksMemo;
+                          const sortedSellStocks = sortedTotalSellStocksMemo;
 
                           // Get Buy stock code at this row index (always from sorted stocks)
                           const buyStockCode = sortedBuyStocks[rowIdx] || '';
@@ -4995,76 +5130,8 @@ export function BrokerTransaction() {
                         })}
                         {/* Total Column - Calculate NET from B/S Total (Buy - Sell) */}
                         {(() => {
-                          // FIXED: Calculate Net from B/S Total data, not from Net Buy/Sell data
-                          // Get all unique stocks from both Buy and Sell totals
-                          const allStocksSet = new Set<string>();
-                          totalBuyDataByStock.forEach((_, stock) => allStocksSet.add(stock));
-                          totalSellDataByStock.forEach((_, stock) => allStocksSet.add(stock));
-
-                          // Calculate Net for each stock: Net = Buy - Sell
-                          const allNetDataByStock = Array.from(allStocksSet).map(stock => {
-                            const buyData = totalBuyDataByStock.get(stock);
-                            const sellData = totalSellDataByStock.get(stock);
-
-                            const buyValue = buyData?.buyerValue || 0;
-                            const buyLot = buyData?.buyerLot || 0;
-                            const buyVol = buyData?.buyerVol || 0;
-                            const buyFreq = buyData?.buyerFreq || 0;
-                            const buyOrdNum = buyData?.buyerOrdNum || 0;
-                            const buyLotPerFreq = buyData?.buyerLotPerFreq || 0;
-                            const buyLotPerOrdNum = buyData?.buyerLotPerOrdNum || 0;
-
-                            const sellValue = sellData?.sellerValue || 0;
-                            const sellLot = sellData?.sellerLot || 0;
-                            const sellVol = sellData?.sellerVol || 0;
-                            const sellFreq = sellData?.sellerFreq || 0;
-                            const sellOrdNum = sellData?.sellerOrdNum || 0;
-                            const sellLotPerFreq = sellData?.sellerLotPerFreq || 0;
-                            const sellLotPerOrdNum = sellData?.sellerLotPerOrdNum || 0;
-
-                            // Calculate Net = Buy - Sell
-                            const netValue = buyValue - sellValue;
-                            const netLot = buyLot - sellLot;
-                            const netVol = buyVol - sellVol;
-
-                            // Calculate Net Avg: Net Value / (Net Lot * 100)
-                            // FIXED: Use Math.abs(netLot) * 100 to ensure correctness for Avg Price
-                            const netAvg = Math.abs(netLot * 100) !== 0 ? Math.abs(netValue) / Math.abs(netLot * 100) : 0;
-
-                            // Net Freq and OrdNum: use the larger value (or difference if needed)
-                            const netFreq = buyFreq - sellFreq;
-                            const netOrdNum = buyOrdNum - sellOrdNum;
-
-                            // Lot/F and Lot/ON: Use values from B/S table (passed through)
-                            // User request: "disamakan dengan nilai yang ada di tabel B/S sesuai emitennya"
-                            // We will use specific Buy/Sell values in the render section
-
-                            return {
-                              stock,
-                              netValue,
-                              netLot,
-                              netVol,
-                              netAvg,
-                              netFreq,
-                              netOrdNum,
-                              buyLotPerFreq,
-                              buyLotPerOrdNum,
-                              sellLotPerFreq,
-                              sellLotPerOrdNum,
-                              buyValue,
-                              sellValue
-                            };
-                          });
-
-                          // Separate into Net Buy (positive) and Net Sell (negative) lists
-                          // Filter out zero values and sort each list separately
-                          const netBuyStocks = allNetDataByStock
-                            .filter(item => item.netValue > 0 && (Math.abs(item.netLot) > 0 || Math.abs(item.netValue) > 0))
-                            .sort((a, b) => b.netValue - a.netValue); // Sort by Net Value descending
-
-                          const netSellStocks = allNetDataByStock
-                            .filter(item => item.netValue < 0 && (Math.abs(item.netLot) > 0 || Math.abs(item.netValue) > 0))
-                            .sort((a, b) => Math.abs(b.netValue) - Math.abs(a.netValue)); // Sort by absolute Net Value descending
+                          // OPTIMIZED: Use memoized data
+                          const { netBuy: netBuyStocks, netSell: netSellStocks } = allNetDataForTotalMemo;
 
                           // Get stock at this row index for Buy side and Sell side separately
                           const buyStockData = netBuyStocks[rowIdx] || null;
@@ -5317,42 +5384,18 @@ export function BrokerTransaction() {
                   <tr className="bg-background">
                     {/* Per-date summary columns (only shown when not showOnlyTotal) */}
                     {!showOnlyTotal && selectedDates.map((date, dateIndex) => {
-                      // Calculate totals for this specific date using Aggregate Summary formula
-                      const dateData = transactionData.get(date) || [];
+                      // OPTIMIZED: Use memoized data
+                      const summary = dateSummariesMemo.get(date) || {
+                        buyTotalValue: 0, buyTotalLot: 0, buyForeignValue: 0,
+                        sellTotalValue: 0, sellTotalLot: 0, sellForeignValue: 0,
+                        buyAvgPrice: 0, sellAvgPrice: 0
+                      };
 
-                      let dateBuyTotalValue = 0;
-                      let dateBuyTotalLot = 0;
-                      let dateBuyForeignValue = 0;
-                      let dateSellTotalValue = 0;
-                      let dateSellTotalLot = 0;
-                      let dateSellForeignValue = 0;
-
-                      dateData.forEach(item => {
-                        const buyVal = Number(item.BuyerValue) || 0;
-                        const sellVal = Number(item.SellerValue) || 0;
-                        const buyLot = Number(item.BLot) || 0;
-                        const sellLot = Number(item.SLot) || 0;
-
-                        // Buy side totals
-                        dateBuyTotalValue += buyVal;
-                        dateBuyTotalLot += buyLot;
-
-                        // Sell side totals
-                        dateSellTotalValue += sellVal;
-                        dateSellTotalLot += sellLot;
-
-                        const bCode = (item.BCode || '').toUpperCase();
-                        const sCode = (item.SCode || '').toUpperCase();
-                        if (bCode && FOREIGN_BROKERS.includes(bCode)) {
-                          dateBuyForeignValue += buyVal;
-                        }
-                        if (sCode && FOREIGN_BROKERS.includes(sCode)) {
-                          dateSellForeignValue += sellVal;
-                        }
-                      });
-
-                      const dateBuyAvgPrice = dateBuyTotalLot > 0 ? dateBuyTotalValue / (dateBuyTotalLot * 100) : 0;
-                      const dateSellAvgPrice = dateSellTotalLot > 0 ? dateSellTotalValue / (dateSellTotalLot * 100) : 0;
+                      const {
+                        buyTotalValue, buyTotalLot, buyForeignValue,
+                        sellTotalValue, sellTotalLot, sellForeignValue,
+                        buyAvgPrice, sellAvgPrice
+                      } = summary;
 
                       return (
                         <React.Fragment key={`summary-${date}`}>
@@ -5360,10 +5403,10 @@ export function BrokerTransaction() {
                           <td className={`text-center py-[2px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: COLUMN_WIDTHS.CODE, minWidth: COLUMN_WIDTHS.CODE, maxWidth: COLUMN_WIDTHS.CODE }}></td>
 
                           {/* Buy Summary: TVal, TLot, Avg, FNVal (aligned with Freq) */}
-                          <td className="text-right py-[2px] px-[6px] font-bold text-green-600" style={{ width: COLUMN_WIDTHS.VAL, minWidth: COLUMN_WIDTHS.VAL, maxWidth: COLUMN_WIDTHS.VAL, fontVariantNumeric: 'tabular-nums' }}>{formatValue(dateBuyTotalValue)}</td>
-                          <td className="text-right py-[2px] px-[6px] font-bold text-green-600" style={{ width: COLUMN_WIDTHS.LOT, minWidth: COLUMN_WIDTHS.LOT, maxWidth: COLUMN_WIDTHS.LOT, fontVariantNumeric: 'tabular-nums' }}>{formatLot(dateBuyTotalLot)}</td>
-                          <td className="text-right py-[2px] px-[6px] font-bold text-green-600" style={{ width: COLUMN_WIDTHS.AVG, minWidth: COLUMN_WIDTHS.AVG, maxWidth: COLUMN_WIDTHS.AVG, fontVariantNumeric: 'tabular-nums' }}>{formatAverage(dateBuyAvgPrice)}</td>
-                          {showFrequency && <td className="text-right py-[2px] px-[6px] font-bold text-green-600" style={{ width: COLUMN_WIDTHS.FREQ, minWidth: COLUMN_WIDTHS.FREQ, maxWidth: COLUMN_WIDTHS.FREQ, fontVariantNumeric: 'tabular-nums' }}>{formatValue(dateBuyForeignValue)}</td>}
+                          <td className="text-right py-[2px] px-[6px] font-bold text-green-600" style={{ width: COLUMN_WIDTHS.VAL, minWidth: COLUMN_WIDTHS.VAL, maxWidth: COLUMN_WIDTHS.VAL, fontVariantNumeric: 'tabular-nums' }}>{formatValue(buyTotalValue)}</td>
+                          <td className="text-right py-[2px] px-[6px] font-bold text-green-600" style={{ width: COLUMN_WIDTHS.LOT, minWidth: COLUMN_WIDTHS.LOT, maxWidth: COLUMN_WIDTHS.LOT, fontVariantNumeric: 'tabular-nums' }}>{formatLot(buyTotalLot)}</td>
+                          <td className="text-right py-[2px] px-[6px] font-bold text-green-600" style={{ width: COLUMN_WIDTHS.AVG, minWidth: COLUMN_WIDTHS.AVG, maxWidth: COLUMN_WIDTHS.AVG, fontVariantNumeric: 'tabular-nums' }}>{formatAverage(buyAvgPrice)}</td>
+                          {showFrequency && <td className="text-right py-[2px] px-[6px] font-bold text-green-600" style={{ width: COLUMN_WIDTHS.FREQ, minWidth: COLUMN_WIDTHS.FREQ, maxWidth: COLUMN_WIDTHS.FREQ, fontVariantNumeric: 'tabular-nums' }}>{formatValue(buyForeignValue)}</td>}
                           {showFrequency && <td className="text-right py-[2px] px-[6px] font-bold text-gray-600" style={{ width: COLUMN_WIDTHS.LOT_F, minWidth: COLUMN_WIDTHS.LOT_F, maxWidth: COLUMN_WIDTHS.LOT_F, fontVariantNumeric: 'tabular-nums' }}></td>}
                           {showOrder && <td className="text-right py-[2px] px-[6px] font-bold text-gray-600" style={{ width: COLUMN_WIDTHS.ORD, minWidth: COLUMN_WIDTHS.ORD, maxWidth: COLUMN_WIDTHS.ORD, fontVariantNumeric: 'tabular-nums' }}></td>}
                           {showOrder && <td className="text-right py-[2px] px-[6px] font-bold text-gray-600" style={{ width: COLUMN_WIDTHS.LOT_O, minWidth: COLUMN_WIDTHS.LOT_O, maxWidth: COLUMN_WIDTHS.LOT_O, fontVariantNumeric: 'tabular-nums' }}></td>}
@@ -5375,14 +5418,14 @@ export function BrokerTransaction() {
                           <td className="text-center py-[2px] px-[3px] font-bold text-white" style={{ width: COLUMN_WIDTHS.CODE, minWidth: COLUMN_WIDTHS.CODE, maxWidth: COLUMN_WIDTHS.CODE }}></td>
 
                           {/* Sell Summary: TVal, TLot, Avg, FNVal (aligned with Freq) */}
-                          <td className="text-right py-[2px] px-[6px] font-bold text-red-600" style={{ width: COLUMN_WIDTHS.VAL, minWidth: COLUMN_WIDTHS.VAL, maxWidth: COLUMN_WIDTHS.VAL, fontVariantNumeric: 'tabular-nums' }}>{formatValue(dateSellTotalValue)}</td>
-                          <td className="text-right py-[2px] px-[6px] font-bold text-red-600" style={{ width: COLUMN_WIDTHS.LOT, minWidth: COLUMN_WIDTHS.LOT, maxWidth: COLUMN_WIDTHS.LOT, fontVariantNumeric: 'tabular-nums' }}>{formatLot(dateSellTotalLot)}</td>
+                          <td className="text-right py-[2px] px-[6px] font-bold text-red-600" style={{ width: COLUMN_WIDTHS.VAL, minWidth: COLUMN_WIDTHS.VAL, maxWidth: COLUMN_WIDTHS.VAL, fontVariantNumeric: 'tabular-nums' }}>{formatValue(sellTotalValue)}</td>
+                          <td className="text-right py-[2px] px-[6px] font-bold text-red-600" style={{ width: COLUMN_WIDTHS.LOT, minWidth: COLUMN_WIDTHS.LOT, maxWidth: COLUMN_WIDTHS.LOT, fontVariantNumeric: 'tabular-nums' }}>{formatLot(sellTotalLot)}</td>
                           {!showFrequency && !showOrder ? (
-                            <td className="text-right py-[2px] px-[6px] font-bold text-red-600 border-r-[10px] border-white" style={{ width: COLUMN_WIDTHS.AVG, minWidth: COLUMN_WIDTHS.AVG, maxWidth: COLUMN_WIDTHS.AVG, fontVariantNumeric: 'tabular-nums' }}>{formatAverage(dateSellAvgPrice)}</td>
+                            <td className="text-right py-[2px] px-[6px] font-bold text-red-600 border-r-[10px] border-white" style={{ width: COLUMN_WIDTHS.AVG, minWidth: COLUMN_WIDTHS.AVG, maxWidth: COLUMN_WIDTHS.AVG, fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellAvgPrice)}</td>
                           ) : (
                             <>
-                              <td className="text-right py-[2px] px-[6px] font-bold text-red-600" style={{ width: COLUMN_WIDTHS.AVG, minWidth: COLUMN_WIDTHS.AVG, maxWidth: COLUMN_WIDTHS.AVG, fontVariantNumeric: 'tabular-nums' }}>{formatAverage(dateSellAvgPrice)}</td>
-                              {showFrequency && <td className="text-right py-[2px] px-[6px] font-bold text-red-600" style={{ width: COLUMN_WIDTHS.FREQ, minWidth: COLUMN_WIDTHS.FREQ, maxWidth: COLUMN_WIDTHS.FREQ, fontVariantNumeric: 'tabular-nums' }}>{formatValue(dateSellForeignValue)}</td>}
+                              <td className="text-right py-[2px] px-[6px] font-bold text-red-600" style={{ width: COLUMN_WIDTHS.AVG, minWidth: COLUMN_WIDTHS.AVG, maxWidth: COLUMN_WIDTHS.AVG, fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellAvgPrice)}</td>
+                              {showFrequency && <td className="text-right py-[2px] px-[6px] font-bold text-red-600" style={{ width: COLUMN_WIDTHS.FREQ, minWidth: COLUMN_WIDTHS.FREQ, maxWidth: COLUMN_WIDTHS.FREQ, fontVariantNumeric: 'tabular-nums' }}>{formatValue(sellForeignValue)}</td>}
                               {showFrequency && <td className={`text-right py-[2px] px-[6px] font-bold text-gray-600 ${!showOrder ? 'border-r-[10px] border-white' : ''}`} style={{ width: COLUMN_WIDTHS.LOT_F, minWidth: COLUMN_WIDTHS.LOT_F, maxWidth: COLUMN_WIDTHS.LOT_F, fontVariantNumeric: 'tabular-nums' }}></td>}
                               {showOrder && <td className="text-right py-[2px] px-[6px] font-bold text-gray-600" style={{ width: COLUMN_WIDTHS.ORD, minWidth: COLUMN_WIDTHS.ORD, maxWidth: COLUMN_WIDTHS.ORD, fontVariantNumeric: 'tabular-nums' }}></td>}
                               {showOrder && <td className="text-right py-[2px] px-[6px] font-bold text-gray-600 border-r-[10px] border-white" style={{ width: COLUMN_WIDTHS.LOT_O, minWidth: COLUMN_WIDTHS.LOT_O, maxWidth: COLUMN_WIDTHS.LOT_O, fontVariantNumeric: 'tabular-nums' }}></td>}
@@ -5468,7 +5511,7 @@ export function BrokerTransaction() {
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
-      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:sticky lg:top-0 lg:z-40">
         <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-2 md:gap-x-7 md:gap-y-0.2">
           {/* Broker Selection - Dropdown only */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
@@ -6302,8 +6345,7 @@ export function BrokerTransaction() {
         </div>
       </div>
 
-      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-      <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+
 
       {/* Loading State */}
       {isLoading && (

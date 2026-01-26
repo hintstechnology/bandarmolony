@@ -198,6 +198,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
   }); // Default to RG
   const [displayedTickers, setDisplayedTickers] = useState<string[]>(propSelectedStock ? [propSelectedStock] : ['BBCA']); // Tickers displayed in header (updated when Show button clicked)
   const [displayedMarket, setDisplayedMarket] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Market/Board displayed in header (updated when Show button clicked)
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState(false); // Track if menu wraps to 2 rows
 
   // Stock selection state
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
@@ -210,14 +211,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
   const endDateRef = useRef<HTMLInputElement>(null);
   const valueTableRef = useRef<HTMLTableElement>(null);
   const netTableRef = useRef<HTMLTableElement>(null);
-  const totalTableRef = useRef<HTMLTableElement>(null);
   const valueTableContainerRef = useRef<HTMLDivElement>(null);
   const netTableContainerRef = useRef<HTMLDivElement>(null);
-  const totalTableContainerRef = useRef<HTMLDivElement>(null);
   const menuContainerRef = useRef<HTMLDivElement>(null);
-  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
+
   const dateColumnWidthsRef = useRef<Map<string, number>>(new Map()); // Store width of each date column from VALUE table
-  const totalColumnWidthRef = useRef<number>(0); // Store width of Total column from VALUE table
 
   // API-driven broker summary data by date
   const [summaryByDate, setSummaryByDate] = useState<Map<string, BrokerSummaryData[]>>(new Map()); // Filtered data (based on displayedFdFilter)
@@ -1697,9 +1695,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
 
     const valueContainer = valueTableContainerRef.current;
     const netContainer = netTableContainerRef.current;
-    const totalContainer = totalTableContainerRef.current;
 
-    // CRITICAL FIX: Only require Value and Net containers to be present. Total is optional.
     if (!valueContainer || !netContainer) return;
 
     // Synchronous scroll synchronization - no delay for real-time follow
@@ -1707,32 +1703,21 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
       const scrollLeft = source.scrollLeft;
 
       targets.forEach(target => {
-        // Only update if the value actually differs to prevent event loops
-        // Testing shows this is the most reliable way for real-time sync
         if (target && target.scrollLeft !== scrollLeft) {
           target.scrollLeft = scrollLeft;
         }
       });
     };
 
-    const handleValueScroll = () => syncScroll(valueContainer, [netContainer, totalContainer]);
-    const handleNetScroll = () => syncScroll(netContainer, [valueContainer, totalContainer]);
-    const handleTotalScroll = () => {
-      if (totalContainer) syncScroll(totalContainer, [valueContainer, netContainer]);
-    };
+    const handleValueScroll = () => syncScroll(valueContainer, [netContainer]);
+    const handleNetScroll = () => syncScroll(netContainer, [valueContainer]);
 
     valueContainer.addEventListener('scroll', handleValueScroll, { passive: true });
     netContainer.addEventListener('scroll', handleNetScroll, { passive: true });
-    if (totalContainer) {
-      totalContainer.addEventListener('scroll', handleTotalScroll, { passive: true });
-    }
 
     return () => {
       valueContainer.removeEventListener('scroll', handleValueScroll);
       netContainer.removeEventListener('scroll', handleNetScroll);
-      if (totalContainer) {
-        totalContainer.removeEventListener('scroll', handleTotalScroll);
-      }
     };
   }, [isLoading, isDataReady, summaryByDate]); // Re-setup when data changes
 
@@ -2058,9 +2043,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
       const columnHeaderCells = Array.from(columnHeaderRow.querySelectorAll('th'));
 
       // Clear previous widths
-      dateColumnWidthsRef.current.clear();
-      totalColumnWidthRef.current = 0;
-
       // Measure width of each date column (excluding Total column)
       const datesForHeader = summaryByDate.size === 0 ? selectedDates : availableDates;
       let cellIndex = 0;
@@ -2083,21 +2065,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
           dateColumnWidthsRef.current.set(date, totalWidth);
         }
       });
-
-      // Measure width of Total column (also spans 9 columns)
-      let totalColumnWidth = 0;
-      for (let i = 0; i < 9 && cellIndex < columnHeaderCells.length; i++) {
-        const cell = columnHeaderCells[cellIndex] as HTMLElement;
-        if (cell) {
-          const cellWidth = cell.offsetWidth || cell.getBoundingClientRect().width || 0;
-          totalColumnWidth += cellWidth;
-        }
-        cellIndex++;
-      }
-
-      if (totalColumnWidth > 0) {
-        totalColumnWidthRef.current = totalColumnWidth;
-      }
     };
 
     // Measure after a delay to ensure table is fully rendered and column widths are synced
@@ -2106,7 +2073,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
 
     return () => clearTimeout(timeoutId);
   }, [summaryByDate, isLoading, isDataReady, showOnlyTotal, availableDates, selectedDates]);
-
   // Memoize allBrokerData to avoid recalculating on every render
   const allBrokerData = useMemo(() => {
     return availableDates.map(date => {
@@ -2118,6 +2084,129 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
       };
     });
   }, [availableDates, summaryByDate]);
+
+  // OPTIMIZED: Memoize sorted data per date for VALUE table
+  const sortedValueDataByDateMemo = useMemo(() => {
+    const map = new Map<string, { buy: any[], sell: any[] }>();
+    availableDates.forEach(date => {
+      const rows = summaryByDate.get(date) || [];
+      const buy = rows
+        .filter(b => brokerFDScreen(b.broker) && b.buyerValue > 0)
+        .sort((a, b) => b.buyerValue - a.buyerValue);
+      const sell = rows
+        .filter(s => brokerFDScreen(s.broker) && s.sellerValue > 0)
+        .sort((a, b) => b.sellerValue - a.sellerValue);
+      map.set(date, { buy, sell });
+    });
+    return map;
+  }, [availableDates, summaryByDate, displayedFdFilter]);
+
+  // OPTIMIZED: Memoize total data for VALUE table
+  const totalValueDataMemo = useMemo(() => {
+    const totalBuyData: { [broker: string]: { nblot: number; nbval: number; bavg: number; count: number } } = {};
+    const totalSellData: { [broker: string]: { nslot: number; nsval: number; savg: number; count: number } } = {};
+
+    allBrokerData.forEach(dateData => {
+      dateData.buyData.forEach(b => {
+        if (b.buyerValue > 0) {
+          if (!totalBuyData[b.broker]) totalBuyData[b.broker] = { nblot: 0, nbval: 0, bavg: 0, count: 0 };
+          const entry = totalBuyData[b.broker];
+          entry.nblot += b.buyerVol;
+          entry.nbval += b.buyerValue;
+          entry.bavg += b.bavg;
+          entry.count += 1;
+        }
+      });
+      dateData.sellData.forEach(s => {
+        if (s.sellerValue > 0) {
+          if (!totalSellData[s.broker]) totalSellData[s.broker] = { nslot: 0, nsval: 0, savg: 0, count: 0 };
+          const entry = totalSellData[s.broker];
+          entry.nslot += s.sellerVol;
+          entry.nsval += s.sellerValue;
+          entry.savg += s.savg;
+          entry.count += 1;
+        }
+      });
+    });
+
+    const buy = Object.entries(totalBuyData)
+      .filter(([broker]) => brokerFDScreen(broker))
+      .map(([broker, data]) => ({ broker, ...data, bavg: data.bavg / data.count }))
+      .sort((a, b) => b.nbval - a.nbval);
+
+    const sell = Object.entries(totalSellData)
+      .filter(([broker]) => brokerFDScreen(broker))
+      .map(([broker, data]) => ({ broker, ...data, savg: data.savg / data.count }))
+      .sort((a, b) => b.nsval - a.nsval);
+
+    return { buy, sell };
+  }, [allBrokerData, displayedFdFilter]);
+
+  // OPTIMIZED: Memoize sorting for NET table
+  const sortedNetDataByDateMemo = useMemo(() => {
+    const map = new Map<string, { buy: any[], sell: any[] }>();
+    availableDates.forEach(date => {
+      const rows = summaryByDate.get(date) || [];
+      const buy = rows
+        .filter(b => brokerFDScreen(b.broker) && (b.netBuyVol > 0 || b.netBuyValue > 0) && (b.netBuyValue >= b.netSellValue))
+        .sort((a, b) => (b.netBuyValue || 0) - (a.netBuyValue || 0));
+      const sell = rows
+        .filter(b => brokerFDScreen(b.broker) && (b.netSellVol > 0 || b.netSellValue > 0) && (b.netSellValue > b.netBuyValue))
+        .sort((a, b) => (b.netSellValue || 0) - (a.netSellValue || 0));
+      map.set(date, { buy, sell });
+    });
+    return map;
+  }, [availableDates, summaryByDate, displayedFdFilter]);
+
+  // OPTIMIZED: Memoize total data for NET table
+  const totalNetDataMemo = useMemo(() => {
+    const brokerNetBuyTotals: { [broker: string]: { nblot: number; nbval: number; bavg: number; bavgCount: number } } = {};
+    const brokerNetSellTotals: { [broker: string]: { nslot: number; nsval: number; savg: number; savgCount: number } } = {};
+
+    allBrokerData.forEach(dateData => {
+      dateData.buyData.forEach(b => {
+        if (b.netBuyVol > 0 || b.netBuyValue > 0) {
+          if (!brokerNetBuyTotals[b.broker]) brokerNetBuyTotals[b.broker] = { nblot: 0, nbval: 0, bavg: 0, bavgCount: 0 };
+          const entry = brokerNetBuyTotals[b.broker];
+          entry.nblot += b.netBuyVol || 0;
+          entry.nbval += b.netBuyValue || 0;
+          if (b.bavg && b.bavg !== 0) { entry.bavg += b.bavg; entry.bavgCount += 1; }
+        }
+        if (b.netSellVol > 0 || b.netSellValue > 0) {
+          if (!brokerNetSellTotals[b.broker]) brokerNetSellTotals[b.broker] = { nslot: 0, nsval: 0, savg: 0, savgCount: 0 };
+          const entry = brokerNetSellTotals[b.broker];
+          entry.nslot += b.netSellVol || 0;
+          entry.nsval += b.netSellValue || 0;
+          if (b.savg && b.savg !== 0) { entry.savg += b.savg; entry.savgCount += 1; }
+        }
+      });
+    });
+
+    const finalNetBuy: any[] = [];
+    const finalNetSell: any[] = [];
+
+    const allBrokers = new Set([...Object.keys(brokerNetBuyTotals), ...Object.keys(brokerNetSellTotals)]);
+    allBrokers.forEach(broker => {
+      if (!brokerFDScreen(broker)) return;
+      const bTotal = brokerNetBuyTotals[broker] || { nblot: 0, nbval: 0, bavg: 0, bavgCount: 0 };
+      const sTotal = brokerNetSellTotals[broker] || { nslot: 0, nsval: 0, savg: 0, savgCount: 0 };
+      let bavg = bTotal.bavgCount > 0 ? bTotal.bavg / bTotal.bavgCount : 0;
+      let savg = sTotal.savgCount > 0 ? sTotal.savg / sTotal.savgCount : 0;
+      if (bavg === 0 && bTotal.nblot > 0) bavg = bTotal.nbval / bTotal.nblot;
+      if (savg === 0 && sTotal.nslot > 0) savg = Math.abs(sTotal.nsval) / sTotal.nslot;
+
+      if (bTotal.nbval > sTotal.nsval) {
+        finalNetBuy.push({ broker, nblot: bTotal.nblot - sTotal.nslot, nbval: bTotal.nbval - sTotal.nsval, nbavg: bavg });
+      } else if (sTotal.nsval > bTotal.nbval) {
+        finalNetSell.push({ broker, nslot: sTotal.nslot - bTotal.nblot, nsval: sTotal.nsval - bTotal.nbval, nsavg: savg });
+      }
+    });
+
+    const buy = finalNetBuy.filter(i => i.nbval > 0).sort((a, b) => b.nbval - a.nbval);
+    const sell = finalNetSell.filter(i => i.nsval > 0).sort((a, b) => b.nsval - a.nsval);
+
+    return { buy, sell };
+  }, [allBrokerData, displayedFdFilter]);
 
   const renderHorizontalView = () => {
     if (selectedTickers.length === 0 || selectedDates.length === 0) return null;
@@ -2201,60 +2290,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                         return 'text-white font-semibold';
                       };
 
-                      // Calculate total data across all dates (SWAPPED: Buy uses SELL fields, Sell uses BUY fields)
-                      const totalBuyData: { [broker: string]: { nblot: number; nbval: number; bavg: number; count: number } } = {};
-                      const totalSellData: { [broker: string]: { nslot: number; nsval: number; savg: number; count: number } } = {};
-
-                      allBrokerData.forEach(dateData => {
-                        // BUY total uses Buyer metrics
-                        dateData.buyData.forEach(b => {
-                          if (b.buyerValue > 0) {
-                            if (!totalBuyData[b.broker]) {
-                              totalBuyData[b.broker] = { nblot: 0, nbval: 0, bavg: 0, count: 0 };
-                            }
-                            const buyEntry = totalBuyData[b.broker];
-                            if (buyEntry) {
-                              buyEntry.nblot += b.buyerVol;
-                              buyEntry.nbval += b.buyerValue;
-                              buyEntry.bavg += b.bavg;
-                              buyEntry.count += 1;
-                            }
-                          }
-                        });
-
-                        // SELL total uses Seller metrics
-                        dateData.sellData.forEach(s => {
-                          if (s.sellerValue > 0) {
-                            if (!totalSellData[s.broker]) {
-                              totalSellData[s.broker] = { nslot: 0, nsval: 0, savg: 0, count: 0 };
-                            }
-                            const sellEntry = totalSellData[s.broker];
-                            if (sellEntry) {
-                              sellEntry.nslot += s.sellerVol;
-                              sellEntry.nsval += s.sellerValue;
-                              sellEntry.savg += s.savg;
-                              sellEntry.count += 1;
-                            }
-                          }
-                        });
-                      });
-
-                      // Sort total data
-                      const sortedTotalBuy = Object.entries(totalBuyData)
-                        .filter(([broker]) => brokerFDScreen(broker))
-                        .map(([broker, data]) => ({ broker, ...data, bavg: data.bavg / data.count }))
-                        .sort((a, b) => b.nbval - a.nbval);
-                      const sortedTotalSell = Object.entries(totalSellData)
-                        .filter(([broker]) => brokerFDScreen(broker))
-                        .map(([broker, data]) => ({ broker, ...data, savg: data.savg / data.count }))
-                        .sort((a, b) => b.nsval - a.nsval);
+                      // OPTIMIZED: Use memoized total data
+                      const sortedTotalBuy = totalValueDataMemo.buy;
+                      const sortedTotalSell = totalValueDataMemo.sell;
 
                       // Find max row count across all dates AND total columns
                       let maxRows = 0;
                       availableDates.forEach(date => {
-                        const dateData = allBrokerData.find(d => d.date === date);
-                        const buyCount = (dateData?.buyData || []).filter(b => brokerFDScreen(b.broker) && b.buyerValue > 0).length;
-                        const sellCount = (dateData?.sellData || []).filter(s => brokerFDScreen(s.broker) && s.sellerValue > 0).length;
+                        const sortedData = sortedValueDataByDateMemo.get(date);
+                        const buyCount = sortedData?.buy.length || 0;
+                        const sellCount = sortedData?.sell.length || 0;
                         maxRows = Math.max(maxRows, buyCount, sellCount);
                       });
 
@@ -2286,20 +2331,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                       return Array.from({ length: maxRows }).map((_, rowIdx) => (
                         <tr key={rowIdx} className={`hover:bg-accent/50 ${rowIdx === maxRows - 1 ? 'border-b-2 border-white' : ''}`}>
                           {!showOnlyTotal && availableDates.map((date, dateIndex) => {
-                            const dateData = allBrokerData.find(d => d.date === date);
-
-                            // Sort brokers for this date: Buy uses BuyerValue, Sell uses SellerValue
-                            const sortedByBuyerValue = (dateData?.buyData || [])
-                              .filter(b => brokerFDScreen(b.broker))
-                              .filter(b => b.buyerValue > 0)
-                              .sort((a, b) => b.buyerValue - a.buyerValue);
-                            const sortedBySellerValue = (dateData?.sellData || [])
-                              .filter(s => brokerFDScreen(s.broker))
-                              .filter(s => s.sellerValue > 0)
-                              .sort((a, b) => b.sellerValue - a.sellerValue);
-
-                            const buyData = sortedByBuyerValue[rowIdx];
-                            const sellData = sortedBySellerValue[rowIdx];
+                            // OPTIMIZED: Use memoized sorted data
+                            const sortedRowData = sortedValueDataByDateMemo.get(date);
+                            const buyData = sortedRowData?.buy[rowIdx];
+                            const sellData = sortedRowData?.sell[rowIdx];
 
                             return (
                               <React.Fragment key={`${date}-${rowIdx}`}>
@@ -2440,136 +2475,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                         return 'text-white font-semibold';
                       };
 
-                      // Calculate total net data across all dates
-                      // NEW LOGIC: Aggregate all NetBuy and NetSell per broker, then determine which side they belong to
-                      // A broker can appear in both NetBuy and NetSell across different dates
-                      // In Total column, we need to compare total NetBuy vs total NetSell per broker
-                      // If NetBuy > NetSell: broker goes to NetBuy side (NetBuy - NetSell)
-                      // If NetSell > NetBuy: broker goes to NetSell side (NetSell - NetBuy)
-                      // IMPORTANT: Use same aggregation logic as Value table - sum bavg/savg and divide by count
-                      const brokerNetBuyTotals: { [broker: string]: { nblot: number; nbval: number; bavg: number; bavgCount: number } } = {};
-                      const brokerNetSellTotals: { [broker: string]: { nslot: number; nsval: number; savg: number; savgCount: number } } = {};
+                      // OPTIMIZED: Use memoized total data
+                      const sortedTotalNetBuy = totalNetDataMemo.buy;
+                      const sortedTotalNetSell = totalNetDataMemo.sell;
 
-                      allBrokerData.forEach(dateData => {
-                        dateData.buyData.forEach(b => {
-                          // Aggregate NetBuy totals per broker (across all dates)
-                          // Use same logic as Value table: sum bavg and count occurrences
-                          if (b.netBuyVol > 0 || b.netBuyValue > 0) {
-                            if (!brokerNetBuyTotals[b.broker]) {
-                              brokerNetBuyTotals[b.broker] = { nblot: 0, nbval: 0, bavg: 0, bavgCount: 0 };
-                            }
-                            const netBuyEntry = brokerNetBuyTotals[b.broker];
-                            if (netBuyEntry) {
-                              netBuyEntry.nblot += b.netBuyVol || 0;
-                              netBuyEntry.nbval += b.netBuyValue || 0;
-                              // Sum bavg and count (same as Value table logic)
-                              if (b.bavg && b.bavg !== 0) {
-                                netBuyEntry.bavg += b.bavg;
-                                netBuyEntry.bavgCount += 1;
-                              }
-                            }
-                          }
-
-                          // Aggregate NetSell totals per broker (across all dates)
-                          // Use same logic as Value table: sum savg and count occurrences
-                          if (b.netSellVol > 0 || b.netSellValue > 0) {
-                            if (!brokerNetSellTotals[b.broker]) {
-                              brokerNetSellTotals[b.broker] = { nslot: 0, nsval: 0, savg: 0, savgCount: 0 };
-                            }
-                            const netSellEntry = brokerNetSellTotals[b.broker];
-                            if (netSellEntry) {
-                              netSellEntry.nslot += b.netSellVol || 0;
-                              netSellEntry.nsval += b.netSellValue || 0;
-                              // Sum savg and count (same as Value table logic)
-                              if (b.savg && b.savg !== 0) {
-                                netSellEntry.savg += b.savg;
-                                netSellEntry.savgCount += 1;
-                              }
-                            }
-                          }
-                        });
-                      });
-
-                      // Determine final side for each broker based on which total is larger
-                      const totalNetBuyData: { [broker: string]: { nblot: number; nbval: number; bavg: number } } = {};
-                      const totalNetSellData: { [broker: string]: { nslot: number; nsval: number; savg: number } } = {};
-
-                      // Process all brokers that have NetBuy or NetSell totals
-                      const allBrokers = new Set([...Object.keys(brokerNetBuyTotals), ...Object.keys(brokerNetSellTotals)]);
-                      allBrokers.forEach(broker => {
-                        const netBuyTotal = brokerNetBuyTotals[broker] || { nblot: 0, nbval: 0, bavg: 0, bavgCount: 0 };
-                        const netSellTotal = brokerNetSellTotals[broker] || { nslot: 0, nsval: 0, savg: 0, savgCount: 0 };
-
-                        // Calculate average bavg and savg (same as Value table: sum / count)
-                        // If bavgCount/savgCount is 0 (no valid bavg/savg from CSV), use fallback: value / lot
-                        let bavg = netBuyTotal.bavgCount > 0 ? netBuyTotal.bavg / netBuyTotal.bavgCount : 0;
-                        let savg = netSellTotal.savgCount > 0 ? netSellTotal.savg / netSellTotal.savgCount : 0;
-
-                        // Fallback: if no valid bavg/savg from aggregation, calculate from value/lot
-                        if (bavg === 0 && netBuyTotal.nblot > 0 && netBuyTotal.nbval > 0) {
-                          bavg = netBuyTotal.nbval / netBuyTotal.nblot;
-                        }
-                        if (savg === 0 && netSellTotal.nslot > 0 && netSellTotal.nsval > 0) {
-                          savg = Math.abs(netSellTotal.nsval) / netSellTotal.nslot;
-                        }
-
-                        // Compare total NetBuy value vs total NetSell value
-                        // IMPORTANT: After netting, use bavg/savg that correspond to the side the broker ends up on
-                        // For NetBuy side: use bavg (from NetBuy aggregation)
-                        // For NetSell side: use savg (from NetSell aggregation)
-                        if (netBuyTotal.nbval > netSellTotal.nsval) {
-                          // NetBuy is larger: broker goes to NetBuy side, subtract NetSell from NetBuy
-                          totalNetBuyData[broker] = {
-                            nblot: Math.max(0, netBuyTotal.nblot - netSellTotal.nslot),
-                            nbval: Math.max(0, netBuyTotal.nbval - netSellTotal.nsval),
-                            bavg: bavg // Use bavg from NetBuy side (same as Value table BAvg)
-                          };
-                        } else if (netSellTotal.nsval > netBuyTotal.nbval) {
-                          // NetSell is larger: broker goes to NetSell side, subtract NetBuy from NetSell
-                          totalNetSellData[broker] = {
-                            nslot: Math.max(0, netSellTotal.nslot - netBuyTotal.nblot),
-                            nsval: Math.max(0, netSellTotal.nsval - netBuyTotal.nbval),
-                            savg: savg // Use savg from NetSell side (same as Value table SAvg)
-                          };
-                        } else {
-                          // Equal or both zero: default to NetBuy side (or NetSell if NetBuy is 0)
-                          if (netBuyTotal.nbval > 0) {
-                            totalNetBuyData[broker] = {
-                              nblot: netBuyTotal.nblot,
-                              nbval: netBuyTotal.nbval,
-                              bavg: bavg
-                            };
-                          } else if (netSellTotal.nsval > 0) {
-                            totalNetSellData[broker] = {
-                              nslot: netSellTotal.nslot,
-                              nsval: netSellTotal.nsval,
-                              savg: savg
-                            };
-                          }
-                        }
-                      });
-
-                      // Sort and filter
-                      const sortedTotalNetBuy = Object.entries(totalNetBuyData)
-                        .filter(([broker]) => brokerFDScreen(broker))
-                        .filter(([, data]) => data.nbval > 0) // Only include brokers with positive net value
-                        .map(([broker, data]) => ({
-                          broker,
-                          nblot: data.nblot,
-                          nbval: data.nbval,
-                          nbavg: data.bavg // Use bavg (same as Value table)
-                        }))
-                        .sort((a, b) => b.nbval - a.nbval);
-                      const sortedTotalNetSell = Object.entries(totalNetSellData)
-                        .filter(([broker]) => brokerFDScreen(broker))
-                        .filter(([, data]) => data.nsval > 0) // Only include brokers with positive net value
-                        .map(([broker, data]) => ({
-                          broker,
-                          nslot: data.nslot,
-                          nsval: data.nsval,
-                          nsavg: data.savg // Use savg (same as Value table)
-                        }))
-                        .sort((a, b) => b.nsval - a.nsval);
 
                       // Top 5 broker colors: Merah, Kuning, Hijau, Biru, Coklat
                       const bgColors = [
@@ -2649,22 +2558,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                       };
 
                       // Find max row count across all dates
-                      // Backend already separates NetBuy (netBuyVol > 0) and NetSell (netSellVol > 0)
                       let maxRows = 0;
                       availableDates.forEach(date => {
-                        const dateData = allBrokerData.find(d => d.date === date);
-                        // IMPORTANT: A broker can only be either NetBuy OR NetSell, not both
-                        const netBuyCount = (dateData?.buyData || []).filter(b =>
-                          brokerFDScreen(b.broker) &&
-                          (b.netBuyVol > 0 || b.netBuyValue > 0) &&
-                          (b.netBuyValue >= b.netSellValue)
-                        ).length;
-                        const netSellCount = (dateData?.buyData || []).filter(b =>
-                          brokerFDScreen(b.broker) &&
-                          (b.netSellVol > 0 || b.netSellValue > 0) &&
-                          (b.netSellValue > b.netBuyValue)
-                        ).length;
-                        maxRows = Math.max(maxRows, netBuyCount, netSellCount);
+                        const sortedData = sortedNetDataByDateMemo.get(date);
+                        maxRows = Math.max(maxRows, sortedData?.buy.length || 0, sortedData?.sell.length || 0);
                       });
 
                       // Also include total broker counts in maxRows (for Total column)
@@ -2672,7 +2569,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                       const totalNetSellCount = sortedTotalNetSell.length;
                       maxRows = Math.max(maxRows, totalNetBuyCount, totalNetSellCount);
 
-                      // Ensure minimum 21 rows for consistent display with VALUE table (20 visible + 1 to avoid scrollbar covering row 20)
+                      // Ensure minimum 21 rows for consistent display
                       maxRows = Math.max(maxRows, 21);
 
                       // If no data, show "No Data Available" message
@@ -2696,31 +2593,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
                         return (
                           <tr key={rowIdx} className={`hover:bg-accent/50 ${rowIdx === maxRows - 1 ? 'border-b-2 border-white' : ''}`}>
                             {!showOnlyTotal && availableDates.map((date, dateIndex) => {
-                              const dateData = allBrokerData.find(d => d.date === date);
-                              // Sort brokers for this date
-                              // Backend already separates: NetBuy (netBuyVol > 0) and NetSell (netSellVol > 0)
-                              // IMPORTANT: A broker can only be either NetBuy OR NetSell, not both
-                              // Filter: NetBuy brokers (netBuyVol > 0 AND netSellVol === 0, or netBuyValue > netSellValue)
-                              // Filter: NetSell brokers (netSellVol > 0 AND netBuyVol === 0, or netSellValue > netBuyValue)
-                              // Sort brokers for per-date columns
-                              const sortedNetBuy = (dateData?.buyData || [])
-                                .filter(b => {
-                                  if (!brokerFDScreen(b.broker)) return false;
-                                  // NetBuy: netBuyVol > 0 and netBuyValue >= netSellValue (prioritize NetBuy if both > 0)
-                                  return (b.netBuyVol > 0 || b.netBuyValue > 0) && (b.netBuyValue >= b.netSellValue);
-                                })
-                                .sort((a, b) => (b.netBuyValue || 0) - (a.netBuyValue || 0));
-                              const sortedNetSell = (dateData?.buyData || [])
-                                .filter(b => {
-                                  if (!brokerFDScreen(b.broker)) return false;
-                                  // NetSell: netSellVol > 0 and netSellValue > netBuyValue (prioritize NetSell if both > 0)
-                                  return (b.netSellVol > 0 || b.netSellValue > 0) && (b.netSellValue > b.netBuyValue);
-                                })
-                                .sort((a, b) => (b.netSellValue || 0) - (a.netSellValue || 0));
-
-                              // Per-date columns: each side uses its own sorted data
-                              const netBuyData = sortedNetBuy[rowIdx];
-                              const netSellData = sortedNetSell[rowIdx];
+                              // OPTIMIZED: Use memoized sorted data
+                              const sortedRowData = sortedNetDataByDateMemo.get(date);
+                              const netBuyData = sortedRowData?.buy[rowIdx];
+                              const netSellData = sortedRowData?.sell[rowIdx];
 
                               // IMPORTANT: Data is SWAPPED for display
                               // BLot, BVal, BAvg (Net Buy columns) display NetSell data
@@ -2921,17 +2797,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
 
                         return (
                           <React.Fragment key={`summary-${date}`}>
-                            {/* Spacer for BY, BLot, BVal, BAvg */}
+                            {/* Summary Data - 4 columns centered */}
                             <td className={`text-center py-[2px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }} colSpan={2}>{formatNumber(totalValue)}</td>
 
-                            {/* Summary Data - 4 columns centered */}
                             <td className={`text-center py-[2px] px-[5.4px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }} colSpan={2}>{formatNumber(foreignNetValue)}</td>
                             <td className="text-center py-[2px] px-[5.4px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }} colSpan={3}>{formatLot(totalLot)}</td>
                             <td className={`text-center py-[2px] px-[5.4px] font-bold text-white ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }} colSpan={2}>{formatAverage(avgPrice)}</td>
-
-
-                            {/* Spacer for SLot (last column) */}
-
                           </React.Fragment>
                         );
                       })}
@@ -2991,229 +2862,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
           </div>
         </div>
 
-        {(() => {
-          // Calculate totals per date - separate Buy and Sell
-          const totalsByDate = new Map<string, {
-            // Buy side
-            buyTotalValue: number;
-            buyForeignValue: number;
-            buyTotalShares: number;
-            // Sell side
-            sellTotalValue: number;
-            sellForeignValue: number;
-            sellTotalShares: number;
-          }>();
-
-          // Grand totals across all dates - separate Buy and Sell
-          let grandBuyTotalValue = 0;
-          let grandBuyForeignValue = 0;
-          let grandBuyTotalLotShares = 0;
-          let grandSellTotalValue = 0;
-          let grandSellForeignValue = 0;
-          let grandSellTotalLotShares = 0;
-
-          availableDates.forEach((date: string) => {
-            const rows = summaryByDate.get(date) || [];
-            let dateBuyTotalValue = 0;
-            let dateBuyTotalLotShares = 0;
-            let dateBuyForeignValue = 0;
-            let dateSellTotalValue = 0;
-            let dateSellTotalLotShares = 0;
-            let dateSellForeignValue = 0;
-
-            rows.forEach(row => {
-              // Filter by F/D
-              if (!brokerFDScreen(row.broker)) return;
-
-              const buyVal = Number(row.buyerValue) || 0;
-              const sellVal = Number(row.sellerValue) || 0;
-              const buyVol = Number(row.buyerVol) || 0;
-              const sellVol = Number(row.sellerVol) || 0;
-
-              // Buy side totals
-              dateBuyTotalValue += buyVal;
-              dateBuyTotalLotShares += buyVol;
-
-              // Sell side totals
-              dateSellTotalValue += sellVal;
-              dateSellTotalLotShares += sellVol;
-
-              const brokerCode = (row.broker || '').toUpperCase();
-              if (brokerCode && FOREIGN_BROKERS.includes(brokerCode)) {
-                dateBuyForeignValue += buyVal;
-                dateSellForeignValue += sellVal;
-              }
-            });
-
-            totalsByDate.set(date, {
-              buyTotalValue: dateBuyTotalValue,
-              buyForeignValue: dateBuyForeignValue,
-              buyTotalShares: dateBuyTotalLotShares,
-              sellTotalValue: dateSellTotalValue,
-              sellForeignValue: dateSellForeignValue,
-              sellTotalShares: dateSellTotalLotShares
-            });
-
-            grandBuyTotalValue += dateBuyTotalValue;
-            grandBuyTotalLotShares += dateBuyTotalLotShares;
-            grandBuyForeignValue += dateBuyForeignValue;
-            grandSellTotalValue += dateSellTotalValue;
-            grandSellTotalLotShares += dateSellTotalLotShares;
-            grandSellForeignValue += dateSellForeignValue;
-          });
-
-          // Grand totals across all dates
-          const grandBuyTotalShares = grandBuyTotalLotShares;
-          const grandSellTotalShares = grandSellTotalLotShares;
-
-          // Use selectedDates for header when data is empty (to show table structure)
-          // Use availableDates when data exists (to show only dates with data)
-          const datesForHeader = summaryByDate.size === 0 ? selectedDates : availableDates;
-
-          if (true) return null; (
-            <div className="w-full max-w-full mt-2">
-              <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
-                <div ref={totalTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto'} border-l-2 border-r-2 border-b-2 border-white`}>
-                  <table ref={totalTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : (dateColumnWidthsRef.current.size > 0 && totalColumnWidthRef.current > 0 ? 'fixed' : 'auto')), width: summaryByDate.size === 0 ? '100%' : undefined }}>
-                    <thead className="bg-[#3a4252]">
-                      <tr className="border-t-2 border-white">
-                        {!showOnlyTotal && datesForHeader.map((date, dateIndex) => {
-                          const dateWidth = dateColumnWidthsRef.current.get(date);
-                          return (
-                            <th
-                              key={date}
-                              className={`text-center py-[1px] px-[7.4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`}
-                              colSpan={4}
-                              style={{
-                                textAlign: 'center',
-                                width: dateWidth ? `${dateWidth}px` : undefined,
-                                minWidth: dateWidth ? `${dateWidth}px` : undefined,
-                                maxWidth: dateWidth ? `${dateWidth}px` : undefined
-                              }}
-                            >
-                              {formatDisplayDate(date)}
-                            </th>
-                          );
-                        })}
-                        <th
-                          className={`text-center py-[1px] px-[3.8px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}
-                          colSpan={4}
-                          style={{
-                            textAlign: 'center',
-                            width: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined,
-                            minWidth: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined,
-                            maxWidth: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined
-                          }}
-                        >
-                          Total
-                        </th>
-                      </tr>
-                      <tr className="bg-[#3a4252]">
-                        {!showOnlyTotal && datesForHeader.map((date, dateIndex) => {
-                          const dateWidth = dateColumnWidthsRef.current.get(date);
-                          const colWidth = dateWidth ? dateWidth / 4 : undefined;
-                          return (
-                            <React.Fragment key={`detail-${date}`}>
-                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TVal</th>
-                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>FNVal</th>
-                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TLot</th>
-                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>Avg</th>
-                            </React.Fragment>
-                          );
-                        })}
-                        {/* Total Columns */}
-                        {(() => {
-                          const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
-                          return (
-                            <>
-                              <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TVal</th>
-                              <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>FNVal</th>
-                              <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TLot</th>
-                              <th className={`text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>Avg</th>
-                            </>
-                          );
-                        })()}
-                      </tr>
-                    </thead >
-                    <tbody className="text-[12px]">
-                      <tr className="bg-[#0f172a] border-b-2 border-white">
-                        {!showOnlyTotal && availableDates.map((date, dateIndex) => {
-                          const dateTotals = totalsByDate.get(date);
-                          const dateWidth = dateColumnWidthsRef.current.get(date);
-                          const colWidth = dateWidth ? dateWidth / 4 : undefined;
-
-                          if (!dateTotals) {
-                            return (
-                              <React.Fragment key={date}>
-                                <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
-                                <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
-                                <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
-                                <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
-                              </React.Fragment>
-                            );
-                          }
-
-                          // Calculate consolidated values
-                          const totalValue = dateTotals.buyTotalValue + dateTotals.sellTotalValue;
-                          const totalShares = dateTotals.buyTotalShares + dateTotals.sellTotalShares;
-                          const totalLot = totalShares / 100;
-                          const foreignNetValue = dateTotals.buyForeignValue - dateTotals.sellForeignValue;
-                          const avgPrice = totalShares > 0 ? totalValue / totalShares : 0;
-                          const foreignNetClass = foreignNetValue > 0 ? 'text-green-500' : foreignNetValue < 0 ? 'text-red-500' : 'text-white';
-
-                          return (
-                            <React.Fragment key={date}>
-                              <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
-                                {formatNumber(totalValue)}
-                              </td>
-                              <td className={`text-center py-[1px] px-[5.4px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
-                                {formatNumber(foreignNetValue)}
-                              </td>
-                              <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
-                                {formatLot(totalLot)}
-                              </td>
-                              <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
-                                {formatAverage(avgPrice)}
-                              </td>
-                            </React.Fragment>
-                          );
-                        })}
-                        {/* Grand Total Column */}
-                        {(() => {
-                          // Calculate consolidated grand totals
-                          const grandTotalValue = grandBuyTotalValue + grandSellTotalValue;
-                          const totalShares = grandBuyTotalShares + grandSellTotalShares;
-                          const grandTotalLot = totalShares / 100;
-                          const grandForeignNetValue = grandBuyForeignValue - grandSellForeignValue;
-                          const grandAvgPrice = totalShares > 0 ? grandTotalValue / totalShares : 0;
-                          const grandForeignNetClass = grandForeignNetValue > 0 ? 'text-green-500' : grandForeignNetValue < 0 ? 'text-red-500' : 'text-white';
-                          const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
-
-                          return (
-                            <React.Fragment>
-                              <td className={`text-center py-[1px] px-[4.5px] text-white font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
-                                {formatNumber(grandTotalValue)}
-                              </td>
-                              <td className={`text-center py-[1px] px-[4.5px] font-bold ${grandForeignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
-                                {formatNumber(grandForeignNetValue)}
-                              </td>
-                              <td className="text-center py-[1px] px-[4.5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
-                                {formatLot(grandTotalLot)}
-                              </td>
-                              <td className="text-center py-[1px] px-[6.3px] text-white font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
-                                {formatAverage(grandAvgPrice)}
-                              </td>
-                            </React.Fragment>
-                          );
-                        })()}
-                      </tr>
-                    </tbody>
-                  </table >
-                </div >
-              </div >
-            </div >
-          );
-        })()}
       </div >
     );
   };
@@ -3222,8 +2870,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
-      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
-        <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:sticky lg:top-0 lg:z-40" ref={menuContainerRef}>
+        <div className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
           {/* Ticker Selection - Dropdown only */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
@@ -3858,8 +3506,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock, disableTic
         </div>
       </div>
 
-      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
-      <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+
 
       {/* Loading State - only show when actually loading (isLoading === true) */}
       {isLoading && (
