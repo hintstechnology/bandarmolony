@@ -1413,14 +1413,15 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock, 
                 const priceData = aggregatedByPrice.get(price)!;
 
                 // Aggregate buy side - sum all values from all brokers
-                priceData.bFreq += Number(row.BFreq) || 0;
-                priceData.bLot += Number(row.BLot) || 0;
-                priceData.bOrd += Number(row.BOrd) || 0;
+                // USER REQUEST: Data inverted. HAKI (S) considered Buy, HAKA (B) considered Sell.
+                priceData.bFreq += Number(row.SFreq) || 0;
+                priceData.bLot += Number(row.SLot) || 0;
+                priceData.bOrd += Number(row.SOrd) || 0;
 
                 // Aggregate sell side - sum all values from all brokers
-                priceData.sLot += Number(row.SLot) || 0;
-                priceData.sFreq += Number(row.SFreq) || 0;
-                priceData.sOrd += Number(row.SOrd) || 0;
+                priceData.sLot += Number(row.BLot) || 0;
+                priceData.sFreq += Number(row.BFreq) || 0;
+                priceData.sOrd += Number(row.BOrd) || 0;
               });
             });
 
