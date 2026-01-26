@@ -49,7 +49,7 @@ export function ContactPage() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
+    <div className="relative min-h-screen bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
       <Helmet>
         <title>Contact BandarmoloNY - Get Support & Assistance</title>
         <meta
@@ -134,16 +134,14 @@ export function ContactPage() {
                   className="w-full flex items-center justify-between p-4 text-left hover:bg-background/20 transition-colors"
                 >
                   <h3 className="font-semibold text-foreground">{faq.question}</h3>
-                  <ChevronDown 
-                    className={`w-5 h-5 text-muted-foreground transition-transform duration-200 ${
-                      openIndex === index ? 'rotate-180' : ''
-                    }`}
+                  <ChevronDown
+                    className={`w-5 h-5 text-muted-foreground transition-transform duration-200 ${openIndex === index ? 'rotate-180' : ''
+                      }`}
                   />
                 </button>
                 <div
-                  className={`overflow-hidden transition-all duration-300 ${
-                    openIndex === index ? 'max-h-96' : 'max-h-0'
-                  }`}
+                  className={`overflow-hidden transition-all duration-300 ${openIndex === index ? 'max-h-96' : 'max-h-0'
+                    }`}
                 >
                   <p className="px-4 pb-4 text-sm text-muted-foreground">
                     {faq.answer}

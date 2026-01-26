@@ -39,7 +39,7 @@ const privacySections = [
 
 export function PrivacyPage() {
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
+    <div className="relative min-h-screen bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
       <Helmet>
         <title>BandarmoloNY - Privacy Policy</title>
         <meta name="description" content="Learn how BandarmoloNY manages and protects your personal data. Our privacy policy covers data collection, usage, security measures, user rights, and information sharing practices for the trading analysis platform." />

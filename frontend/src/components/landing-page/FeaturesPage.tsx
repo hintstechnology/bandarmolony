@@ -87,7 +87,7 @@ const featureSections = [
 export function FeaturesPage() {
   const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
-  
+
   // Handle Start Free Trial - check if already authenticated
   const handleStartTrial = () => {
     if (!authLoading && isAuthenticated) {
@@ -98,9 +98,9 @@ export function FeaturesPage() {
       navigate('/auth?mode=register');
     }
   };
-  
+
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
+    <div className="relative min-h-screen bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
       <Helmet>
         <title>BandarmoloNY - Features & Platform Capabilities</title>
         <meta

@@ -16,7 +16,7 @@ interface LandingPageProps {
 
 export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageProps) {
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-background via-muted/20 to-background">
+    <div className="relative min-h-screen bg-gradient-to-br from-background via-muted/20 to-background">
       <Helmet>
         <title>{`BandarmoloNY`}</title>
         <meta
@@ -54,7 +54,7 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(0,0,0,0.1),transparent_50%)] dark:bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.1),transparent_50%)]" />
       </div>
 
-      <Navbar 
+      <Navbar
         {...(onSignIn && { onSignIn })}
         {...(onRegister && { onRegister })}
       />
