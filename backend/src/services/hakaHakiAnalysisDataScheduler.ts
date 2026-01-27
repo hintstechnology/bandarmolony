@@ -12,7 +12,7 @@ export class HakaHakiAnalysisDataScheduler {
     /**
      * Generate HAKA HAKI analysis data
      */
-    async generateHakaHakiData(dateSuffix?: string, logId?: string | null, triggeredBy?: string): Promise<{ success: boolean; message: string; data?: any }> {
+    async generateHakaHakiData(_dateSuffix?: string, logId?: string | null, triggeredBy?: string): Promise<{ success: boolean; message: string; data?: any }> {
         // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
         let finalLogId = logId;
         if (!finalLogId) {

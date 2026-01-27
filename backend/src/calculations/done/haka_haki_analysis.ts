@@ -1,9 +1,6 @@
 import { uploadText, listPaths } from '../../utils/azureBlob';
 import { doneSummaryCache } from '../../cache/doneSummaryCacheService';
-import { SchedulerLogService } from '../../services/schedulerLogService';
 
-// Reusing Phase 7 constants or defining local ones
-const BATCH_SIZE = 5;
 const MAX_CONCURRENT_REQUESTS = 3;
 
 // Helper function to limit concurrency
@@ -91,14 +88,7 @@ export class HakaHakiAnalysisCalculator {
         }
     }
 
-    // Check existing folders in output directory
-    private async checkOutputExists(dateSuffix: string, stockCode: string): Promise<boolean> {
-        // Optimistic check - we can skip strict checking for now or implement if performance degrades
-        // For now, implementing simple check if date folder exists could be enough, but user asked to be like broker_breakdown
-        // BrokerBreakdown uses checkStockFoldersExist (batch) or filterExistingDates.
-        // Let's implement filterExistingDates equivalent.
-        return false;
-    }
+
 
     private async filterExistingDates(dtFiles: string[]): Promise<string[]> {
         console.log(`🔍 Pre-checking existing HAKA/HAKI outputs...`);
@@ -283,7 +273,7 @@ export class HakaHakiAnalysisCalculator {
         return [header, ...rows].join('\n');
     }
 
-    private async processSingleDtFile(blobName: string, progressTracker?: ProgressTracker): Promise<boolean> {
+    private async processSingleDtFile(blobName: string, _progressTracker?: ProgressTracker): Promise<boolean> {
         try {
             const content = await doneSummaryCache.getRawContent(blobName);
             if (!content || content.trim().length === 0) return false;
