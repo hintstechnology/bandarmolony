@@ -26,6 +26,7 @@ import BrokerSummaryIDXDataScheduler from '../services/brokerSummaryIDXDataSched
 import BrokerSummarySectorDataScheduler from '../services/brokerSummarySectorDataScheduler';
 import BrokerBreakdownDataScheduler from '../services/brokerBreakdownDataScheduler';
 import BreakDoneTradeDataScheduler from '../services/breakDoneTradeDataScheduler';
+import HakaHakiAnalysisDataScheduler from '../services/hakaHakiAnalysisDataScheduler';
 import BrokerTransactionDataScheduler from '../services/brokerTransactionDataScheduler';
 import BrokerTransactionRGTNNGDataScheduler from '../services/brokerTransactionRGTNNGDataScheduler';
 import BrokerTransactionFDDataScheduler from '../services/brokerTransactionFDDataScheduler';
@@ -46,16 +47,16 @@ const router = express.Router();
 // Middleware to optionally populate req.user if token exists (doesn't block if no token)
 async function optionalAuth(req: express.Request, _res: express.Response, next: express.NextFunction) {
   const anyReq = req as any;
-  
+
   // If req.user already exists (from requireSupabaseUser), skip
   if (anyReq.user) {
     return next();
   }
-  
+
   // Try to get user from token
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-  
+
   if (token) {
     try {
       const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
@@ -70,7 +71,7 @@ async function optionalAuth(req: express.Request, _res: express.Response, next: 
       // Ignore error, continue without user
     }
   }
-  
+
   next();
 }
 
@@ -87,7 +88,7 @@ router.use(optionalAuth);
 router.post('/stock', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Stock data update');
-    
+
     // Create log entry
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
@@ -99,9 +100,9 @@ router.post('/stock', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -115,17 +116,17 @@ router.post('/stock', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Stock data update triggered successfully',
       logId: logEntry.id
     });
 
   } catch (error: any) {
     console.error('❌ Manual trigger error (stock):', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 });
@@ -134,7 +135,7 @@ router.post('/stock', async (req, res) => {
 router.post('/emiten-list', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Emiten List update');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'emiten_list',
@@ -145,9 +146,9 @@ router.post('/emiten-list', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -160,17 +161,17 @@ router.post('/emiten-list', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Emiten List update triggered successfully',
       logId: logEntry.id
     });
 
   } catch (error: any) {
     console.error('❌ Manual trigger error (emiten-list):', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 });
@@ -179,7 +180,7 @@ router.post('/emiten-list', async (req, res) => {
 router.post('/index', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Index data update');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'index',
@@ -190,9 +191,9 @@ router.post('/index', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -205,17 +206,17 @@ router.post('/index', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Index data update triggered successfully',
       logId: logEntry.id
     });
 
   } catch (error: any) {
     console.error('❌ Manual trigger error (index):', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 });
@@ -224,7 +225,7 @@ router.post('/index', async (req, res) => {
 router.post('/shareholders', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Shareholders data update');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'shareholders',
@@ -235,9 +236,9 @@ router.post('/shareholders', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -250,17 +251,17 @@ router.post('/shareholders', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Shareholders data update triggered successfully',
       logId: logEntry.id
     });
 
   } catch (error: any) {
     console.error('❌ Manual trigger error (shareholders):', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 });
@@ -269,7 +270,7 @@ router.post('/shareholders', async (req, res) => {
 router.post('/holding', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Holding data update');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'holding',
@@ -280,9 +281,9 @@ router.post('/holding', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -295,17 +296,17 @@ router.post('/holding', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Holding data update triggered successfully',
       logId: logEntry.id
     });
 
   } catch (error: any) {
     console.error('❌ Manual trigger error (holding):', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 });
@@ -314,7 +315,7 @@ router.post('/holding', async (req, res) => {
 router.post('/done-summary', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Done summary data update');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'done-summary',
@@ -325,9 +326,9 @@ router.post('/done-summary', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -340,17 +341,17 @@ router.post('/done-summary', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Done summary data update triggered successfully',
       logId: logEntry.id
     });
 
   } catch (error: any) {
     console.error('❌ Manual trigger error (done-summary):', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 });
@@ -359,10 +360,10 @@ router.post('/done-summary', async (req, res) => {
 router.post('/accumulation', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Accumulation Distribution calculation');
-    
+
     const today = new Date();
     const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
-    
+
     const triggeredBy = getTriggeredBy(req);
     // Create log entry
     const logEntry = await SchedulerLogService.createLog({
@@ -374,9 +375,9 @@ router.post('/accumulation', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -399,16 +400,16 @@ router.post('/accumulation', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Accumulation Distribution calculation triggered',
       log_id: logEntry.id
     });
   } catch (error) {
     console.error('❌ Error triggering accumulation calculation:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error instanceof Error ? error.message : 'Unknown error' 
+    return res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -417,10 +418,10 @@ router.post('/accumulation', async (req, res) => {
 router.post('/bidask', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Bid/Ask Footprint calculation');
-    
+
     const today = new Date();
     const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
-    
+
     const triggeredBy = getTriggeredBy(req);
     // Create log entry
     const logEntry = await SchedulerLogService.createLog({
@@ -432,9 +433,9 @@ router.post('/bidask', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -457,16 +458,16 @@ router.post('/bidask', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Bid/Ask Footprint calculation triggered',
       log_id: logEntry.id
     });
   } catch (error) {
     console.error('❌ Error triggering bid/ask calculation:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error instanceof Error ? error.message : 'Unknown error' 
+    return res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -475,7 +476,7 @@ router.post('/bidask', async (req, res) => {
 router.post('/broker-breakdown', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Breakdown calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_breakdown',
@@ -486,14 +487,14 @@ router.post('/broker-breakdown', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerBreakdownService = new BrokerBreakdownDataScheduler();
-    
+
     // Execute in background and return immediately
     // Pass logId to enable progress tracking
     brokerBreakdownService.generateBrokerBreakdownData('all', logEntry.id || null, triggeredBy).then(async (result) => {
@@ -533,7 +534,7 @@ router.post('/broker-breakdown', async (req, res) => {
 router.post('/broker-summary', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Summary calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker-summary',
@@ -544,9 +545,9 @@ router.post('/broker-summary', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -569,16 +570,16 @@ router.post('/broker-summary', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Broker Summary calculation triggered',
       log_id: logEntry.id
     });
   } catch (error) {
     console.error('❌ Error triggering broker summary calculation:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error instanceof Error ? error.message : 'Unknown error' 
+    return res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -587,7 +588,7 @@ router.post('/broker-summary', async (req, res) => {
 router.post('/top-broker', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Top Broker calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'top-broker',
@@ -598,9 +599,9 @@ router.post('/top-broker', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -623,16 +624,16 @@ router.post('/top-broker', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Top Broker calculation triggered',
       log_id: logEntry.id
     });
   } catch (error) {
     console.error('❌ Error triggering top broker calculation:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error instanceof Error ? error.message : 'Unknown error' 
+    return res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -641,10 +642,10 @@ router.post('/top-broker', async (req, res) => {
 router.post('/broker-inventory', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Inventory calculation');
-    
+
     const today = new Date();
     const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
-    
+
     const triggeredBy = getTriggeredBy(req);
     // Create log entry
     const logEntry = await SchedulerLogService.createLog({
@@ -656,9 +657,9 @@ router.post('/broker-inventory', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -681,16 +682,16 @@ router.post('/broker-inventory', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Broker Inventory calculation triggered',
       log_id: logEntry.id
     });
   } catch (error) {
     console.error('❌ Error triggering broker inventory calculation:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error instanceof Error ? error.message : 'Unknown error' 
+    return res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -702,7 +703,7 @@ router.post('/broker-summary-rg', async (_req, res) => {
 
     // Run calculation directly without scheduler log
     const calculator = new BrokerDataRGTNNGCalculator();
-    
+
     // Execute in background and return immediately
     (async () => {
       try {
@@ -731,7 +732,7 @@ router.post('/broker-summary-rg', async (_req, res) => {
 router.post('/broker-summary-type', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Summary by Type (RG/TN/NG) calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_summary_type',
@@ -742,14 +743,14 @@ router.post('/broker-summary-type', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerSummaryTypeService = new BrokerSummaryTypeDataScheduler();
-    
+
     // Execute in background and return immediately
     brokerSummaryTypeService.generateBrokerSummaryTypeData('all', logEntry.id, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Summary Type calculation completed: ${result.message}`);
@@ -787,10 +788,10 @@ router.post('/broker-summary-type', async (req, res) => {
 router.post('/foreign-flow', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Foreign Flow calculation');
-    
+
     const today = new Date();
     const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
-    
+
     const triggeredBy = getTriggeredBy(req);
     // Create log entry
     const logEntry = await SchedulerLogService.createLog({
@@ -802,9 +803,9 @@ router.post('/foreign-flow', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -827,16 +828,16 @@ router.post('/foreign-flow', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Foreign Flow calculation triggered',
       log_id: logEntry.id
     });
   } catch (error) {
     console.error('❌ Error triggering foreign flow calculation:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error instanceof Error ? error.message : 'Unknown error' 
+    return res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -845,10 +846,10 @@ router.post('/foreign-flow', async (req, res) => {
 router.post('/money-flow', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Money Flow calculation');
-    
+
     const today = new Date();
     const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
-    
+
     const triggeredBy = getTriggeredBy(req);
     // Create log entry
     const logEntry = await SchedulerLogService.createLog({
@@ -860,9 +861,9 @@ router.post('/money-flow', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -885,16 +886,16 @@ router.post('/money-flow', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Money Flow calculation triggered',
       log_id: logEntry.id
     });
   } catch (error) {
     console.error('❌ Error triggering money flow calculation:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error instanceof Error ? error.message : 'Unknown error' 
+    return res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -937,31 +938,31 @@ router.get('/status', async (_req, res) => {
 router.get('/logs', async (req, res) => {
   try {
     const { limit = 50, offset = 0, status, feature_name } = req.query;
-    
+
     const logs = await SchedulerLogService.getLogs({
       limit: parseInt(limit as string),
       offset: parseInt(offset as string),
       status: status as string,
       feature_name: feature_name as string
     });
-    
+
     // Get total count for pagination
     const totalCount = await SchedulerLogService.getLogsCount({
       status: status as string,
       feature_name: feature_name as string
     });
-    
-    return res.json({ 
-      success: true, 
+
+    return res.json({
+      success: true,
       data: logs,
       total: totalCount
     });
 
   } catch (error: any) {
     console.error('❌ Error fetching scheduler logs:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 });
@@ -970,27 +971,27 @@ router.get('/logs', async (req, res) => {
 router.get('/logs/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // ID is UUID string, not integer
     const log = await SchedulerLogService.getLogById(id);
-    
+
     if (!log) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Log not found' 
+      return res.status(404).json({
+        success: false,
+        message: 'Log not found'
       });
     }
 
-    return res.json({ 
-      success: true, 
-      data: log 
+    return res.json({
+      success: true,
+      data: log
     });
 
   } catch (error: any) {
     console.error('❌ Error fetching scheduler log:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 });
@@ -1000,46 +1001,46 @@ router.post('/logs/:id/cancel', async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
-    
+
     // ID is UUID string, not integer
     // Get log to check if it's running
     const log = await SchedulerLogService.getLogById(id);
-    
+
     if (!log) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Log not found' 
+      return res.status(404).json({
+        success: false,
+        message: 'Log not found'
       });
     }
 
     if (log.status !== 'running') {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Cannot cancel log with status: ${log.status}` 
+      return res.status(400).json({
+        success: false,
+        message: `Cannot cancel log with status: ${log.status}`
       });
     }
 
     // Mark as cancelled - get user info from request if available
     const cancelledBy = (req as any).user?.email || (req as any).user?.id || 'admin';
     const success = await SchedulerLogService.markCancelled(id, reason, cancelledBy);
-    
+
     if (!success) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to cancel scheduler log' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to cancel scheduler log'
       });
     }
 
-    return res.json({ 
-      success: true, 
-      message: 'Scheduler task cancelled successfully' 
+    return res.json({
+      success: true,
+      message: 'Scheduler task cancelled successfully'
     });
 
   } catch (error: any) {
     console.error('❌ Error cancelling scheduler log:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 });
@@ -1048,38 +1049,38 @@ router.post('/logs/:id/cancel', async (req, res) => {
 router.delete('/logs/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // ID is UUID string, not integer
     // Check if log exists
     const log = await SchedulerLogService.getLogById(id);
-    
+
     if (!log) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Log not found' 
+      return res.status(404).json({
+        success: false,
+        message: 'Log not found'
       });
     }
 
     // Delete the log
     const success = await SchedulerLogService.deleteLog(id);
-    
+
     if (!success) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to delete scheduler log' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to delete scheduler log'
       });
     }
 
-    return res.json({ 
-      success: true, 
-      message: 'Scheduler log deleted successfully' 
+    return res.json({
+      success: true,
+      message: 'Scheduler log deleted successfully'
     });
 
   } catch (error: any) {
     console.error('❌ Error deleting scheduler log:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 });
@@ -1088,28 +1089,28 @@ router.delete('/logs/:id', async (req, res) => {
 router.delete('/logs', async (req, res) => {
   try {
     const { ids } = req.body;
-    
+
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Please provide an array of log IDs to delete' 
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an array of log IDs to delete'
       });
     }
 
     // Delete the logs
     const result = await SchedulerLogService.deleteLogs(ids);
-    
+
     if (!result.success) {
-      return res.status(500).json({ 
-        success: false, 
+      return res.status(500).json({
+        success: false,
         message: 'Failed to delete scheduler logs',
         deleted: result.deleted,
         failed: result.failed
       });
     }
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: `Successfully deleted ${result.deleted} log(s)`,
       deleted: result.deleted,
       failed: result.failed
@@ -1117,9 +1118,9 @@ router.delete('/logs', async (req, res) => {
 
   } catch (error: any) {
     console.error('❌ Error deleting scheduler logs:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 });
@@ -1128,7 +1129,7 @@ router.delete('/logs', async (req, res) => {
 router.post('/rrc', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: RRC calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'rrc',
@@ -1139,9 +1140,9 @@ router.post('/rrc', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -1155,17 +1156,17 @@ router.post('/rrc', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'RRC calculation triggered successfully',
       log_id: logEntry.id
     });
 
   } catch (error: any) {
     console.error('❌ Error triggering RRC calculation:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Unknown error' 
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Unknown error'
     });
   }
 });
@@ -1174,7 +1175,7 @@ router.post('/rrc', async (req, res) => {
 router.post('/rrg', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: RRG calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'rrg',
@@ -1185,9 +1186,9 @@ router.post('/rrg', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -1201,17 +1202,17 @@ router.post('/rrg', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'RRG calculation triggered successfully',
       log_id: logEntry.id
     });
 
   } catch (error: any) {
     console.error('❌ Error triggering RRG calculation:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Unknown error' 
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Unknown error'
     });
   }
 });
@@ -1220,7 +1221,7 @@ router.post('/rrg', async (req, res) => {
 router.post('/seasonal', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Seasonal calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'seasonality',
@@ -1231,9 +1232,9 @@ router.post('/seasonal', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -1253,17 +1254,17 @@ router.post('/seasonal', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Seasonal calculation triggered successfully',
       log_id: logEntry.id
     });
 
   } catch (error: any) {
     console.error('❌ Error triggering seasonal calculation:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Unknown error' 
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Unknown error'
     });
   }
 });
@@ -1272,7 +1273,7 @@ router.post('/seasonal', async (req, res) => {
 router.post('/trend-filter', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Trend Filter calculation');
-    
+
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'trend_filter',
       trigger_type: 'manual',
@@ -1282,9 +1283,9 @@ router.post('/trend-filter', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -1306,17 +1307,17 @@ router.post('/trend-filter', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Trend Filter calculation triggered successfully',
       log_id: logEntry.id
     });
 
   } catch (error: any) {
     console.error('❌ Error triggering trend filter calculation:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Unknown error' 
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Unknown error'
     });
   }
 });
@@ -1325,7 +1326,7 @@ router.post('/trend-filter', async (req, res) => {
 router.post('/watchlist-snapshot', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Watchlist Snapshot generation');
-    
+
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'watchlist_snapshot',
       trigger_type: 'manual',
@@ -1335,9 +1336,9 @@ router.post('/watchlist-snapshot', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
@@ -1359,17 +1360,17 @@ router.post('/watchlist-snapshot', async (req, res) => {
       }
     });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Watchlist Snapshot generation triggered successfully',
       log_id: logEntry.id
     });
 
   } catch (error: any) {
     console.error('❌ Error triggering watchlist snapshot generation:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Unknown error' 
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Unknown error'
     });
   }
 });
@@ -1378,7 +1379,7 @@ router.post('/watchlist-snapshot', async (req, res) => {
 router.post('/broker-transaction-stock-idx', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock IDX calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_idx',
@@ -1389,14 +1390,14 @@ router.post('/broker-transaction-stock-idx', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerTransactionStockIDXService = new BrokerTransactionStockIDXDataScheduler();
-    
+
     // Execute in background and return immediately
     brokerTransactionStockIDXService.generateBrokerTransactionStockIDXData('all', logEntry.id, triggeredBy).then(async (result: { success: boolean; message?: string }) => {
       console.log(`✅ Broker Transaction Stock IDX calculation completed: ${result.message}`);
@@ -1437,7 +1438,7 @@ router.post('/broker-transaction-stock-idx', async (req, res) => {
 router.post('/broker-summary-idx', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Summary IDX calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_summary_idx',
@@ -1448,14 +1449,14 @@ router.post('/broker-summary-idx', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerSummaryIDXService = new BrokerSummaryIDXDataScheduler();
-    
+
     // Execute in background and return immediately
     brokerSummaryIDXService.generateBrokerSummaryIDXData('all', logEntry.id, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Summary IDX calculation completed: ${result.message}`);
@@ -1496,7 +1497,7 @@ router.post('/broker-summary-idx', async (req, res) => {
 router.post('/broker-transaction', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction',
@@ -1507,14 +1508,14 @@ router.post('/broker-transaction', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerTransactionService = new BrokerTransactionDataScheduler();
-    
+
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
@@ -1554,7 +1555,7 @@ router.post('/broker-transaction', async (req, res) => {
 router.post('/broker-transaction-rgtnng', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction RG/TN/NG calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_rgtnng',
@@ -1565,14 +1566,14 @@ router.post('/broker-transaction-rgtnng', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerTransactionRGTNNGService = new BrokerTransactionRGTNNGDataScheduler();
-    
+
     // Execute in background and return immediately
     // Pass undefined to process all DT files (as per generateBrokerTransactionRGTNNGData implementation)
     brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData(undefined, logEntry.id, triggeredBy).then(async (result) => {
@@ -1612,7 +1613,7 @@ router.post('/broker-transaction-rgtnng', async (req, res) => {
 router.post('/broker-transaction-fd', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction F/D calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_fd',
@@ -1623,14 +1624,14 @@ router.post('/broker-transaction-fd', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerTransactionFDService = new BrokerTransactionFDDataScheduler();
-    
+
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionFDService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
@@ -1670,7 +1671,7 @@ router.post('/broker-transaction-fd', async (req, res) => {
 router.post('/broker-transaction-fd-rgtnng', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction F/D RG/TN/NG calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_fd_rgtnng',
@@ -1681,14 +1682,14 @@ router.post('/broker-transaction-fd-rgtnng', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerTransactionFDRGTNNGService = new BrokerTransactionFDRGTNNGDataScheduler();
-    
+
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionFDRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
@@ -1728,7 +1729,7 @@ router.post('/broker-transaction-fd-rgtnng', async (req, res) => {
 router.post('/broker-transaction-stock', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock',
@@ -1739,14 +1740,14 @@ router.post('/broker-transaction-stock', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerTransactionStockService = new BrokerTransactionStockDataScheduler();
-    
+
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionStockService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
@@ -1786,7 +1787,7 @@ router.post('/broker-transaction-stock', async (req, res) => {
 router.post('/broker-transaction-stock-fd', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock F/D calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_fd',
@@ -1797,14 +1798,14 @@ router.post('/broker-transaction-stock-fd', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerTransactionStockFDService = new BrokerTransactionStockFDDataScheduler();
-    
+
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionStockFDService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
@@ -1844,7 +1845,7 @@ router.post('/broker-transaction-stock-fd', async (req, res) => {
 router.post('/broker-transaction-stock-rgtnng', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock RG/TN/NG calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_rgtnng',
@@ -1855,14 +1856,14 @@ router.post('/broker-transaction-stock-rgtnng', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerTransactionStockRGTNNGService = new BrokerTransactionStockRGTNNGDataScheduler();
-    
+
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionStockRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
@@ -1902,7 +1903,7 @@ router.post('/broker-transaction-stock-rgtnng', async (req, res) => {
 router.post('/broker-transaction-stock-fd-rgtnng', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock F/D RG/TN/NG calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_fd_rgtnng',
@@ -1913,14 +1914,14 @@ router.post('/broker-transaction-stock-fd-rgtnng', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerTransactionStockFDRGTNNGService = new BrokerTransactionStockFDRGTNNGDataScheduler();
-    
+
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionStockFDRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
@@ -1960,7 +1961,7 @@ router.post('/broker-transaction-stock-fd-rgtnng', async (req, res) => {
 router.post('/break-done-trade', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Break Done Trade calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'break_done_trade',
@@ -1971,14 +1972,14 @@ router.post('/break-done-trade', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const breakDoneTradeService = new BreakDoneTradeDataScheduler();
-    
+
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     breakDoneTradeService.generateBreakDoneTradeData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
@@ -2018,7 +2019,7 @@ router.post('/break-done-trade', async (req, res) => {
 router.post('/broker-summary-sector', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Summary Sector calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_summary_sector',
@@ -2029,14 +2030,14 @@ router.post('/broker-summary-sector', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerSummarySectorService = new BrokerSummarySectorDataScheduler();
-    
+
     // Execute in background and return immediately
     brokerSummarySectorService.generateBrokerSummarySectorData('all', logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Summary Sector calculation completed: ${result.message}`);
@@ -2077,7 +2078,7 @@ router.post('/broker-summary-sector', async (req, res) => {
 router.post('/broker-transaction-stock-sector', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock Sector calculation');
-    
+
     const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_sector',
@@ -2088,14 +2089,14 @@ router.post('/broker-transaction-stock-sector', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerTransactionStockSectorService = new BrokerTransactionStockSectorDataScheduler();
-    
+
     // Execute in background and return immediately
     brokerTransactionStockSectorService.generateBrokerTransactionStockSectorData('all', logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Transaction Stock Sector calculation completed: ${result.message}`);
@@ -2136,7 +2137,7 @@ router.post('/broker-transaction-stock-sector', async (req, res) => {
 router.post('/broker-transaction-all', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction ALL calculation');
-    
+
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_all',
       trigger_type: 'manual',
@@ -2146,14 +2147,14 @@ router.post('/broker-transaction-all', async (req, res) => {
     });
 
     if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
       });
     }
 
     const brokerTransactionALLService = new BrokerTransactionALLDataScheduler();
-    
+
     // Execute in background and return immediately
     brokerTransactionALLService.generateBrokerTransactionALLData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
       await AzureLogger.logInfo('broker_transaction_all', `Manual broker transaction ALL calculation completed: ${result.message || 'OK'}`);
@@ -2188,6 +2189,63 @@ router.post('/broker-transaction-all', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: `Failed to trigger broker-transaction-all update: ${errorMessage}`
+    });
+  }
+});
+
+// Manual trigger for HAKA HAKI Analysis
+router.post('/haka-haki-analysis', async (req, res) => {
+  try {
+    console.log('🔄 Manual trigger: HAKA HAKI Analysis');
+
+    const triggeredBy = getTriggeredBy(req);
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'haka_haki_analysis',
+      trigger_type: 'manual',
+      triggered_by: triggeredBy,
+      status: 'running',
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create scheduler log entry'
+      });
+    }
+
+    const hakaHakiService = new HakaHakiAnalysisDataScheduler();
+
+    // Execute in background
+    hakaHakiService.generateHakaHakiData('all', logEntry.id || null, triggeredBy).then(async (result) => {
+      console.log(`✅ HAKA HAKI Analysis completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error: any) => {
+      console.error(`❌ HAKA HAKI Analysis error: ${error.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'HAKA HAKI Analysis triggered successfully',
+      log_id: logEntry.id
+    });
+  } catch (error: any) {
+    console.error('❌ Error triggering HAKA HAKI Analysis:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Unknown error'
     });
   }
 });

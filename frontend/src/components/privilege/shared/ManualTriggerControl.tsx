@@ -68,6 +68,7 @@ const MANUAL_TRIGGERS_BY_PHASE: PhaseGroup[] = [
       { name: "Money Flow", type: "money-flow", description: "Calculate money flow index data" },
       { name: "Foreign Flow", type: "foreign-flow", description: "Calculate foreign flow data" },
       { name: "Break Done Trade", type: "break-done-trade", description: "Break down done trade data by stock code" },
+      { name: "HAKA HAKI Analysis", type: "haka-haki-analysis", description: "Analyze HAKA/HAKI for all stocks from Done Summary" },
     ]
   },
   {
@@ -121,8 +122,8 @@ export function ManualTriggerControl() {
   const { showToast } = useToast();
   const [runningTasks, setRunningTasks] = useState<RunningTask[]>([]);
   const [loading, setLoading] = useState(false);
-  const [triggering, setTriggering] = useState<{[key: string]: boolean}>({});
-  const [activeLogs, setActiveLogs] = useState<{[key: string]: { logId: string; progress: number; status: string } | null}>({});
+  const [triggering, setTriggering] = useState<{ [key: string]: boolean }>({});
+  const [activeLogs, setActiveLogs] = useState<{ [key: string]: { logId: string; progress: number; status: string } | null }>({});
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [bulkCancelDialogOpen, setBulkCancelDialogOpen] = useState(false);
   const [cancellingBulk, setCancellingBulk] = useState(false);
@@ -135,7 +136,7 @@ export function ManualTriggerControl() {
     open: false,
     title: '',
     description: '',
-    onConfirm: () => {},
+    onConfirm: () => { },
   });
 
   // Normalize feature name to match type (convert underscore to dash and handle special cases)
@@ -166,14 +167,15 @@ export function ManualTriggerControl() {
       'broker_transaction_stock_sector': 'broker-transaction-stock-sector',
       'broker_transaction_all': 'broker-transaction-all',
       'break_done_trade': 'break-done-trade',
+      'haka_haki_analysis': 'haka-haki-analysis',
       'emiten_list': 'emiten-list',
     };
-    
+
     // Check if there's a direct mapping
     if (nameMap[featureName]) {
       return nameMap[featureName];
     }
-    
+
     // Otherwise, convert underscore to dash
     return featureName.replace(/_/g, '-');
   }, []);
@@ -191,8 +193,8 @@ export function ManualTriggerControl() {
       if (result.success && result.data) {
         // Filter: only manual triggers that are NOT phase triggers (phase triggers go to Scheduler Data Progress)
         const tasks: RunningTask[] = result.data
-          .filter((log: any) => 
-            log.trigger_type === 'manual' && 
+          .filter((log: any) =>
+            log.trigger_type === 'manual' &&
             !log.feature_name.startsWith('phase')
           )
           .map((log: any) => ({
@@ -206,40 +208,40 @@ export function ManualTriggerControl() {
             triggeredBy: log.triggered_by
           }));
         setRunningTasks(tasks);
-        
+
         // Clear activeLogs and triggering for tasks that are no longer running
         setActiveLogs(prev => {
           const updated = { ...prev };
           const currentRunningTypes = new Set(
             tasks.map(task => normalizeFeatureName(task.featureName))
           );
-          
+
           // Remove activeLogs for types that are no longer running
           Object.keys(updated).forEach(type => {
             if (!currentRunningTypes.has(type)) {
               delete updated[type];
             }
           });
-          
+
           return updated;
         });
-        
+
         setTriggering(prev => {
           const updated = { ...prev };
           const currentRunningTypes = new Set(
             tasks.map(task => normalizeFeatureName(task.featureName))
           );
-          
+
           // Remove triggering for types that are no longer running
           Object.keys(updated).forEach(type => {
             if (!currentRunningTypes.has(type)) {
               delete updated[type];
             }
           });
-          
+
           return updated;
         });
-        
+
         // Reset selected tasks when data changes
         setSelectedTaskIds(new Set());
       } else {
@@ -257,7 +259,7 @@ export function ManualTriggerControl() {
   // Load on mount and listen for status changes via Supabase realtime
   useEffect(() => {
     loadRunningTasks();
-    
+
     // Subscribe to scheduler_logs table changes
     const channel = supabase
       .channel('scheduler_logs_changes')
@@ -295,7 +297,7 @@ export function ManualTriggerControl() {
         }
       )
       .subscribe();
-    
+
     return () => {
       supabase.removeChannel(channel);
     };
@@ -310,53 +312,53 @@ export function ManualTriggerControl() {
       description: `Are you sure you want to trigger ${item?.name || type}?`,
       onConfirm: async () => {
         setTriggering(prev => ({ ...prev, [type]: true }));
-    
-    try {
-      // Get session and add Authorization header
-      const { data: { session } } = await supabase.auth.getSession();
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      
-      if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`;
-      }
-      
-      const response = await fetch(`${API_URL}/api/trigger/${type}`, {
-        method: 'POST',
-        headers,
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        showToast({ type: 'success', title: 'Success', message: `${type} data update triggered successfully` });
-        
-        // Store log_id if provided for progress tracking (handle both log_id and logId)
-        const logId = result.log_id || result.logId;
-        if (logId) {
-          setActiveLogs(prev => ({
-            ...prev,
-            [type]: { logId: logId, progress: 0, status: 'running' }
-          }));
+
+        try {
+          // Get session and add Authorization header
+          const { data: { session } } = await supabase.auth.getSession();
+          const headers: HeadersInit = {
+            'Content-Type': 'application/json',
+          };
+
+          if (session?.access_token) {
+            headers['Authorization'] = `Bearer ${session.access_token}`;
+          }
+
+          const response = await fetch(`${API_URL}/api/trigger/${type}`, {
+            method: 'POST',
+            headers,
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            showToast({ type: 'success', title: 'Success', message: `${type} data update triggered successfully` });
+
+            // Store log_id if provided for progress tracking (handle both log_id and logId)
+            const logId = result.log_id || result.logId;
+            if (logId) {
+              setActiveLogs(prev => ({
+                ...prev,
+                [type]: { logId: logId, progress: 0, status: 'running' }
+              }));
+            }
+
+            // Reload running tasks to show the new task
+            await loadRunningTasks();
+          } else {
+            showToast({ type: 'error', title: 'Error', message: `Failed to trigger ${type} update: ${result.message}` });
+          }
+        } catch (error) {
+          console.error(`Error triggering ${type} update:`, error);
+          showToast({ type: 'error', title: 'Error', message: `Error triggering ${type} update` });
+        } finally {
+          // Don't reset triggering immediately if we have a log_id (task is running in background)
+          const logId = activeLogs[type]?.logId;
+          if (!logId) {
+            setTriggering(prev => ({ ...prev, [type]: false }));
+          }
         }
-        
-        // Reload running tasks to show the new task
-        await loadRunningTasks();
-      } else {
-        showToast({ type: 'error', title: 'Error', message: `Failed to trigger ${type} update: ${result.message}` });
-      }
-    } catch (error) {
-      console.error(`Error triggering ${type} update:`, error);
-      showToast({ type: 'error', title: 'Error', message: `Error triggering ${type} update` });
-      } finally {
-        // Don't reset triggering immediately if we have a log_id (task is running in background)
-        const logId = activeLogs[type]?.logId;
-        if (!logId) {
-          setTriggering(prev => ({ ...prev, [type]: false }));
-        }
-      }
-    },
+      },
     });
   };
 
@@ -368,33 +370,33 @@ export function ManualTriggerControl() {
       description: `Are you sure you want to cancel ${featureName}?`,
       onConfirm: async () => {
         try {
-      const result = await api.cancelSchedulerLog(logId, 'Cancelled by user from Manual Trigger Control');
-      
-      if (result.success) {
-        showToast({
-          type: 'success',
-          title: 'Task Cancelled',
-          message: `${featureName} task has been cancelled`
-        });
-        // Reload tasks to reflect cancellation
-        await loadRunningTasks();
-        // Clear from activeLogs
-        const type = Object.keys(activeLogs).find(key => activeLogs[key]?.logId === logId);
-        if (type) {
-          setActiveLogs(prev => {
-            const updated = { ...prev };
-            delete updated[type];
-            return updated;
-          });
-          setTriggering(prev => ({ ...prev, [type]: false }));
-        }
-      } else {
-        showToast({
-          type: 'error',
-          title: 'Cancel Failed',
-          message: result.error || 'Failed to cancel task'
-        });
-      }
+          const result = await api.cancelSchedulerLog(logId, 'Cancelled by user from Manual Trigger Control');
+
+          if (result.success) {
+            showToast({
+              type: 'success',
+              title: 'Task Cancelled',
+              message: `${featureName} task has been cancelled`
+            });
+            // Reload tasks to reflect cancellation
+            await loadRunningTasks();
+            // Clear from activeLogs
+            const type = Object.keys(activeLogs).find(key => activeLogs[key]?.logId === logId);
+            if (type) {
+              setActiveLogs(prev => {
+                const updated = { ...prev };
+                delete updated[type];
+                return updated;
+              });
+              setTriggering(prev => ({ ...prev, [type]: false }));
+            }
+          } else {
+            showToast({
+              type: 'error',
+              title: 'Cancel Failed',
+              message: result.error || 'Failed to cancel task'
+            });
+          }
         } catch (error: any) {
           showToast({
             type: 'error',
@@ -409,18 +411,18 @@ export function ManualTriggerControl() {
   // Bulk cancel selected tasks
   const handleBulkCancelConfirm = async () => {
     if (selectedTaskIds.size === 0) return;
-    
+
     setCancellingBulk(true);
     try {
       const idsArray = Array.from(selectedTaskIds);
       let successCount = 0;
       let failCount = 0;
-      
+
       // Cancel each task one by one
       for (const logId of idsArray) {
         try {
           const result = await api.cancelSchedulerLog(logId, 'Cancelled by user from Manual Trigger Control (bulk)');
-          
+
           if (result.success) {
             successCount++;
             // Clear from activeLogs if exists
@@ -441,7 +443,7 @@ export function ManualTriggerControl() {
           console.error(`Error cancelling task ${logId}:`, error);
         }
       }
-      
+
       if (successCount > 0) {
         showToast({
           type: 'success',
@@ -594,67 +596,67 @@ export function ManualTriggerControl() {
                 <h3 className="text-lg font-semibold pb-2 border-b sticky top-0 bg-background z-10">
                   {phase.phaseName}
                 </h3>
-                
+
                 {/* Grid of trigger cards for this phase */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                   {phase.items.map((item, itemIndex) => {
-                  const runningTask = getRunningTask(item.type);
-                  const isTriggering = triggering[item.type];
-                  const activeLog = activeLogs[item.type];
-                  const isRunning = runningTask?.status === 'running' || activeLog?.status === 'running';
-                  
-                  return (
-                    <div key={itemIndex} className="p-3 border rounded-lg flex flex-col">
-                      <h4 className="font-semibold mb-3 text-sm">{item.name}</h4>
-                      
-                      {/* Progress indicator if running */}
-                      {isRunning && (
-                        <div className="mb-2 space-y-1">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground">Progress</span>
-                            <span className="font-medium">
-                              {runningTask?.progress || activeLog?.progress || 0}%
-                            </span>
-                          </div>
-                          <Progress 
-                            value={runningTask?.progress || activeLog?.progress || 0} 
-                            className="h-1.5" 
-                          />
-                        </div>
-                      )}
-                      
-                      {/* Action buttons */}
-                      <div className="flex gap-2 mt-auto">
-                        <Button
-                          onClick={() => handleTriggerDataUpdate(item.type)}
-                          disabled={isTriggering || isRunning}
-                          className="flex-1"
-                          size="sm"
-                        >
-                          {isTriggering ? (
-                            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                          ) : (
-                            <Play className="w-4 h-4 mr-1" />
-                          )}
-                          {isTriggering ? 'Triggering...' : isRunning ? 'Running' : 'Trigger'}
-                        </Button>
+                    const runningTask = getRunningTask(item.type);
+                    const isTriggering = triggering[item.type];
+                    const activeLog = activeLogs[item.type];
+                    const isRunning = runningTask?.status === 'running' || activeLog?.status === 'running';
+
+                    return (
+                      <div key={itemIndex} className="p-3 border rounded-lg flex flex-col">
+                        <h4 className="font-semibold mb-3 text-sm">{item.name}</h4>
+
+                        {/* Progress indicator if running */}
                         {isRunning && (
-                          <Button
-                            onClick={() => handleCancelTask(
-                              runningTask?.logId || activeLog?.logId || '', 
-                              item.name
-                            )}
-                            variant="destructive"
-                            size="sm"
-                            className="px-2"
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
+                          <div className="mb-2 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">Progress</span>
+                              <span className="font-medium">
+                                {runningTask?.progress || activeLog?.progress || 0}%
+                              </span>
+                            </div>
+                            <Progress
+                              value={runningTask?.progress || activeLog?.progress || 0}
+                              className="h-1.5"
+                            />
+                          </div>
                         )}
+
+                        {/* Action buttons */}
+                        <div className="flex gap-2 mt-auto">
+                          <Button
+                            onClick={() => handleTriggerDataUpdate(item.type)}
+                            disabled={isTriggering || isRunning}
+                            className="flex-1"
+                            size="sm"
+                          >
+                            {isTriggering ? (
+                              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                            ) : (
+                              <Play className="w-4 h-4 mr-1" />
+                            )}
+                            {isTriggering ? 'Triggering...' : isRunning ? 'Running' : 'Trigger'}
+                          </Button>
+                          {isRunning && (
+                            <Button
+                              onClick={() => handleCancelTask(
+                                runningTask?.logId || activeLog?.logId || '',
+                                item.name
+                              )}
+                              variant="destructive"
+                              size="sm"
+                              className="px-2"
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
                 </div>
               </div>
             ))}
