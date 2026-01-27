@@ -18,6 +18,7 @@ import BrokerBreakdownDataScheduler from './brokerBreakdownDataScheduler';
 import ForeignFlowDataScheduler from './foreignFlowDataScheduler';
 import MoneyFlowDataScheduler from './moneyFlowDataScheduler';
 import BreakDoneTradeDataScheduler from './breakDoneTradeDataScheduler';
+import HakaHakiAnalysisDataScheduler from './hakaHakiAnalysisDataScheduler';
 import BrokerTransactionDataScheduler from './brokerTransactionDataScheduler';
 import BrokerTransactionRGTNNGDataScheduler from './brokerTransactionRGTNNGDataScheduler';
 import BrokerTransactionFDDataScheduler from './brokerTransactionFDDataScheduler';
@@ -49,7 +50,7 @@ let SCHEDULER_CONFIG = {
   // Scheduled Calculation Times - Only Phase 1 runs on schedule
   PHASE1_DATA_COLLECTION_TIME: '19:00',    // Data collection (Stock, Index, Done Summary)
   PHASE1_SHAREHOLDERS_TIME: '00:01',       // Shareholders & Holding (if first day of month)
-  
+
   // Phase 1a-1b: Input data (scheduled)
   // Phase 2-8 are auto-triggered sequentially after Phase 1a completes
   // Phase 1a: Input Daily (Emiten List, Stock, Index, Done Summary)
@@ -61,15 +62,15 @@ let SCHEDULER_CONFIG = {
   // Phase 6: Broktrans Stock (Broker Transaction Stock, Broker Transaction Stock F/D, Broker Transaction Stock RG/TN/NG, Broker Transaction Stock F/D RG/TN/NG)
   // Phase 7: Bid Breakdown (Bid/Ask Footprint, Broker Breakdown)
   // Phase 8: Additional (Broker Inventory, Accumulation Distribution)
-  
+
   // Memory Management
   MEMORY_CLEANUP_INTERVAL: 5000,  // 5 seconds
   FORCE_GC_INTERVAL: 10000,       // 10 seconds
   MEMORY_THRESHOLD: 12 * 1024 * 1024 * 1024, // 12GB threshold
-  
+
   // Timezone
   TIMEZONE: 'Asia/Jakarta',
-  
+
   // Weekend Skip
   WEEKEND_SKIP: true
 };
@@ -92,31 +93,31 @@ function timeToCronUTC(time: string, timezone: string): string {
   const parts = time.split(':').map(Number);
   const hours = parts[0] ?? 0;
   const minutes = parts[1] ?? 0;
-  
+
   // Use Intl API to get accurate timezone offset
   // Create a date object for today at the specified time in the given timezone
   const now = new Date();
   const timezoneOffset = getTimezoneOffset(timezone, now);
-  
+
   // Convert timezone hours to UTC by subtracting offset
   // Offset is in minutes, convert to hours (offset is positive for timezones ahead of UTC)
   const offsetHours = Math.floor(timezoneOffset / 60);
   let utcHours = hours - offsetHours;
   const utcMinutes = minutes;
-  
+
   // Handle day rollover (if result is negative, add 24 hours)
   if (utcHours < 0) {
     utcHours += 24;
   } else if (utcHours >= 24) {
     utcHours -= 24;
   }
-  
+
   // Format: MM HH * * * (minute hour day month day-of-week)
   const cronExpression = `${utcMinutes} ${utcHours} * * *`;
-  
+
   // Log for debugging
   console.log(`🕐 Time conversion: ${time} ${timezone} (UTC${offsetHours >= 0 ? '+' : ''}${offsetHours}) -> ${String(utcHours).padStart(2, '0')}:${String(utcMinutes).padStart(2, '0')} UTC (cron: ${cronExpression})`);
-  
+
   return cronExpression;
 }
 
@@ -126,7 +127,7 @@ function getTimezoneOffset(timezone: string, date: Date): number {
     // Use Intl API to get accurate timezone offset
     // Create two dates: one in UTC and one in the target timezone
     // The difference gives us the offset
-    
+
     // Get time in target timezone (as if it were UTC)
     const tzFormatter = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone,
@@ -138,7 +139,7 @@ function getTimezoneOffset(timezone: string, date: Date): number {
       second: '2-digit',
       hour12: false
     });
-    
+
     const utcFormatter = new Intl.DateTimeFormat('en-US', {
       timeZone: 'UTC',
       year: 'numeric',
@@ -149,33 +150,33 @@ function getTimezoneOffset(timezone: string, date: Date): number {
       second: '2-digit',
       hour12: false
     });
-    
+
     // Format the same date in both timezones
     const tzParts = tzFormatter.formatToParts(date);
     const utcParts = utcFormatter.formatToParts(date);
-    
+
     // Extract hour and minute from both
     const getValue = (parts: Intl.DateTimeFormatPart[], type: string): number => {
       return parseInt(parts.find(p => p.type === type)?.value || '0', 10);
     };
-    
+
     const tzHour = getValue(tzParts, 'hour');
     const tzMinute = getValue(tzParts, 'minute');
     const utcHour = getValue(utcParts, 'hour');
     const utcMinute = getValue(utcParts, 'minute');
-    
+
     // Calculate offset in minutes
     const tzMinutes = tzHour * 60 + tzMinute;
     const utcMinutes = utcHour * 60 + utcMinute;
     let offsetMinutes = tzMinutes - utcMinutes;
-    
+
     // Handle day rollover (if difference is > 12 hours, assume it's the next/previous day)
     if (offsetMinutes > 12 * 60) {
       offsetMinutes -= 24 * 60;
     } else if (offsetMinutes < -12 * 60) {
       offsetMinutes += 24 * 60;
     }
-    
+
     return offsetMinutes;
   } catch (error) {
     console.warn(`⚠️ Error getting timezone offset for ${timezone}, defaulting to UTC+7 (WIB):`, error);
@@ -189,21 +190,21 @@ function calculateResizeTime(schedulerTime: string): string {
   const parts = schedulerTime.split(':').map(Number);
   const hours = parts[0] ?? 0;
   const minutes = parts[1] ?? 0;
-  
+
   let resizeMinutes = minutes - 15;
   let resizeHours = hours;
-  
+
   // Handle minute rollover
   if (resizeMinutes < 0) {
     resizeMinutes += 60;
     resizeHours -= 1;
   }
-  
+
   // Handle hour rollover
   if (resizeHours < 0) {
     resizeHours += 24;
   }
-  
+
   return `${String(resizeHours).padStart(2, '0')}:${String(resizeMinutes).padStart(2, '0')}`;
 }
 
@@ -211,13 +212,13 @@ function calculateResizeTime(schedulerTime: string): string {
 function isWeekend(): boolean {
   const today = new Date();
   const timezone = SCHEDULER_CONFIG.TIMEZONE || 'Asia/Jakarta';
-  
+
   // Get day of week in scheduler timezone
   const dayOfWeekInTz = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
     weekday: 'short'
   }).formatToParts(today);
-  
+
   const weekday = dayOfWeekInTz.find(p => p.type === 'weekday')?.value || '';
   return weekday === 'Sat' || weekday === 'Sun';
 }
@@ -287,6 +288,7 @@ const brokerSummarySectorService = new BrokerSummarySectorDataScheduler();
 const foreignFlowService = new ForeignFlowDataScheduler();
 const moneyFlowService = new MoneyFlowDataScheduler();
 const breakDoneTradeService = new BreakDoneTradeDataScheduler();
+const hakaHakiAnalysisService = new HakaHakiAnalysisDataScheduler();
 const brokerTransactionService = new BrokerTransactionDataScheduler();
 const brokerTransactionRGTNNGService = new BrokerTransactionRGTNNGDataScheduler();
 const brokerTransactionFDService = new BrokerTransactionFDDataScheduler();
@@ -317,7 +319,7 @@ function startMemoryMonitoring(): void {
   if (memoryMonitorInterval) {
     clearInterval(memoryMonitorInterval);
   }
-  
+
   memoryMonitorInterval = setInterval(async () => {
     await monitorMemoryUsage();
   }, SCHEDULER_CONFIG.MEMORY_CLEANUP_INTERVAL);
@@ -339,9 +341,9 @@ function stopMemoryMonitoring(): void {
 function trackBatchPerformance(batchStartTime: number, batchName: string): void {
   const batchDuration = Math.round((Date.now() - batchStartTime) / 1000);
   performanceMetrics.batchTimes.push(batchDuration);
-  
+
   console.log(`⏱️ Batch Performance: ${batchName} completed in ${batchDuration}s`);
-  
+
   // Calculate average batch time
   const avgBatchTime = performanceMetrics.batchTimes.reduce((sum, time) => sum + time, 0) / performanceMetrics.batchTimes.length;
   console.log(`📊 Average Batch Time: ${avgBatchTime.toFixed(2)}s`);
@@ -380,22 +382,22 @@ async function monitorMemoryUsage(): Promise<boolean> {
   const totalMB = memUsage.heapTotal / 1024 / 1024;
   const usedGB = usedMB / 1024;
   const totalGB = totalMB / 1024;
-  
+
   // Update performance metrics (silent - no logging)
   performanceMetrics.totalMemoryUsed += usedMB;
   performanceMetrics.batchCount++;
-  
+
   // Get Node.js memory limit (16GB from NODE_OPTIONS)
-  const maxOldSpaceSize = process.env['NODE_OPTIONS']?.includes('--max-old-space-size=') 
-    ? parseInt(process.env['NODE_OPTIONS'].split('--max-old-space-size=')[1]?.split(' ')[0] || '0') 
+  const maxOldSpaceSize = process.env['NODE_OPTIONS']?.includes('--max-old-space-size=')
+    ? parseInt(process.env['NODE_OPTIONS'].split('--max-old-space-size=')[1]?.split(' ')[0] || '0')
     : 0;
-  
+
   // Only log if memory usage is high (> 10GB) to reduce spam
   if (usedMB > 10000) {
     const maxGB = maxOldSpaceSize / 1024;
     console.log(`⚠️ High Memory Usage: ${usedMB.toFixed(2)}MB / ${totalMB.toFixed(2)}MB (${usedGB.toFixed(2)}GB / ${totalGB.toFixed(2)}GB allocated)`);
     console.log(`🔧 Node.js Memory Limit: ${maxOldSpaceSize}MB (${maxGB.toFixed(1)}GB)`);
-    
+
     // If memory usage > 12GB, force cleanup
     if (usedMB > 12000) {
       console.log('⚠️ Critical memory usage detected, forcing aggressive cleanup...');
@@ -404,7 +406,7 @@ async function monitorMemoryUsage(): Promise<boolean> {
       return false; // Skip next calculation
     }
   }
-  
+
   return true;
 }
 
@@ -413,7 +415,7 @@ async function monitorMemoryUsage(): Promise<boolean> {
  */
 async function aggressiveMemoryCleanup(): Promise<void> {
   console.log('🧹 Starting aggressive memory cleanup...');
-  
+
   // Force garbage collection multiple times with longer intervals
   for (let i = 0; i < 10; i++) {
     if (global.gc) {
@@ -421,18 +423,18 @@ async function aggressiveMemoryCleanup(): Promise<void> {
     }
     await new Promise(resolve => setTimeout(resolve, 2000)); // Longer wait between GC
   }
-  
+
   // Additional cleanup - clear any cached data
   if (global.gc) {
     global.gc();
   }
-  
+
   // Force another round after clearing
   await new Promise(resolve => setTimeout(resolve, 3000));
   if (global.gc) {
     global.gc();
   }
-  
+
   console.log('✅ Aggressive memory cleanup completed');
 }
 
@@ -442,26 +444,26 @@ async function aggressiveMemoryCleanup(): Promise<void> {
 async function checkMemoryBeforeLargeOperation(operationName: string): Promise<boolean> {
   const memUsage = process.memoryUsage();
   const usedMB = memUsage.heapUsed / 1024 / 1024;
-  
+
   console.log(`🔍 Pre-operation Memory Check for ${operationName}: ${usedMB.toFixed(2)}MB`);
-  
+
   // If already using more than 10GB, force cleanup first
   if (usedMB > 10000) {
     console.log(`⚠️ High memory usage before ${operationName}, forcing cleanup...`);
     await aggressiveMemoryCleanup();
-    
+
     // Check again after cleanup
     const newMemUsage = process.memoryUsage();
     const newUsedMB = newMemUsage.heapUsed / 1024 / 1024;
     console.log(`🔍 Post-cleanup Memory: ${newUsedMB.toFixed(2)}MB`);
-    
+
     // If still high, skip this operation
     if (newUsedMB > 11000) {
       console.log(`❌ Skipping ${operationName} due to high memory usage`);
       return false;
     }
   }
-  
+
   return true;
 }
 /**
@@ -474,27 +476,27 @@ export async function runPhase2MarketRotationCalculations(manualTriggeredBy?: st
     phaseStatus['phase2_market_rotation'] = 'idle';
     return;
   }
-  
+
   phaseStatus['phase2_market_rotation'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 2 MARKET ROTATION STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
   console.log(`📋 Phase: Market Rotation (RRC, RRG, Seasonal, Trend Filter)`);
-  
+
   // Start memory monitoring for this phase
   startMemoryMonitoring();
   resetPerformanceMetrics();
-  
+
   let logEntry: SchedulerLog | null = null;
-  
+
   try {
     // Check memory before starting
     const memoryOk = await monitorMemoryUsage();
     if (!memoryOk) {
       console.log('⚠️ Skipping Phase 2 Market Rotation due to high memory usage');
       stopMemoryMonitoring();
-        return;
-      }
+      return;
+    }
 
     // Create database log entry
     const fromManual = !!manualTriggeredBy;
@@ -507,17 +509,17 @@ export async function runPhase2MarketRotationCalculations(manualTriggeredBy?: st
       started_at: new Date().toISOString(),
       environment: process.env['NODE_ENV'] || 'development'
     };
-    
+
     logEntry = await SchedulerLogService.createLog(logData);
     if (logEntry) {
       console.log('📊 Phase 2 Market Rotation database log created:', logEntry.id);
     }
-    
+
     console.log('🔄 Starting Phase 2 Market Rotation (PARALLEL MODE)...');
-    
+
     // Track batch performance
     trackBatchPerformance(phaseStartTime, 'Phase 2 Market Rotation Start');
-    
+
     // Run market rotation calculations in parallel
     const marketRotationTasks = [
       { name: 'RRC Calculation', service: forceRegenerate, method: null },
@@ -526,14 +528,14 @@ export async function runPhase2MarketRotationCalculations(manualTriggeredBy?: st
       { name: 'Trend Filter Calculation', service: trendFilterService, method: 'generateTrendFilterData' },
       { name: 'Watchlist Snapshot', service: updateWatchlistSnapshot, method: null }
     ];
-    
+
     const triggeredBy = fromManual ? manualTriggeredBy : 'Phase 2 Market Rotation';
     const marketRotationPromises = marketRotationTasks.map(async (task, index) => {
       const startTime = Date.now();
-      
+
       try {
         console.log(`🔄 Starting ${task.name} (${index + 1}/5)...`);
-        
+
         // Update progress in database for phase log
         if (logEntry) {
           await SchedulerLogService.updateLog(logEntry.id!, {
@@ -541,7 +543,7 @@ export async function runPhase2MarketRotationCalculations(manualTriggeredBy?: st
             current_processing: `Running ${task.name}...`
           });
         }
-        
+
         // Run calculation - services will create their own log entries
         if (task.method) {
           // Call method on service instance with triggeredBy
@@ -567,24 +569,24 @@ export async function runPhase2MarketRotationCalculations(manualTriggeredBy?: st
             await (task.service as any)();
           }
         }
-        
+
         const duration = Date.now() - startTime;
-        
+
         // If we reach here without throwing an error, the task succeeded
         console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
         return { name: task.name, success: true, duration };
-      
-    } catch (error) {
+
+      } catch (error) {
         const duration = Date.now() - startTime;
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         console.error(`❌ ${task.name} failed:`, errorMessage);
         return { name: task.name, success: false, error: errorMessage, duration };
       }
     });
-    
+
     // Wait for all calculations to complete
     const marketRotationResults = await Promise.allSettled(marketRotationPromises);
-    
+
     // Process results
     const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
     marketRotationResults.forEach((result, index) => {
@@ -598,16 +600,16 @@ export async function runPhase2MarketRotationCalculations(manualTriggeredBy?: st
         });
       }
     });
-    
+
     const successCount = results.filter(r => r.success).length;
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
-    
+
     console.log(`\n📊 ===== PHASE 2 MARKET ROTATION COMPLETED =====`);
     console.log(`✅ Success: ${successCount}/5 calculations`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
-    
+
     // Update database log
     if (logEntry) {
       if (successCount === 5) {
@@ -620,15 +622,15 @@ export async function runPhase2MarketRotationCalculations(manualTriggeredBy?: st
         await SchedulerLogService.markFailed(logEntry.id!, `Phase 2 Market Rotation failed: ${successCount}/5 calculations successful`, { successCount, totalDuration });
       }
     }
-    
+
     // Cleanup after Phase 2 Market Rotation
     await aggressiveMemoryCleanup();
-    
+
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
-    
-      // Trigger Phase 3 automatically if Phase 2 succeeded and Phase 3 is enabled
-      // Pass manualTriggeredBy if this was manually triggered
+
+    // Trigger Phase 3 automatically if Phase 2 succeeded and Phase 3 is enabled
+    // Pass manualTriggeredBy if this was manually triggered
     if (successCount >= 4 && phaseEnabled['phase3_flow_trade']) { // Trigger Phase 3 if at least 4/5 succeed
       console.log('🔄 Triggering Phase 3 Flow Trade calculations...');
       await runPhase3FlowTradeCalculations(fromManual ? manualTriggeredBy : undefined);
@@ -639,14 +641,14 @@ export async function runPhase2MarketRotationCalculations(manualTriggeredBy?: st
         console.log('⚠️ Skipping Phase 3 due to insufficient Phase 2 success rate');
       }
     }
-    
-    } catch (error) {
+
+  } catch (error) {
     trackError(error, 'Phase 2 Market Rotation Calculations');
     console.error('❌ Error during Phase 2 Market Rotation calculations:', error);
-    
+
     // Stop memory monitoring on error
     stopMemoryMonitoring();
-    
+
     if (logEntry) {
       await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
     }
@@ -664,85 +666,86 @@ export async function runPhase3FlowTradeCalculations(manualTriggeredBy?: string)
     console.log('⚠️ Phase 3 Flow Trade is disabled - skipping');
     return;
   }
-  
+
   phaseStatus['phase3_flow_trade'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 3 FLOW TRADE STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
   console.log(`📋 Phase: Flow Trade (Money Flow, Foreign Flow, Break Done Trade)`);
-  
+
   // Start memory monitoring for this phase
   startMemoryMonitoring();
   resetPerformanceMetrics();
-    
-    let logEntry: SchedulerLog | null = null;
-    
-    try {
+
+  let logEntry: SchedulerLog | null = null;
+
+  try {
     // Check memory before starting
     const canProceed = await checkMemoryBeforeLargeOperation('Phase 3 Flow Trade Calculations');
     if (!canProceed) {
       console.log('⚠️ Skipping Phase 3 Flow Trade due to high memory usage');
       stopMemoryMonitoring();
-        return;
-      }
-      
+      return;
+    }
+
     const memoryOk = await monitorMemoryUsage();
     if (!memoryOk) {
       console.log('⚠️ Skipping Phase 3 Flow Trade due to high memory usage');
       stopMemoryMonitoring();
       return;
     }
-      
-      // Create database log entry
-      const fromManual = !!manualTriggeredBy;
-      const logData: Partial<SchedulerLog> = {
+
+    // Create database log entry
+    const fromManual = !!manualTriggeredBy;
+    const logData: Partial<SchedulerLog> = {
       feature_name: 'phase3_flow_trade',
-        trigger_type: fromManual ? 'manual' : 'scheduled',
+      trigger_type: fromManual ? 'manual' : 'scheduled',
       triggered_by: fromManual ? manualTriggeredBy : 'Phase 3 Flow Trade',
-        status: 'running',
-        phase_id: 'phase3_flow_trade',
-        started_at: new Date().toISOString(),
-        environment: process.env['NODE_ENV'] || 'development'
-      };
-      
-      logEntry = await SchedulerLogService.createLog(logData);
-      if (logEntry) {
+      status: 'running',
+      phase_id: 'phase3_flow_trade',
+      started_at: new Date().toISOString(),
+      environment: process.env['NODE_ENV'] || 'development'
+    };
+
+    logEntry = await SchedulerLogService.createLog(logData);
+    if (logEntry) {
       console.log('📊 Phase 3 Flow Trade database log created:', logEntry.id);
     }
-    
+
     console.log('🔄 Starting Phase 3 Flow Trade calculations (PARALLEL MODE)...');
 
     // Run light calculations in parallel
     const lightCalculations = [
       { name: 'Money Flow', featureName: 'money_flow', service: moneyFlowService, method: 'generateMoneyFlowData' },
       { name: 'Foreign Flow', featureName: 'foreign_flow', service: foreignFlowService, method: 'generateForeignFlowData' },
-      { name: 'Break Done Trade', featureName: 'break_done_trade', service: breakDoneTradeService, method: 'generateBreakDoneTradeData' }
+      { name: 'Break Done Trade', featureName: 'break_done_trade', service: breakDoneTradeService, method: 'generateBreakDoneTradeData' },
+      { name: 'HAKA HAKI Analysis', featureName: 'haka_haki_analysis', service: hakaHakiAnalysisService, method: 'generateHakaHakiData' }
     ];
-    
+
     const lightCalculationPromises = lightCalculations.map(async (task, index) => {
       const startTime = Date.now();
       const triggeredBy = fromManual ? manualTriggeredBy : 'Phase 3 Flow Trade';
 
       try {
-        console.log(`🔄 Starting ${task.name} (${index + 1}/3)...`);
-        
+        console.log(`🔄 Starting ${task.name} (${index + 1}/4)...`);
+
         // Update progress in database for phase log
         if (logEntry) {
           await SchedulerLogService.updateLog(logEntry.id!, {
-            progress_percentage: Math.round((index / 3) * 100),
+            progress_percentage: Math.round((index / 4) * 100),
             current_processing: `Running ${task.name}...`
           });
         }
-        
+
         // Run calculation - pass logId to enable progress tracking, but don't pass logId so each calculation creates its own log entry
         await (task.service as any)[task.method]('all', null, triggeredBy);
-        
+
         const duration = Date.now() - startTime;
-        
+
         // If we reach here without throwing an error, the task succeeded
         console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
         return { name: task.name, success: true, duration };
-        
+
       } catch (error) {
         const duration = Date.now() - startTime;
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -750,10 +753,10 @@ export async function runPhase3FlowTradeCalculations(manualTriggeredBy?: string)
         return { name: task.name, success: false, error: errorMessage, duration };
       }
     });
-    
+
     // Wait for all calculations to complete
     const lightCalculationResults = await Promise.allSettled(lightCalculationPromises);
-    
+
     // Process results
     const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
     lightCalculationResults.forEach((result, index) => {
@@ -767,61 +770,61 @@ export async function runPhase3FlowTradeCalculations(manualTriggeredBy?: string)
         });
       }
     });
-    
+
     const successCount = results.filter(r => r.success).length;
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
-    
+
     console.log(`\n📊 ===== PHASE 3 FLOW TRADE COMPLETED =====`);
-    console.log(`✅ Success: ${successCount}/3 calculations`);
+    console.log(`✅ Success: ${successCount}/4 calculations`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
-      
-      // Update database log
-      if (logEntry) {
-        if (successCount === 3) {
-          await SchedulerLogService.markCompleted(logEntry.id!, {
-            total_files_processed: 3,
-            files_created: successCount,
-            files_failed: 3 - successCount
-          });
-        } else {
-          await SchedulerLogService.markFailed(logEntry.id!, `Phase 3 Flow Trade failed: ${successCount}/3 calculations successful`, { successCount, totalDuration });
-        }
+
+    // Update database log
+    if (logEntry) {
+      if (successCount === 4) {
+        await SchedulerLogService.markCompleted(logEntry.id!, {
+          total_files_processed: 4,
+          files_created: successCount,
+          files_failed: 4 - successCount
+        });
+      } else {
+        await SchedulerLogService.markFailed(logEntry.id!, `Phase 3 Flow Trade failed: ${successCount}/4 calculations successful`, { successCount, totalDuration });
       }
-    
+    }
+
     // Cleanup after Phase 3 Flow Trade
     await aggressiveMemoryCleanup();
-    
+
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
-    
+
     // Trigger Phase 4 automatically if Phase 3 succeeded and Phase 4 is enabled
-      // Pass manualTriggeredBy if this was manually triggered
+    // Pass manualTriggeredBy if this was manually triggered
     if (successCount >= 2 && phaseEnabled['phase4_broker_summary']) { // Trigger Phase 4 if at least 2/3 succeed
       console.log('🔄 Triggering Phase 4 Broker Summary calculations...');
       await runPhase4BrokerSummaryCalculations(fromManual ? manualTriggeredBy : undefined);
+    } else {
+      if (!phaseEnabled['phase4_broker_summary']) {
+        console.log('⚠️ Skipping Phase 4 - Phase 4 is disabled');
       } else {
-        if (!phaseEnabled['phase4_broker_summary']) {
-          console.log('⚠️ Skipping Phase 4 - Phase 4 is disabled');
-        } else {
-          console.log('⚠️ Skipping Phase 4 due to insufficient Phase 3 success rate');
-        }
+        console.log('⚠️ Skipping Phase 4 due to insufficient Phase 3 success rate');
       }
-      
-    } catch (error) {
+    }
+
+  } catch (error) {
     trackError(error, 'Phase 3 Flow Trade Calculations');
     console.error('❌ Error during Phase 3 Flow Trade calculations:', error);
-      
+
     // Stop memory monitoring on error
     stopMemoryMonitoring();
-      
-      if (logEntry) {
-        await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
-      }
-    } finally {
-      phaseStatus['phase3_flow_trade'] = 'idle';
+
+    if (logEntry) {
+      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
     }
+  } finally {
+    phaseStatus['phase3_flow_trade'] = 'idle';
+  }
 }
 
 export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: string): Promise<void> {
@@ -830,19 +833,19 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     console.log('⚠️ Phase 4 Broker Summary is disabled - skipping');
     return;
   }
-  
+
   phaseStatus['phase4_broker_summary'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 4 BROKER SUMMARY STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
   console.log(`📋 Phase: Broker Summary (Top Broker, Broker Summary, Broker Summary IDX, Broker Summary by Type, Broker Summary Sector)`);
-  
+
   // Start memory monitoring for this phase
   startMemoryMonitoring();
   resetPerformanceMetrics();
-  
+
   let logEntry: SchedulerLog | null = null;
-  
+
   try {
     // Check memory before starting
     const memoryOk = await monitorMemoryUsage();
@@ -865,15 +868,15 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
       started_at: new Date().toISOString(),
       environment: process.env['NODE_ENV'] || 'development'
     };
-    
+
     logEntry = await SchedulerLogService.createLog(logData);
     if (logEntry) {
       console.log('📊 Phase 4 Broker Summary database log created:', logEntry.id);
     }
-    
-    const phaseTasks =  [
-      { name: 'Top Broker',       featureName: 'top_broker' },
-      { name: 'Broker Summary',   featureName: 'broker_summary' },
+
+    const phaseTasks = [
+      { name: 'Top Broker', featureName: 'top_broker' },
+      { name: 'Broker Summary', featureName: 'broker_summary' },
       { name: 'Broker Summary IDX', featureName: 'broker_summary_idx' },
       { name: 'Broker Summary Type', featureName: 'broker_summary_type' },
       { name: 'Broker Summary Sector', featureName: 'broker_summary_sector' },
@@ -955,13 +958,13 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
         current_processing: 'All Broker Summary calculations completed'
       });
     }
-    
+
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
-    
+
     const successCount = (resultTopBroker.success ? 1 : 0) + (resultSummary.success ? 1 : 0) + (resultIDX.success ? 1 : 0) + (resultType.success ? 1 : 0) + (resultSector.success ? 1 : 0);
     const totalCalculations = 5;
-    
+
     console.log(`\n📊 ===== PHASE 4 BROKER SUMMARY COMPLETED =====`);
     console.log(`✅ Success: ${successCount}/${totalCalculations} calculations`);
     console.log(`📊 Top Broker: ${resultTopBroker.success ? 'SUCCESS' : 'FAILED'} (${topBrokerDuration}s)`);
@@ -971,7 +974,7 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     console.log(`📊 Broker Summary Sector: ${resultSector.success ? 'SUCCESS' : 'FAILED'} (${brokerSummarySectorDuration}s)`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
-    
+
     // Update database log
     if (logEntry) {
       if (successCount >= 4) {
@@ -984,15 +987,15 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
         await SchedulerLogService.markFailed(logEntry.id!, `Phase 4 Broker Summary failed: ${successCount}/${totalCalculations} calculations successful`, { successCount, totalCalculations, totalDuration });
       }
     }
-    
+
     // Cleanup after Phase 4
     await aggressiveMemoryCleanup();
-    
+
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
-    
+
     // Trigger Phase 5 automatically if Phase 4 succeeded and Phase 5 is enabled
-      // Pass manualTriggeredBy if this was manually triggered
+    // Pass manualTriggeredBy if this was manually triggered
     if (successCount >= 4 && phaseEnabled['phase5_broktrans_broker']) {
       console.log('🔄 Triggering Phase 5 Broktrans Broker calculations...');
       await runPhase5BroktransBrokerCalculations(fromManual ? manualTriggeredBy : undefined);
@@ -1003,14 +1006,14 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
         console.log('⚠️ Skipping Phase 5 due to Phase 4 failure');
       }
     }
-    
-    } catch (error) {
-      trackError(error, 'Phase 4 Broker Summary Calculations');
-      console.error('❌ Error during Phase 4 Broker Summary calculations:', error);
-    
+
+  } catch (error) {
+    trackError(error, 'Phase 4 Broker Summary Calculations');
+    console.error('❌ Error during Phase 4 Broker Summary calculations:', error);
+
     // Stop memory monitoring on error
     stopMemoryMonitoring();
-    
+
     if (logEntry) {
       await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
     }
@@ -1028,46 +1031,46 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
     console.log('⚠️ Phase 5 Broktrans Broker is disabled - skipping');
     return;
   }
-  
+
   phaseStatus['phase5_broktrans_broker'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 5 BROKTRANS BROKER STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
   console.log(`📋 Phase: Broktrans Broker (Broker Transaction, Broker Transaction RG/TN/NG, Broker Transaction F/D, Broker Transaction F/D RG/TN/NG)`);
-  
+
   // Start memory monitoring for this phase
   startMemoryMonitoring();
-    
-    let logEntry: SchedulerLog | null = null;
-    
-    try {
+
+  let logEntry: SchedulerLog | null = null;
+
+  try {
     // Check memory before starting
     const memoryOk = await monitorMemoryUsage();
     if (!memoryOk) {
       console.log('⚠️ Skipping Phase 5 Broktrans Broker due to high memory usage');
       stopMemoryMonitoring();
-        return;
-      }
-      
-      // Determine if this is manual or scheduled trigger
-      const fromManual = !!manualTriggeredBy;
-      
-      // Create database log entry
-      const logData: Partial<SchedulerLog> = {
+      return;
+    }
+
+    // Determine if this is manual or scheduled trigger
+    const fromManual = !!manualTriggeredBy;
+
+    // Create database log entry
+    const logData: Partial<SchedulerLog> = {
       feature_name: 'phase5_broktrans_broker',
-        trigger_type: fromManual ? 'manual' : 'scheduled',
+      trigger_type: fromManual ? 'manual' : 'scheduled',
       triggered_by: fromManual ? manualTriggeredBy! : 'Phase 5 Broktrans Broker',
-        status: 'running',
-        phase_id: 'phase5_broktrans_broker',
-        started_at: new Date().toISOString(),
-        environment: process.env['NODE_ENV'] || 'development'
-      };
-      
-      logEntry = await SchedulerLogService.createLog(logData);
-      if (logEntry) {
+      status: 'running',
+      phase_id: 'phase5_broktrans_broker',
+      started_at: new Date().toISOString(),
+      environment: process.env['NODE_ENV'] || 'development'
+    };
+
+    logEntry = await SchedulerLogService.createLog(logData);
+    if (logEntry) {
       console.log('📊 Phase 5 Broktrans Broker database log created:', logEntry.id);
     }
-    
+
     const triggeredBy = fromManual ? manualTriggeredBy! : 'Phase 5 Broktrans Broker';
 
     console.log('🔄 Starting Broker Transaction calculation...');
@@ -1125,10 +1128,10 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
         current_processing: 'Broker Transaction F/D RG/TN/NG completed'
       });
     }
-    
+
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
-    
+
     console.log(`\n📊 ===== PHASE 5 BROKTRANS BROKER COMPLETED =====`);
     const successCount = (resultTransaction.success ? 1 : 0) + (resultTransactionRGTNNG.success ? 1 : 0) + (resultTransactionFD.success ? 1 : 0) + (resultTransactionFDRGTNNG.success ? 1 : 0);
     const totalCalculations = 4;
@@ -1139,7 +1142,7 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
     console.log(`📊 Broker Transaction F/D RG/TN/NG: ${resultTransactionFDRGTNNG.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionFDRGTNNGDuration}s)`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
-    
+
     // Update database log
     if (logEntry) {
       if (successCount >= 3) {
@@ -1152,33 +1155,33 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
         await SchedulerLogService.markFailed(logEntry.id!, `Phase 5 Broktrans Broker failed: ${successCount}/${totalCalculations} calculations successful`, { successCount, totalCalculations, totalDuration, results: { resultTransaction, resultTransactionRGTNNG, resultTransactionFD, resultTransactionFDRGTNNG } });
       }
     }
-    
+
     // Cleanup after Phase 5
     await aggressiveMemoryCleanup();
-    
+
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
-    
+
     // Trigger Phase 6 automatically if Phase 5 succeeded and Phase 6 is enabled
-      // Pass manualTriggeredBy if this was manually triggered
+    // Pass manualTriggeredBy if this was manually triggered
     if (successCount >= 3 && phaseEnabled['phase6_broktrans_stock']) {
       console.log('🔄 Triggering Phase 6 Broktrans Stock calculations...');
       await runPhase6BroktransStockCalculations(fromManual ? manualTriggeredBy : undefined);
+    } else {
+      if (!phaseEnabled['phase6_broktrans_stock']) {
+        console.log('⚠️ Skipping Phase 6 - Phase 6 is disabled');
       } else {
-        if (!phaseEnabled['phase6_broktrans_stock']) {
-          console.log('⚠️ Skipping Phase 6 - Phase 6 is disabled');
-        } else {
-          console.log('⚠️ Skipping Phase 6 due to Phase 5 failure');
-        }
+        console.log('⚠️ Skipping Phase 6 due to Phase 5 failure');
+      }
     }
-    
+
   } catch (error) {
     trackError(error, 'Phase 5 Broktrans Broker Calculations');
     console.error('❌ Error during Phase 5 Broktrans Broker calculations:', error);
-    
+
     // Stop memory monitoring on error
     stopMemoryMonitoring();
-    
+
     if (logEntry) {
       await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
     }
@@ -1196,19 +1199,19 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
     console.log('⚠️ Phase 6 Broktrans Stock is disabled - skipping');
     return;
   }
-  
+
   phaseStatus['phase6_broktrans_stock'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 6 BROKTRANS STOCK STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
   console.log(`📋 Phase: Broktrans Stock (Broker Transaction Stock, Broker Transaction Stock F/D, Broker Transaction Stock RG/TN/NG, Broker Transaction Stock F/D RG/TN/NG)`);
-  
+
   // Start memory monitoring for this phase
   startMemoryMonitoring();
   resetPerformanceMetrics();
-  
+
   let logEntry: SchedulerLog | null = null;
-  
+
   try {
     // Check memory before starting
     const memoryOk = await monitorMemoryUsage();
@@ -1217,10 +1220,10 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
       stopMemoryMonitoring();
       return;
     }
-    
+
     // Determine if this is manual or scheduled trigger
     const fromManual = !!manualTriggeredBy;
-    
+
     // Create database log entry
     const logData: Partial<SchedulerLog> = {
       feature_name: 'phase6_broktrans_stock',
@@ -1231,12 +1234,12 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
       started_at: new Date().toISOString(),
       environment: process.env['NODE_ENV'] || 'development'
     };
-    
+
     logEntry = await SchedulerLogService.createLog(logData);
     if (logEntry) {
       console.log('📊 Phase 6 Broktrans Stock database log created:', logEntry.id);
     }
-    
+
     const triggeredBy = fromManual ? manualTriggeredBy! : 'Phase 6 Broktrans Stock';
 
     console.log('🔄 Starting Broker Transaction Stock calculation...');
@@ -1307,13 +1310,13 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
         current_processing: 'All Broktrans Stock calculations completed'
       });
     }
-    
+
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
-    
+
     const successCount = (resultTransactionStock.success ? 1 : 0) + (resultTransactionStockFD.success ? 1 : 0) + (resultTransactionStockRGTNNG.success ? 1 : 0) + (resultTransactionStockFDRGTNNG.success ? 1 : 0) + (resultTransactionStockIDX.success ? 1 : 0);
     const totalCalculations = 5;
-    
+
     console.log(`\n📊 ===== PHASE 6 BROKTRANS STOCK COMPLETED =====`);
     console.log(`✅ Success: ${successCount}/${totalCalculations} calculations`);
     console.log(`📊 Broker Transaction Stock: ${resultTransactionStock.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionStockDuration}s)`);
@@ -1323,7 +1326,7 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
     console.log(`📊 Broker Transaction Stock IDX: ${resultTransactionStockIDX.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionStockIDXDuration}s)`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
-    
+
     // Update database log
     if (logEntry) {
       if (successCount >= 3) {
@@ -1336,15 +1339,15 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
         await SchedulerLogService.markFailed(logEntry.id!, `Phase 6 Broktrans Stock failed: ${successCount}/${totalCalculations} calculations successful`, { successCount, totalCalculations, totalDuration, results: { resultTransactionStock, resultTransactionStockFD, resultTransactionStockRGTNNG, resultTransactionStockFDRGTNNG, resultTransactionStockIDX } });
       }
     }
-    
+
     // Cleanup after Phase 6
     await aggressiveMemoryCleanup();
-    
+
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
-    
+
     // Trigger Phase 7 automatically if Phase 6 succeeded and Phase 7 is enabled
-      // Pass manualTriggeredBy if this was manually triggered
+    // Pass manualTriggeredBy if this was manually triggered
     if (successCount >= 3 && phaseEnabled['phase7_bid_breakdown']) {
       console.log('🔄 Triggering Phase 7 Bid Breakdown calculations...');
       await runPhase7BidBreakdownCalculations(fromManual ? manualTriggeredBy : undefined);
@@ -1355,14 +1358,14 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
         console.log('⚠️ Skipping Phase 7 due to Phase 6 failure');
       }
     }
-    
+
   } catch (error) {
     trackError(error, 'Phase 6 Broktrans Stock Calculations');
     console.error('❌ Error during Phase 6 Broktrans Stock calculations:', error);
-    
+
     // Stop memory monitoring on error
     stopMemoryMonitoring();
-    
+
     if (logEntry) {
       await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
     }
@@ -1521,19 +1524,19 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
     console.log('⚠️ Phase 8 Additional is disabled - skipping');
     return;
   }
-  
+
   phaseStatus['phase8_additional'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 8 ADDITIONAL STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
   console.log(`📋 Phase: Additional (Broker Inventory, Accumulation Distribution)`);
-  
+
   // Start memory monitoring for this phase
   startMemoryMonitoring();
   resetPerformanceMetrics();
-  
+
   let logEntry: SchedulerLog | null = null;
-  
+
   try {
     // Check memory before starting
     const memoryOk = await monitorMemoryUsage();
@@ -1542,10 +1545,10 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
       stopMemoryMonitoring();
       return;
     }
-    
+
     // Determine if this is manual or scheduled trigger
     const fromManual = !!manualTriggeredBy;
-    
+
     // Create database log entry
     const logData: Partial<SchedulerLog> = {
       feature_name: 'phase8_additional',
@@ -1556,53 +1559,53 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
       started_at: new Date().toISOString(),
       environment: process.env['NODE_ENV'] || 'development'
     };
-    
+
     logEntry = await SchedulerLogService.createLog(logData);
     if (logEntry) {
       console.log('📊 Phase 8 Additional database log created:', logEntry.id);
     }
-    
+
     console.log('🔄 Starting Additional calculations (SEQUENTIAL)...');
     const triggeredBy = fromManual ? manualTriggeredBy! : 'Phase 8 Additional';
     const additionalCalculations = [
       { name: 'Broker Inventory', featureName: 'broker_inventory', service: brokerInventoryService, method: 'generateBrokerInventoryData' },
       { name: 'Accumulation Distribution', featureName: 'accumulation_distribution', service: accumulationService, method: 'generateAccumulationData' }
     ];
-    
+
     let totalSuccessCount = 0;
     let totalCalculations = 0;
-    
+
     for (const calc of additionalCalculations) {
       console.log(`\n🔄 Starting ${calc.name} (${totalCalculations + 1}/${additionalCalculations.length})...`);
-      
+
       // Check memory before each calculation
       const memoryOk = await monitorMemoryUsage();
       if (!memoryOk) {
         console.log('⚠️ Skipping remaining calculations due to high memory usage');
         break;
       }
-      
+
       const calcStartTime = Date.now();
       try {
         // Pass null as logId so each calculation creates its own log entry with progress tracking
         const result = await (calc.service as any)[calc.method]('all', null, triggeredBy);
         const calcDuration = Math.round((Date.now() - calcStartTime) / 1000);
-      
-      if (result.success) {
+
+        if (result.success) {
           totalSuccessCount++;
           console.log(`✅ ${calc.name} completed in ${calcDuration}s`);
-      } else {
+        } else {
           console.error(`❌ ${calc.name} failed:`, result.message);
           console.error(`❌ Stopping Phase 8 due to critical calculation failure`);
           break; // Stop processing remaining calculations
-      }
-    } catch (error) {
+        }
+      } catch (error) {
         const calcDuration = Math.round((Date.now() - calcStartTime) / 1000);
         console.error(`❌ ${calc.name} error in ${calcDuration}s:`, error);
         console.error(`❌ Stopping Phase 8 due to critical calculation error`);
         break; // Stop processing remaining calculations
       }
-      
+
       totalCalculations++;
 
       // Update overall phase log progress after each calculation
@@ -1613,7 +1616,7 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
           current_processing: `${calc.name} completed (${totalSuccessCount}/${additionalCalculations.length})`
         });
       }
-      
+
       // No aggressive cleanup during calculations to prevent data loss
       // Longer delay between calculations for very heavy operations
       if (totalCalculations < additionalCalculations.length) {
@@ -1621,37 +1624,37 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
         await new Promise(resolve => setTimeout(resolve, 10000));
       }
     }
-    
+
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
-    
+
     const allCalculationsSuccessful = totalSuccessCount === totalCalculations && totalCalculations > 0;
-    
+
     console.log(`\n📊 ===== PHASE 8 ADDITIONAL ${allCalculationsSuccessful ? 'COMPLETED' : 'FAILED'} =====`);
     console.log(`✅ Success: ${totalSuccessCount}/${totalCalculations} calculations`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
-    
+
     if (!allCalculationsSuccessful) {
       console.error(`❌ Phase 8 failed: ${totalCalculations - totalSuccessCount} calculations failed`);
     }
-      
-      // Update database log
-      if (logEntry) {
-        if (allCalculationsSuccessful) {
-          await SchedulerLogService.markCompleted(logEntry.id!, {
-            total_files_processed: totalCalculations,
-            files_created: totalSuccessCount,
-            files_failed: totalCalculations - totalSuccessCount
-          });
-        } else {
-          await SchedulerLogService.markFailed(logEntry.id!, `Phase 8 Additional failed: ${totalSuccessCount}/${totalCalculations} calculations successful`, { totalSuccessCount, totalCalculations, totalDuration });
-        }
+
+    // Update database log
+    if (logEntry) {
+      if (allCalculationsSuccessful) {
+        await SchedulerLogService.markCompleted(logEntry.id!, {
+          total_files_processed: totalCalculations,
+          files_created: totalSuccessCount,
+          files_failed: totalCalculations - totalSuccessCount
+        });
+      } else {
+        await SchedulerLogService.markFailed(logEntry.id!, `Phase 8 Additional failed: ${totalSuccessCount}/${totalCalculations} calculations successful`, { totalSuccessCount, totalCalculations, totalDuration });
       }
-    
+    }
+
     console.log(`\n🎉 ===== ALL PHASES COMPLETED =====`);
     console.log(`📊 Total time from Phase 1a start: Check individual phase logs`);
-    
+
     // Clear all caches after all phases complete to free memory
     console.log('\n🧹 Clearing all caches after all phases completed...');
     console.log('📊 Cache usage summary:');
@@ -1659,39 +1662,39 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
     console.log(`   - stock: Used by multiple calculations (Phase 2, 3, 8)`);
     console.log(`   - broker_transaction: Used by 2 calculations (Phase 5, 8)`);
     console.log(`   - index: Used by 2 calculations (Phase 2, 3)`);
-    
+
     // Print stats before clearing
     console.log('\n📊 Cache statistics before clearing:');
     (doneSummaryCache as any).printStats();
     stockCache.printStats();
     brokerTransactionCache.printStats();
     indexCache.printStats();
-    
+
     // Clear all caches
     console.log('\n🧹 Clearing all caches...');
     (doneSummaryCache as any).clearAll();
     stockCache.clearAll();
     brokerTransactionCache.clearAll();
     indexCache.clearAll();
-    
+
     console.log('✅ All caches cleared successfully');
-    
+
     // Cleanup memory after all calculations are complete
     await aggressiveMemoryCleanup();
-    
+
     // Stop memory monitoring after all phases complete
     stopMemoryMonitoring();
-    
+
     // Trigger GitHub webhook to resize container back to small
     try {
       const { triggerGitHubWorkflow } = await import('../utils/githubWebhook');
       console.log('🔄 Triggering GitHub webhook for scheduler completion...');
-      
+
       const webhookResult = await triggerGitHubWorkflow('scheduler-completed', {
         completed_at: new Date().toISOString(),
         all_phases_completed: true
       });
-      
+
       if (webhookResult) {
         console.log('✅ GitHub webhook triggered successfully (resize-after-scheduler)');
       } else {
@@ -1701,20 +1704,20 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
       console.error('❌ Error triggering GitHub webhook:', error);
       // Don't fail the scheduler if webhook fails
     }
-      
-    } catch (error) {
-      trackError(error, 'Phase 8 Additional Calculations');
-      console.error('❌ Error during Phase 8 Additional calculations:', error);
-      
+
+  } catch (error) {
+    trackError(error, 'Phase 8 Additional Calculations');
+    console.error('❌ Error during Phase 8 Additional calculations:', error);
+
     // Stop memory monitoring on error
     stopMemoryMonitoring();
-    
-      if (logEntry) {
-        await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
-      }
-    } finally {
-      phaseStatus['phase8_additional'] = 'idle';
+
+    if (logEntry) {
+      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
     }
+  } finally {
+    phaseStatus['phase8_additional'] = 'idle';
+  }
 }
 
 /**
@@ -1727,15 +1730,15 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
     console.log(`\n🚀 ===== PHASE 1A INPUT DAILY STARTED (MANUAL) =====`);
     console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
     console.log(`📋 Phase: Input Daily (Emiten List, Stock, Index, Done Summary) - 7 days`);
-    
+
     // Skip if weekend
     if (isWeekend()) {
       console.log('📅 Weekend detected - skipping Phase 1a Input Daily (no market data available)');
       return;
     }
-    
+
     let logEntry: SchedulerLog | null = null;
-    
+
     try {
       // Check memory before starting
       const memoryOk = await monitorMemoryUsage();
@@ -1743,10 +1746,10 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
         console.log('⚠️ Skipping Phase 1a Input Daily due to high memory usage');
         return;
       }
-      
+
       // Determine if this is manual or scheduled trigger
       const fromManual = !!manualTriggeredBy;
-      
+
       // Create database log entry
       const logData: Partial<SchedulerLog> = {
         feature_name: 'phase1a_input_daily',
@@ -1757,22 +1760,22 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
         started_at: new Date().toISOString(),
         environment: process.env['NODE_ENV'] || 'development'
       };
-      
+
       logEntry = await SchedulerLogService.createLog(logData);
       if (logEntry) {
         console.log('📊 Phase 1a Input Daily database log created:', logEntry.id);
       }
-      
+
       console.log('🔄 Starting Phase 1a Input Daily...');
-      
+
       // Track batch performance
       trackBatchPerformance(phaseStartTime, 'Phase 1a Input Daily Start');
-      
+
       // Pass logId and triggeredBy to services
       // If manual, use email user; if scheduled, use 'phase1a_input_daily' for consistency
       // Note: Services will use logId if provided, so triggeredBy is mainly for reference
       const triggeredBy = fromManual ? manualTriggeredBy! : 'Phase 1a Input Daily';
-      
+
       // Step 1: Update Emiten List first (needed by other services)
       console.log('🔄 Step 1: Updating Emiten List (required before other tasks)...');
       if (logEntry) {
@@ -1781,7 +1784,7 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
           current_processing: 'Updating Emiten List...'
         });
       }
-      
+
       try {
         await updateEmitenList(null, triggeredBy);
         console.log('✅ Emiten List updated successfully');
@@ -1789,7 +1792,7 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
         console.error('❌ Emiten List update failed:', error?.message || error);
         // Continue with other tasks even if emiten list update fails
       }
-      
+
       // Step 2: Run data collection in parallel
       console.log('🔄 Step 2: Starting parallel data collection (Stock, Index, Done Summary)...');
       const dataCollectionTasks = [
@@ -1798,10 +1801,10 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
         { name: 'Done Summary Data', service: updateDoneSummaryData, method: null }
       ];
       const totalTasks = dataCollectionTasks.length;
-      
+
       const dataCollectionPromises = dataCollectionTasks.map(async (task, index) => {
         const startTime = Date.now();
-        
+
         try {
           // Check if phase is still enabled before starting task
           if (!phaseEnabled['phase1a_input_daily']) {
@@ -1809,9 +1812,9 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
             phaseStatus['phase1a_input_daily'] = 'idle';
             return { name: task.name, success: false, error: 'Phase disabled', duration: 0 };
           }
-          
+
           console.log(`🔄 Starting ${task.name} (${index + 1}/${totalTasks})...`);
-          
+
           // Update progress in database for phase log
           if (logEntry) {
             await SchedulerLogService.updateLog(logEntry.id!, {
@@ -1819,23 +1822,23 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
               current_processing: `Running ${task.name}...`
             });
           }
-          
+
           // Run calculation - pass null as logId so each calculation creates its own log entry with progress tracking, and triggeredBy
           await (task.service as any)(null, triggeredBy);
-          
+
           // Check again after task completes
           if (!phaseEnabled['phase1a_input_daily']) {
             console.log(`⚠️ Phase 1a Input Daily disabled during ${task.name} execution`);
             phaseStatus['phase1a_input_daily'] = 'idle';
             return { name: task.name, success: false, error: 'Phase disabled during execution', duration: Date.now() - startTime };
           }
-          
+
           const duration = Date.now() - startTime;
-          
+
           // If we reach here without throwing an error, the task succeeded
           console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
           return { name: task.name, success: true, duration };
-          
+
         } catch (error) {
           const duration = Date.now() - startTime;
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1843,10 +1846,10 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
           return { name: task.name, success: false, error: errorMessage, duration };
         }
       });
-      
+
       // Wait for all calculations to complete
       const dataCollectionResults = await Promise.allSettled(dataCollectionPromises);
-      
+
       // Check if phase was disabled during execution
       if (!phaseEnabled['phase1a_input_daily']) {
         console.log('⚠️ Phase 1a Input Daily was disabled during execution - stopping');
@@ -1856,7 +1859,7 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
         }
         return;
       }
-      
+
       // Process results
       const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
       dataCollectionResults.forEach((result, index) => {
@@ -1870,16 +1873,16 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
           });
         }
       });
-      
+
       const successCount = results.filter(r => r.success).length;
       const phaseEndTime = new Date();
       const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
-      
+
       console.log(`\n📊 ===== PHASE 1A INPUT DAILY COMPLETED =====`);
       console.log(`✅ Success: ${successCount}/${totalTasks} calculations`);
       console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
       console.log(`⏱️ Total Duration: ${totalDuration}s`);
-      
+
       // Update database log
       if (logEntry) {
         if (successCount === totalTasks) {
@@ -1892,10 +1895,10 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
           await SchedulerLogService.markFailed(logEntry.id!, `Phase 1a Input Daily failed: ${successCount}/${totalTasks} calculations successful`, { successCount, totalTasks, totalDuration });
         }
       }
-      
+
       // Cleanup after Phase 1
       await aggressiveMemoryCleanup();
-      
+
       // Trigger Phase 2 automatically if Phase 1 succeeded and Phase 2 is enabled
       // Pass manualTriggeredBy if this was manually triggered
       if (successCount === totalTasks && phaseEnabled['phase2_market_rotation']) {
@@ -1908,11 +1911,11 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
           console.log('⚠️ Skipping Phase 2 due to Phase 1 failure');
         }
       }
-      
+
     } catch (error) {
       trackError(error, 'Phase 1a Input Daily');
       console.error('❌ Error during Phase 1a Input Daily:', error);
-      
+
       if (logEntry) {
         await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
       }
@@ -1953,7 +1956,7 @@ function formatTriggerCondition(config: PhaseTriggerConfig): string {
  */
 export function getAllPhasesStatus() {
   const status = getSchedulerStatus();
-  
+
   return {
     phases: [
       (() => {
@@ -2145,18 +2148,18 @@ export function togglePhaseEnabled(phaseId: string, enabled: boolean): { success
   if (!phaseEnabled.hasOwnProperty(phaseId)) {
     return { success: false, message: `Unknown phase: ${phaseId}` };
   }
-  
+
   // If disabling and phase is currently running, stop it
   if (!enabled && phaseStatus[phaseId] === 'running') {
     stopRunningPhase(phaseId);
   }
-  
+
   phaseEnabled[phaseId] = enabled;
   console.log(`✅ Phase ${phaseId} ${enabled ? 'enabled' : 'disabled'}`);
-  
-  return { 
-    success: true, 
-    message: `Phase ${phaseId} ${enabled ? 'enabled' : 'disabled'} successfully` 
+
+  return {
+    success: true,
+    message: `Phase ${phaseId} ${enabled ? 'enabled' : 'disabled'} successfully`
   };
 }
 
@@ -2165,7 +2168,7 @@ export function togglePhaseEnabled(phaseId: string, enabled: boolean): { success
  */
 export function toggleAllPhasesEnabled(enabled: boolean): { success: boolean; message: string } {
   const phaseIds = Object.keys(phaseEnabled);
-  
+
   // If disabling, stop all running phases
   if (!enabled) {
     phaseIds.forEach(phaseId => {
@@ -2174,15 +2177,15 @@ export function toggleAllPhasesEnabled(enabled: boolean): { success: boolean; me
       }
     });
   }
-  
+
   phaseIds.forEach(phaseId => {
     phaseEnabled[phaseId] = enabled;
   });
   console.log(`✅ All phases ${enabled ? 'enabled' : 'disabled'}`);
-  
-  return { 
-    success: true, 
-    message: `All phases ${enabled ? 'enabled' : 'disabled'} successfully` 
+
+  return {
+    success: true,
+    message: `All phases ${enabled ? 'enabled' : 'disabled'} successfully`
   };
 }
 
@@ -2190,22 +2193,22 @@ export function toggleAllPhasesEnabled(enabled: boolean): { success: boolean; me
  * Update phase trigger configuration
  */
 export function updatePhaseTriggerConfig(
-  phaseId: string, 
-  triggerType: 'scheduled' | 'auto', 
-  schedule?: string, 
+  phaseId: string,
+  triggerType: 'scheduled' | 'auto',
+  schedule?: string,
   triggerAfterPhase?: string
 ): { success: boolean; message: string } {
   if (!phaseTriggerConfig.hasOwnProperty(phaseId)) {
     return { success: false, message: `Unknown phase: ${phaseId}` };
   }
-  
+
   // Validate time format if scheduled
   if (triggerType === 'scheduled' && schedule) {
     const timeFormatRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
     if (!timeFormatRegex.test(schedule)) {
       return { success: false, message: 'Invalid time format. Use HH:MM format (e.g., 19:00)' };
     }
-    
+
     // Update config for Phase 1 phases
     if (phaseId === 'phase1a_input_daily') {
       // Validate that new scheduler time is in the future (not in the past)
@@ -2214,7 +2217,7 @@ export function updatePhaseTriggerConfig(
       const newMinute = timeParts[1] ?? 0;
       const now = new Date();
       const timezone = SCHEDULER_CONFIG.TIMEZONE || 'Asia/Jakarta';
-      
+
       // Get current time in scheduler timezone (Asia/Jakarta = UTC+7)
       const utcHours = now.getUTCHours();
       const utcMinutes = now.getUTCMinutes();
@@ -2223,21 +2226,21 @@ export function updatePhaseTriggerConfig(
       if (currentHours >= 24) {
         currentHours -= 24;
       }
-      
+
       // Compare times (handle same-day comparison)
       const newTimeMinutes = newHour * 60 + newMinute;
       const currentTimeMinutes = currentHours * 60 + currentMinutes;
-      
+
       // If new time is less than or equal to current time, it's in the past (same day)
       // Note: For daily scheduler, we only allow setting time for today that is in the future
       // If user wants to set for tomorrow, they should wait until after midnight
       if (newTimeMinutes <= currentTimeMinutes) {
-        return { 
-          success: false, 
-          message: `Scheduler time must be in the future. Current time is ${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')} ${timezone}. Please set a time after the current time (must be greater than current time).` 
+        return {
+          success: false,
+          message: `Scheduler time must be in the future. Current time is ${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')} ${timezone}. Please set a time after the current time (must be greater than current time).`
         };
       }
-      
+
       SCHEDULER_CONFIG.PHASE1_DATA_COLLECTION_TIME = schedule;
       PHASE1_DATA_COLLECTION_TIME = schedule;
       PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(schedule);
@@ -2247,7 +2250,7 @@ export function updatePhaseTriggerConfig(
       PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(schedule);
     }
   }
-  
+
   // Validate triggerAfterPhase if auto
   if (triggerType === 'auto' && triggerAfterPhase) {
     if (!phaseTriggerConfig.hasOwnProperty(triggerAfterPhase)) {
@@ -2258,7 +2261,7 @@ export function updatePhaseTriggerConfig(
       return { success: false, message: 'Phase cannot trigger after itself' };
     }
   }
-  
+
   // Update trigger config
   const newConfig: PhaseTriggerConfig = {
     type: triggerType
@@ -2270,17 +2273,17 @@ export function updatePhaseTriggerConfig(
     newConfig.triggerAfterPhase = triggerAfterPhase;
   }
   phaseTriggerConfig[phaseId] = newConfig;
-  
+
   console.log(`✅ Phase ${phaseId} trigger config updated:`, phaseTriggerConfig[phaseId]);
-  
+
   // Restart scheduler if Phase 1 schedule changed
   if (triggerType === 'scheduled' && (phaseId === 'phase1a_input_daily' || phaseId === 'phase1b_input_monthly')) {
     restartScheduler();
   }
-  
-  return { 
-    success: true, 
-    message: `Phase ${phaseId} trigger configuration updated successfully` 
+
+  return {
+    success: true,
+    message: `Phase ${phaseId} trigger configuration updated successfully`
   };
 }
 
@@ -2293,12 +2296,12 @@ export async function triggerPhase(phaseId: string, triggeredBy?: string): Promi
     if (!phaseEnabled[phaseId]) {
       return { success: false, message: `Phase ${phaseId} is disabled. Please enable it first.` };
     }
-    
+
     // Check if phase is already running
     if (phaseStatus[phaseId] === 'running') {
       return { success: false, message: `Phase ${phaseId} is already running` };
     }
-    
+
     switch (phaseId) {
       case 'phase1a_input_daily':
         await runPhase1DataCollection(triggeredBy);
@@ -2345,7 +2348,7 @@ export function startScheduler(): void {
   }
 
   console.log('🕐 Starting scheduler...');
-  
+
   // Schedule resize-before webhook trigger (15 minutes before scheduler time)
   scheduleResizeBeforeWebhook();
 
@@ -2359,23 +2362,23 @@ export function startScheduler(): void {
       phaseStatus['phase1a_input_daily'] = 'idle';
       return;
     }
-    
+
     phaseStatus['phase1a_input_daily'] = 'running';
     try {
       const phaseStartTime = Date.now();
       console.log(`\n🚀 ===== PHASE 1A INPUT DAILY STARTED =====`);
       console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
       console.log(`📋 Phase: Input Daily (Emiten List, Stock, Index, Done Summary) - 7 days`);
-      
+
       // Skip if weekend
       if (isWeekend()) {
         console.log('📅 Weekend detected - skipping Phase 1a Input Daily (no market data available)');
         phaseStatus['phase1a_input_daily'] = 'idle';
         return;
       }
-      
+
       let logEntry: SchedulerLog | null = null;
-      
+
       try {
         // Check memory before starting
         const memoryOk = await monitorMemoryUsage();
@@ -2384,170 +2387,170 @@ export function startScheduler(): void {
           phaseStatus['phase1a_input_daily'] = 'idle';
           return;
         }
-      
-      // Create database log entry
-      const logData: Partial<SchedulerLog> = {
-        feature_name: 'phase1a_input_daily',
-        trigger_type: 'scheduled',
-        triggered_by: 'Phase 1a Input Daily',
-        status: 'running',
-        phase_id: 'phase1a_input_daily',
-        started_at: new Date().toISOString(),
-        environment: process.env['NODE_ENV'] || 'development'
-      };
-      
-      logEntry = await SchedulerLogService.createLog(logData);
-      if (logEntry) {
-        console.log('📊 Phase 1a Input Daily database log created:', logEntry.id);
-      }
-      
-      const phaseStartTime = Date.now();
-      console.log('🔄 Starting Phase 1a Input Daily...');
-      
-      // Track batch performance
-      trackBatchPerformance(phaseStartTime, 'Phase 1a Input Daily Start');
-      
-      const triggeredBy = 'phase1a_input_daily';
-      
-      // Step 1: Update Emiten List first (needed by other services)
-      console.log('🔄 Step 1: Updating Emiten List (required before other tasks)...');
-      if (logEntry) {
-        await SchedulerLogService.updateLog(logEntry.id!, {
-          progress_percentage: 0,
-          current_processing: 'Updating Emiten List...'
-        });
-      }
-      
-      try {
-        await updateEmitenList(null, triggeredBy);
-        console.log('✅ Emiten List updated successfully');
-      } catch (error: any) {
-        console.error('❌ Emiten List update failed:', error?.message || error);
-        // Continue with other tasks even if emiten list update fails
-      }
-      
-      // Step 2: Run data collection in parallel
-      console.log('🔄 Step 2: Starting parallel data collection (Stock, Index, Done Summary)...');
-      const dataCollectionTasks = [
-        { name: 'Stock Data', service: updateStockData, method: null },
-        { name: 'Index Data', service: updateIndexData, method: null },
-        { name: 'Done Summary Data', service: updateDoneSummaryData, method: null }
-      ];
-      const totalTasks = dataCollectionTasks.length;
-      
-      const dataCollectionPromises = dataCollectionTasks.map(async (task, index) => {
-        const startTime = Date.now();
-        
-        try {
-          // Check if phase is still enabled before starting task
-          if (!phaseEnabled['phase1a_input_daily']) {
-            console.log(`⚠️ Phase 1a Input Daily disabled - stopping ${task.name}`);
-            phaseStatus['phase1a_input_daily'] = 'idle';
-            return { name: task.name, success: false, error: 'Phase disabled', duration: 0 };
-          }
-          
-          console.log(`🔄 Starting ${task.name} (${index + 1}/${totalTasks})...`);
-          
-          // Update progress in database for phase log
-          if (logEntry) {
-            await SchedulerLogService.updateLog(logEntry.id!, {
-              progress_percentage: Math.round((index / totalTasks) * 100),
-              current_processing: `Running ${task.name}...`
-            });
-          }
-          
-          // Run calculation - pass null as logId so each calculation creates its own log entry with progress tracking, and triggeredBy
-          await (task.service as any)(null, triggeredBy);
-          
-          // Check again after task completes
-          if (!phaseEnabled['phase1a_input_daily']) {
-            console.log(`⚠️ Phase 1a Input Daily disabled during ${task.name} execution`);
-            phaseStatus['phase1a_input_daily'] = 'idle';
-            return { name: task.name, success: false, error: 'Phase disabled during execution', duration: Date.now() - startTime };
-          }
-          
-          const duration = Date.now() - startTime;
-          
-          // If we reach here without throwing an error, the task succeeded
-          console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
-          return { name: task.name, success: true, duration };
-          
-        } catch (error) {
-          const duration = Date.now() - startTime;
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          console.error(`❌ ${task.name} failed:`, errorMessage);
-          return { name: task.name, success: false, error: errorMessage, duration };
-        }
-      });
-      
-      // Wait for all calculations to complete
-      const dataCollectionResults = await Promise.allSettled(dataCollectionPromises);
-      
-      // Check if phase was disabled during execution
-      if (!phaseEnabled['phase1a_input_daily']) {
-        console.log('⚠️ Phase 1a Input Daily was disabled during execution - stopping');
-        phaseStatus['phase1a_input_daily'] = 'idle';
+
+        // Create database log entry
+        const logData: Partial<SchedulerLog> = {
+          feature_name: 'phase1a_input_daily',
+          trigger_type: 'scheduled',
+          triggered_by: 'Phase 1a Input Daily',
+          status: 'running',
+          phase_id: 'phase1a_input_daily',
+          started_at: new Date().toISOString(),
+          environment: process.env['NODE_ENV'] || 'development'
+        };
+
+        logEntry = await SchedulerLogService.createLog(logData);
         if (logEntry) {
-          await SchedulerLogService.markCancelled(logEntry.id!, 'Phase disabled during execution', 'system');
+          console.log('📊 Phase 1a Input Daily database log created:', logEntry.id);
         }
-        return;
-      }
-      
-      // Process results
-      const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
-      dataCollectionResults.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          results.push(result.value);
-        } else {
-          results.push({
-            name: dataCollectionTasks[index]?.name || 'Unknown',
-            success: false,
-            error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
+
+        const phaseStartTime = Date.now();
+        console.log('🔄 Starting Phase 1a Input Daily...');
+
+        // Track batch performance
+        trackBatchPerformance(phaseStartTime, 'Phase 1a Input Daily Start');
+
+        const triggeredBy = 'phase1a_input_daily';
+
+        // Step 1: Update Emiten List first (needed by other services)
+        console.log('🔄 Step 1: Updating Emiten List (required before other tasks)...');
+        if (logEntry) {
+          await SchedulerLogService.updateLog(logEntry.id!, {
+            progress_percentage: 0,
+            current_processing: 'Updating Emiten List...'
           });
         }
-      });
-  
-      const successCount = results.filter(r => r.success).length;
-      const phaseEndTime = new Date();
-      const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
-      
-      console.log(`\n📊 ===== PHASE 1A INPUT DAILY COMPLETED =====`);
-      console.log(`✅ Success: ${successCount}/${totalTasks} calculations`);
-      console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
-      console.log(`⏱️ Total Duration: ${totalDuration}s`);
-      
-      // Update database log
-  if (logEntry) {
-    if (successCount === totalTasks) {
-      await SchedulerLogService.markCompleted(logEntry.id!, {
-        total_files_processed: totalTasks,
-        files_created: successCount,
-        files_failed: totalTasks - successCount
-      });
-    } else {
-      await SchedulerLogService.markFailed(logEntry.id!, `Phase 1a Input Daily failed: ${successCount}/${totalTasks} calculations successful`, { successCount, totalTasks, totalDuration });
-    }
-  }
-      
-      // Cleanup after Phase 1a Input Daily
-      await aggressiveMemoryCleanup();
-      
-      // Trigger Phase 2 automatically if Phase 1 succeeded and Phase 2 is enabled
-      // Phase 2 will be triggered from scheduled Phase 1, so no manualTriggeredBy needed
-      if (successCount >= Math.ceil(totalTasks * 0.67) && phaseEnabled['phase2_market_rotation']) { // Trigger Phase 2 if at least ~2/3 succeed
-        console.log('🔄 Triggering Phase 2 Market Rotation calculations...');
-        await runPhase2MarketRotationCalculations();
-      } else {
-        if (!phaseEnabled['phase2_market_rotation']) {
-          console.log('⚠️ Skipping Phase 2 - Phase 2 is disabled');
-        } else {
-          console.log('⚠️ Skipping Phase 2 due to insufficient Phase 1 success rate');
+
+        try {
+          await updateEmitenList(null, triggeredBy);
+          console.log('✅ Emiten List updated successfully');
+        } catch (error: any) {
+          console.error('❌ Emiten List update failed:', error?.message || error);
+          // Continue with other tasks even if emiten list update fails
         }
-      }
-      
+
+        // Step 2: Run data collection in parallel
+        console.log('🔄 Step 2: Starting parallel data collection (Stock, Index, Done Summary)...');
+        const dataCollectionTasks = [
+          { name: 'Stock Data', service: updateStockData, method: null },
+          { name: 'Index Data', service: updateIndexData, method: null },
+          { name: 'Done Summary Data', service: updateDoneSummaryData, method: null }
+        ];
+        const totalTasks = dataCollectionTasks.length;
+
+        const dataCollectionPromises = dataCollectionTasks.map(async (task, index) => {
+          const startTime = Date.now();
+
+          try {
+            // Check if phase is still enabled before starting task
+            if (!phaseEnabled['phase1a_input_daily']) {
+              console.log(`⚠️ Phase 1a Input Daily disabled - stopping ${task.name}`);
+              phaseStatus['phase1a_input_daily'] = 'idle';
+              return { name: task.name, success: false, error: 'Phase disabled', duration: 0 };
+            }
+
+            console.log(`🔄 Starting ${task.name} (${index + 1}/${totalTasks})...`);
+
+            // Update progress in database for phase log
+            if (logEntry) {
+              await SchedulerLogService.updateLog(logEntry.id!, {
+                progress_percentage: Math.round((index / totalTasks) * 100),
+                current_processing: `Running ${task.name}...`
+              });
+            }
+
+            // Run calculation - pass null as logId so each calculation creates its own log entry with progress tracking, and triggeredBy
+            await (task.service as any)(null, triggeredBy);
+
+            // Check again after task completes
+            if (!phaseEnabled['phase1a_input_daily']) {
+              console.log(`⚠️ Phase 1a Input Daily disabled during ${task.name} execution`);
+              phaseStatus['phase1a_input_daily'] = 'idle';
+              return { name: task.name, success: false, error: 'Phase disabled during execution', duration: Date.now() - startTime };
+            }
+
+            const duration = Date.now() - startTime;
+
+            // If we reach here without throwing an error, the task succeeded
+            console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+            return { name: task.name, success: true, duration };
+
+          } catch (error) {
+            const duration = Date.now() - startTime;
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(`❌ ${task.name} failed:`, errorMessage);
+            return { name: task.name, success: false, error: errorMessage, duration };
+          }
+        });
+
+        // Wait for all calculations to complete
+        const dataCollectionResults = await Promise.allSettled(dataCollectionPromises);
+
+        // Check if phase was disabled during execution
+        if (!phaseEnabled['phase1a_input_daily']) {
+          console.log('⚠️ Phase 1a Input Daily was disabled during execution - stopping');
+          phaseStatus['phase1a_input_daily'] = 'idle';
+          if (logEntry) {
+            await SchedulerLogService.markCancelled(logEntry.id!, 'Phase disabled during execution', 'system');
+          }
+          return;
+        }
+
+        // Process results
+        const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
+        dataCollectionResults.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            results.push(result.value);
+          } else {
+            results.push({
+              name: dataCollectionTasks[index]?.name || 'Unknown',
+              success: false,
+              error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
+            });
+          }
+        });
+
+        const successCount = results.filter(r => r.success).length;
+        const phaseEndTime = new Date();
+        const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
+
+        console.log(`\n📊 ===== PHASE 1A INPUT DAILY COMPLETED =====`);
+        console.log(`✅ Success: ${successCount}/${totalTasks} calculations`);
+        console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+        console.log(`⏱️ Total Duration: ${totalDuration}s`);
+
+        // Update database log
+        if (logEntry) {
+          if (successCount === totalTasks) {
+            await SchedulerLogService.markCompleted(logEntry.id!, {
+              total_files_processed: totalTasks,
+              files_created: successCount,
+              files_failed: totalTasks - successCount
+            });
+          } else {
+            await SchedulerLogService.markFailed(logEntry.id!, `Phase 1a Input Daily failed: ${successCount}/${totalTasks} calculations successful`, { successCount, totalTasks, totalDuration });
+          }
+        }
+
+        // Cleanup after Phase 1a Input Daily
+        await aggressiveMemoryCleanup();
+
+        // Trigger Phase 2 automatically if Phase 1 succeeded and Phase 2 is enabled
+        // Phase 2 will be triggered from scheduled Phase 1, so no manualTriggeredBy needed
+        if (successCount >= Math.ceil(totalTasks * 0.67) && phaseEnabled['phase2_market_rotation']) { // Trigger Phase 2 if at least ~2/3 succeed
+          console.log('🔄 Triggering Phase 2 Market Rotation calculations...');
+          await runPhase2MarketRotationCalculations();
+        } else {
+          if (!phaseEnabled['phase2_market_rotation']) {
+            console.log('⚠️ Skipping Phase 2 - Phase 2 is disabled');
+          } else {
+            console.log('⚠️ Skipping Phase 2 due to insufficient Phase 1 success rate');
+          }
+        }
+
       } catch (error) {
         console.error('❌ Error during Phase 1a Input Daily:', error);
-        
+
         if (logEntry) {
           await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
         }
@@ -2571,20 +2574,20 @@ export function startScheduler(): void {
       console.log(`\n🚀 ===== PHASE 1B INPUT MONTHLY STARTED =====`);
       console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
       console.log(`📋 Phase: Input Monthly (Shareholders & Holding - Monthly check - only on 1st of month)`);
-      
+
       // Check if today is the first day of the month
       const today = new Date();
-      
+
       if (today.getDate() !== 1) {
         console.log('📅 Not the first day of month - skipping Shareholders & Holding updates');
         phaseStatus['phase1b_input_monthly'] = 'idle';
         return;
       }
-      
+
       console.log('📅 First day of month detected - running Shareholders & Holding updates');
-      
+
       let logEntry: SchedulerLog | null = null;
-      
+
       try {
         // Check memory before starting
         const memoryOk = await monitorMemoryUsage();
@@ -2593,7 +2596,7 @@ export function startScheduler(): void {
           phaseStatus['phase1b_input_monthly'] = 'idle';
           return;
         }
-        
+
         // Create database log entry
         const logData: Partial<SchedulerLog> = {
           feature_name: 'phase1b_input_monthly',
@@ -2604,27 +2607,27 @@ export function startScheduler(): void {
           started_at: new Date().toISOString(),
           environment: process.env['NODE_ENV'] || 'development'
         };
-        
+
         logEntry = await SchedulerLogService.createLog(logData);
         if (logEntry) {
           console.log('📊 Phase 1b Input Monthly & Holding database log created:', logEntry.id);
         }
-        
+
         console.log('🔄 Starting Phase 1b Input Monthly & Holding (PARALLEL MODE)...');
-        
+
         // Run shareholders and holding updates in parallel
         const shareholdersHoldingTasks = [
           { name: 'Shareholders Data', service: updateShareholdersData, method: null },
           { name: 'Holding Data', service: updateHoldingData, method: null }
         ];
         const triggeredBy = 'Phase 1b Input Monthly';
-        
+
         const shareholdersHoldingPromises = shareholdersHoldingTasks.map(async (task, index) => {
           const startTime = Date.now();
-          
+
           try {
             console.log(`🔄 Starting ${task.name} (${index + 1}/2)...`);
-            
+
             // Update progress in database for phase log
             if (logEntry) {
               await SchedulerLogService.updateLog(logEntry.id!, {
@@ -2632,16 +2635,16 @@ export function startScheduler(): void {
                 current_processing: `Running ${task.name}...`
               });
             }
-            
+
             // Run calculation - pass null as logId so each calculation creates its own log entry, and triggeredBy
             await (task.service as any)(null, triggeredBy);
-            
+
             const duration = Date.now() - startTime;
-            
+
             // If we reach here without throwing an error, the task succeeded
             console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
             return { name: task.name, success: true, duration };
-            
+
           } catch (error) {
             const duration = Date.now() - startTime;
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -2649,10 +2652,10 @@ export function startScheduler(): void {
             return { name: task.name, success: false, error: errorMessage, duration };
           }
         });
-        
+
         // Wait for all calculations to complete
         const shareholdersHoldingResults = await Promise.allSettled(shareholdersHoldingPromises);
-        
+
         // Process results
         const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
         shareholdersHoldingResults.forEach((result, index) => {
@@ -2666,16 +2669,16 @@ export function startScheduler(): void {
             });
           }
         });
-        
+
         const successCount = results.filter(r => r.success).length;
         const phaseEndTime = new Date();
         const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
-        
+
         console.log(`\n📊 ===== PHASE 1B INPUT MONTHLY COMPLETED =====`);
         console.log(`✅ Success: ${successCount}/2 calculations`);
         console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
         console.log(`⏱️ Total Duration: ${totalDuration}s`);
-        
+
         // Update database log
         if (logEntry) {
           if (successCount === 2) {
@@ -2688,13 +2691,13 @@ export function startScheduler(): void {
             await SchedulerLogService.markFailed(logEntry.id!, `Phase 1b Input Monthly & Holding failed: ${successCount}/2 calculations successful`, { successCount, totalDuration });
           }
         }
-        
+
         // Cleanup after Phase 1b Input Monthly & Holding
         await aggressiveMemoryCleanup();
-        
+
       } catch (error) {
         console.error('❌ Error during Phase 1b Input Monthly & Holding:', error);
-        
+
         if (logEntry) {
           await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
         }
@@ -2737,10 +2740,10 @@ export function startScheduler(): void {
   console.log(`  ⏭️  Weekend skip: ENABLED (Sat/Sun) - All scheduled phases skip weekend\n`);
 
   schedulerRunning = true;
-  
+
   // Enable all phases when scheduler starts
   toggleAllPhasesEnabled(true);
-  
+
   console.log('✅ Scheduler started successfully');
 }
 
@@ -2759,18 +2762,18 @@ export function stopScheduler(): void {
     }
   });
   scheduledTasks = [];
-  
+
   // Stop resize before webhook task if exists
   if (resizeBeforeWebhookTask) {
     resizeBeforeWebhookTask.destroy();
     resizeBeforeWebhookTask = null;
   }
-  
+
   schedulerRunning = false;
-  
+
   // Disable all phases when scheduler stops
   toggleAllPhasesEnabled(false);
-  
+
   console.log('✅ Scheduler stopped');
 }
 
@@ -2828,19 +2831,19 @@ export function updateSchedulerConfig(newConfig: Partial<typeof SCHEDULER_CONFIG
     ...SCHEDULER_CONFIG,
     ...newConfig
   };
-  
+
   // Update extracted variables
   PHASE1_DATA_COLLECTION_TIME = SCHEDULER_CONFIG.PHASE1_DATA_COLLECTION_TIME;
   PHASE1_SHAREHOLDERS_TIME = SCHEDULER_CONFIG.PHASE1_SHAREHOLDERS_TIME;
   TIMEZONE = SCHEDULER_CONFIG.TIMEZONE;
-  
+
   // Update cron schedules
   PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(PHASE1_DATA_COLLECTION_TIME);
   PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(PHASE1_SHAREHOLDERS_TIME);
-  
+
   // Note: scheduleResizeBeforeWebhook() will be called by startScheduler() or restartScheduler()
   // No need to call it here to avoid double scheduling
-  
+
   console.log('✅ Scheduler configuration updated:', SCHEDULER_CONFIG);
 }
 
@@ -2853,15 +2856,15 @@ function scheduleResizeBeforeWebhook(): void {
     resizeBeforeWebhookTask.destroy();
     resizeBeforeWebhookTask = null;
   }
-  
+
   const schedulerTime = SCHEDULER_CONFIG.PHASE1_DATA_COLLECTION_TIME;
   const resizeTime = calculateResizeTime(schedulerTime);
   const timezone = SCHEDULER_CONFIG.TIMEZONE;
-  
+
   // Convert resize time to UTC cron format
   // Note: node-cron uses server's local timezone (typically UTC in Azure)
   const resizeCron = timeToCronUTC(resizeTime, timezone);
-  
+
   // Calculate expected UTC time for verification
   const resizeParts = resizeTime.split(':').map(Number);
   const resizeHours = resizeParts[0] ?? 0;
@@ -2872,14 +2875,14 @@ function scheduleResizeBeforeWebhook(): void {
   if (expectedUtcHours < 0) expectedUtcHours += 24;
   else if (expectedUtcHours >= 24) expectedUtcHours -= 24;
   const expectedUtcTime = `${String(expectedUtcHours).padStart(2, '0')}:${String(resizeMinutes).padStart(2, '0')}`;
-  
+
   console.log(`📅 Scheduling resize-before webhook trigger:`);
   console.log(`   Scheduler time: ${schedulerTime} ${timezone}`);
   console.log(`   Resize time: ${resizeTime} ${timezone} (15 minutes before)`);
   console.log(`   Expected UTC time: ${expectedUtcTime} UTC`);
   console.log(`   Cron expression: ${resizeCron}`);
   console.log(`   Server timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
-  
+
   // Schedule webhook trigger
   resizeBeforeWebhookTask = cron.schedule(resizeCron, async () => {
     // Check if weekend skip is enabled
@@ -2887,19 +2890,19 @@ function scheduleResizeBeforeWebhook(): void {
       console.log('📅 Weekend detected - skipping resize-before webhook trigger');
       return;
     }
-    
+
     try {
       const { triggerGitHubWorkflow } = await import('../utils/githubWebhook');
-      
+
       console.log('🔄 Triggering resize-before webhook (scheduled)...');
-      
+
       const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
         new_time: schedulerTime,
         shareholders_time: SCHEDULER_CONFIG.PHASE1_SHAREHOLDERS_TIME,
         timezone: timezone,
         weekend_skip: SCHEDULER_CONFIG.WEEKEND_SKIP
       });
-      
+
       if (webhookResult) {
         console.log('✅ Resize-before webhook triggered successfully (scheduled)');
       } else {
@@ -2909,7 +2912,7 @@ function scheduleResizeBeforeWebhook(): void {
       console.error('❌ Error triggering resize-before webhook (scheduled):', error);
     }
   });
-  
+
   console.log('✅ Resize-before webhook scheduled successfully');
 }
 
