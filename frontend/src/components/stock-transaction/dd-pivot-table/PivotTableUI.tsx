@@ -30,16 +30,16 @@ class SortableJSWrapper extends React.Component<any> {
         this.containerRef = React.createRef();
     }
 
-    componentDidMount() {
+    override componentDidMount() {
         if (this.containerRef.current) {
             const onChanged = () => {
-                if (this.sortableInstance && this.props.onChange) {
-                    this.props.onChange(this.sortableInstance.toArray());
+                if (this.sortableInstance && this.props['onChange']) {
+                    this.props['onChange'](this.sortableInstance.toArray());
                 }
             };
 
             this.sortableInstance = Sortable.create(this.containerRef.current, {
-                ...this.props.options,
+                ...this.props['options'],
                 onAdd: onChanged,
                 onUpdate: onChanged,
                 onRemove: () => {
@@ -50,7 +50,7 @@ class SortableJSWrapper extends React.Component<any> {
         }
     }
 
-    componentWillUnmount() {
+    override componentWillUnmount() {
         if (this.sortableInstance) {
             this.sortableInstance.destroy();
             this.sortableInstance = null;
@@ -61,7 +61,7 @@ class SortableJSWrapper extends React.Component<any> {
     // because React will re-render the children, and Sortable respects that (mostly).
     // But if options change dynamically, we might need code here. For now, static options.
 
-    render() {
+    override render() {
         const { tag: Tag = 'div', className, style, children } = this.props;
         return (
             <Tag ref={this.containerRef} className={className} style={style}>
@@ -96,6 +96,7 @@ interface DraggableAttributeState {
 
 export class DraggableAttribute extends React.Component<DraggableAttributeProps, DraggableAttributeState> {
     filterBoxRef: React.RefObject<HTMLDivElement>;
+    attrRef: React.RefObject<HTMLDivElement>;
 
     constructor(props: DraggableAttributeProps) {
         super(props);
@@ -105,13 +106,14 @@ export class DraggableAttribute extends React.Component<DraggableAttributeProps,
             displayLimit: 100, // Default limit for filter values
         };
         this.filterBoxRef = React.createRef<HTMLDivElement>();
+        this.attrRef = React.createRef<HTMLDivElement>();
     }
 
-    componentDidMount() {
+    override componentDidMount() {
         document.addEventListener('mousedown', this.handleClickOutside);
     }
 
-    componentWillUnmount() {
+    override componentWillUnmount() {
         document.removeEventListener('mousedown', this.handleClickOutside);
     }
 
@@ -120,15 +122,10 @@ export class DraggableAttribute extends React.Component<DraggableAttributeProps,
         if (
             this.state.open &&
             this.filterBoxRef.current &&
-            !this.filterBoxRef.current.contains(event.target as Node)
+            !this.filterBoxRef.current.contains(event.target as Node) &&
+            this.attrRef.current &&
+            !this.attrRef.current.contains(event.target as Node)
         ) {
-            // Check if the click was on the toggle button (pvtTriangle) or the attribute label
-            // We use a broader check to ensure we don't interfere with the toggle logic
-            // But implementing a simple connection check or ref check on the button is hard from here
-            // So we rely on the fact that if it's open, and we click outside, we close.
-            // The toggle button click handler will toggle it again if we are not careful.
-            // However, usually the toggle button stops propagation.
-
             this.setState({ open: false });
         }
     };
@@ -174,7 +171,10 @@ export class DraggableAttribute extends React.Component<DraggableAttributeProps,
                     cursor: 'initial',
                     zIndex: this.props.zIndex,
                 }}
-                onClick={() => this.props.moveFilterBoxToTop(this.props.name)}
+                onClick={(e) => {
+                    e.stopPropagation(); // Avoid toggling when clicking inside the box
+                    this.props.moveFilterBoxToTop(this.props.name);
+                }}
             >
                 <div className="pvtSearchContainer">
                     <p>{this.props.name}</p>
@@ -259,7 +259,7 @@ export class DraggableAttribute extends React.Component<DraggableAttributeProps,
         this.props.moveFilterBoxToTop(this.props.name);
     }
 
-    render() {
+    override render() {
         const filtered =
             Object.keys(this.props.valueFilter).length !== 0
                 ? 'pvtFilteredAttribute'
@@ -275,17 +275,17 @@ export class DraggableAttribute extends React.Component<DraggableAttributeProps,
             <div
                 className={baseClasses}
                 data-id={this.props.name} // Important for SortableJS
+                ref={this.attrRef}
+                onClick={this.toggleFilter.bind(this)}
+                style={{ cursor: 'pointer' }}
             >
                 {this.props.name}
                 <span
                     className="pvtTriangle"
-                    onClick={this.toggleFilter.bind(this)}
                 >
                     {' '}
                     &#x25BE;
                 </span>
-                {this.getFilterBox()}
-
                 {this.getFilterBox()}
             </div>
         );
@@ -459,8 +459,9 @@ class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUISt
                     }
                 }
 
-                if (record['TRX_TIME'] !== undefined) {
-                    const time = record['TRX_TIME'];
+                const timeKey = record['TIME'] !== undefined ? 'TIME' : (record['TRX_TIME'] !== undefined ? 'TRX_TIME' : null);
+                if (timeKey) {
+                    const time = record[timeKey];
                     if (time !== null) {
                         // Assuming time is number or string like '093000' or 93000
                         // Convert to padded string '093000'
@@ -469,13 +470,13 @@ class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUISt
                         if (!t.includes(':')) {
                             t = t.padStart(6, '0');
                             if (this.state.groupByHour) {
-                                record['TRX_TIME'] = t.substring(0, 2) + ':00';
+                                record[timeKey] = t.substring(0, 2) + ':00';
                             } else {
-                                record['TRX_TIME'] = `${t.substring(0, 2)}:${t.substring(2, 4)}:${t.substring(4, 6)}`;
+                                record[timeKey] = `${t.substring(0, 2)}:${t.substring(2, 4)}:${t.substring(4, 6)}`;
                             }
                         } else if (this.state.groupByHour) {
                             // If already formatted (HH:mm:ss), just take hour
-                            record['TRX_TIME'] = t.substring(0, 2) + ':00';
+                            record[timeKey] = t.substring(0, 2) + ':00';
                         }
                     }
                 }
@@ -648,25 +649,10 @@ class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUISt
                     setValue={this.propUpdater('aggregatorName')}
                 />
                 <br />
-                {this.props.vals.map(x => (
-                    <Dropdown
-                        key={x}
-                        current={x}
-                        values={Object.keys(this.state.attrValues)}
-                        open={this.isOpen(`val${x}`)}
-                        zIndex={this.state.maxZIndex + 1}
-                        toggle={() =>
-                            this.setState({
-                                openDropdown: this.isOpen(`val${x}`) ? false : `val${x}`,
-                            })
-                        }
-                        setValue={value =>
-                            this.sendPropUpdate({
-                                vals: { $splice: [[this.props.vals.indexOf(x), 1, value]] },
-                            })
-                        }
-                    />
-                ))}
+                {/* 
+                    Dropdown for selecting which field to aggregate is hidden as per user request.
+                    The aggregator will use the values passed in props.vals (defaulted to STK_VALUES).
+                */}
             </td>
         );
 
