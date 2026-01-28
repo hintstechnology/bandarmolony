@@ -4,7 +4,6 @@ import update from 'immutability-helper';
 import { PivotData, getSort, sortAs } from './Utilities';
 import PivotTable from './PivotTable';
 import Sortable from 'sortablejs';
-import Draggable from 'react-draggable';
 import { Loader2 } from 'lucide-react';
 
 // Helper to unwrap ESM modules or other object wrappers
@@ -18,7 +17,6 @@ const normalize = (obj: any) => {
 };
 
 // Components
-const DraggableComponent = Draggable;
 const PivotTableComponent = PivotTable;
 
 class SortableJSWrapper extends React.Component<any> {
@@ -82,10 +80,12 @@ interface DraggableAttributeProps {
     valueFilter: Record<string, boolean>;
     moveFilterBoxToTop: (attr: string) => void;
     sorter: (a: any, b: any) => number;
-    menuLimit?: number;
+    menuLimit?: number | null;
     zIndex?: number;
-    groupByHour?: boolean;
-    toggleGroupByHour?: (val: boolean) => void;
+    groupByHour?: boolean | undefined;
+    toggleGroupByHour?: ((val: boolean) => void) | undefined;
+    sortDir?: 'asc' | 'desc' | undefined;
+    toggleSortDir?: ((dir: 'asc' | 'desc') => void) | undefined;
 }
 
 interface DraggableAttributeState {
@@ -206,6 +206,25 @@ export class DraggableAttribute extends React.Component<DraggableAttributeProps,
                             </label>
                         </div>
                     )}
+                    {this.props.sortDir !== undefined && (
+                        <div className="flex items-center gap-2 mt-2 mb-1" onClick={(e) => e.stopPropagation()}>
+                            <span className="text-[10px] text-muted-foreground select-none">Sort:</span>
+                            <div className="flex bg-gray-100 rounded p-0.5">
+                                <button
+                                    onClick={() => this.props.toggleSortDir?.('asc')}
+                                    className={`text-[9px] px-1.5 py-0.5 rounded ${this.props.sortDir === 'asc' ? 'bg-white shadow-sm font-bold' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    ASC
+                                </button>
+                                <button
+                                    onClick={() => this.props.toggleSortDir?.('desc')}
+                                    className={`text-[9px] px-1.5 py-0.5 rounded ${this.props.sortDir === 'desc' ? 'bg-white shadow-sm font-bold' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    DESC
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div
@@ -214,6 +233,14 @@ export class DraggableAttribute extends React.Component<DraggableAttributeProps,
                         maxHeight: '250px',
                         overflowY: 'auto',
                         borderBottom: '1px solid #ddd'
+                    }}
+                    onScroll={(e: any) => {
+                        const el = e.target;
+                        if (el.scrollHeight - el.scrollTop - el.clientHeight < 50) {
+                            if (this.state.displayLimit < shown.length) {
+                                this.setState({ displayLimit: this.state.displayLimit + 100 });
+                            }
+                        }
                     }}
                 >
                     {shown.slice(0, this.state.displayLimit).map(x => ( // Use displayLimit
@@ -231,7 +258,7 @@ export class DraggableAttribute extends React.Component<DraggableAttributeProps,
                     ))}
                     {shown.length > this.state.displayLimit && (
                         <p className="pvtMore" style={{ textAlign: 'center', color: '#888' }}>
-                            ...and {shown.length - this.state.displayLimit} more...
+                            ...and {shown.length - this.state.displayLimit} more... (Scroll to load)
                         </p>
                     )}
                 </div>
@@ -366,7 +393,7 @@ interface PivotTableUIProps {
     hiddenAttributes?: string[];
     hiddenFromDragDrop?: string[];
     hiddenFromAggregators?: string[];
-    menuLimit?: number;
+    menuLimit?: number | null;
     unusedOrientationCutoff?: number;
     [key: string]: any;
 }
@@ -380,6 +407,7 @@ interface PivotTableUIState {
     materializedInput: any[];
     groupByHour: boolean;
     isProcessing: boolean;
+    priceSortDir: 'asc' | 'desc';
 }
 
 class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUIState> {
@@ -401,6 +429,7 @@ class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUISt
             materializedInput: [],
             groupByHour: true,
             isProcessing: false,
+            priceSortDir: 'desc',
         };
         this.handleClickOutside = this.handleClickOutside.bind(this);
     }
@@ -585,20 +614,28 @@ class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUISt
                         attrValues={this.state.attrValues[x] || {}}
                         valueFilter={this.props.valueFilter[x] || {}}
                         sorter={getSort(this.props.sorters, x)}
-                        menuLimit={this.props.menuLimit}
+                        menuLimit={this.props.menuLimit ?? null}
                         setValuesInFilter={this.setValuesInFilter.bind(this)}
                         addValuesToFilter={this.addValuesToFilter.bind(this)}
                         moveFilterBoxToTop={this.moveFilterBoxToTop.bind(this)}
                         removeValuesFromFilter={this.removeValuesFromFilter.bind(this)}
                         zIndex={this.state.zIndices[x] || this.state.maxZIndex}
-                        groupByHour={x === 'TRX_TIME' ? this.state.groupByHour : undefined}
-                        toggleGroupByHour={(val: boolean) => {
+                        groupByHour={x === 'TIME' ? (this.state.groupByHour ?? false) : undefined}
+                        toggleGroupByHour={x === 'TIME' ? (val: boolean) => {
                             this.setState({ isProcessing: true }, () => {
                                 setTimeout(() => {
                                     this.setState({ groupByHour: val, isProcessing: false });
                                 }, 50);
                             });
-                        }}
+                        } : undefined}
+                        sortDir={x === 'PRICE' ? this.state.priceSortDir : undefined}
+                        toggleSortDir={x === 'PRICE' ? (dir: 'asc' | 'desc') => {
+                            this.setState({ isProcessing: true }, () => {
+                                setTimeout(() => {
+                                    this.setState({ priceSortDir: dir, isProcessing: false });
+                                }, 50);
+                            });
+                        } : undefined}
                     />
                 ))}
             </SortableJSWrapper>
@@ -711,7 +748,15 @@ class PivotTableUI extends React.PureComponent<PivotTableUIProps, PivotTableUISt
                             data: { $set: this.state.materializedInput },
                             derivedAttributes: { $set: {} },
                             renderers: { $set: renderers },
-                            aggregators: { $set: aggregators }
+                            aggregators: { $set: aggregators },
+                            sorters: {
+                                $set: {
+                                    ...this.props.sorters,
+                                    PRICE: this.state.priceSortDir === 'asc'
+                                        ? (a: any, b: any) => parseFloat(a) - parseFloat(b)
+                                        : (a: any, b: any) => parseFloat(b) - parseFloat(a)
+                                }
+                            }
                         })}
                     />
                 </div>

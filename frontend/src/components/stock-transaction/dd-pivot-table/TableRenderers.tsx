@@ -57,11 +57,48 @@ function makeRenderer(opts: any = {}) {
         static defaultProps = PivotData.defaultProps;
         static propTypes = PivotData.propTypes;
 
+        observer: IntersectionObserver | null = null;
+        sentinelRef: React.RefObject<HTMLDivElement> = React.createRef();
+
         constructor(props: any) {
             super(props);
             this.state = {
-                displayLimit: 50
+                displayLimit: 200
             };
+        }
+
+        override componentDidMount() {
+            this.setupObserver();
+        }
+
+        override componentDidUpdate() {
+            this.setupObserver();
+        }
+
+        override componentWillUnmount() {
+            if (this.observer) {
+                this.observer.disconnect();
+            }
+        }
+
+        setupObserver() {
+            if (this.observer) {
+                this.observer.disconnect();
+            }
+            if (!this.sentinelRef.current) return;
+
+            this.observer = new IntersectionObserver((entries) => {
+                if (entries[0].isIntersecting) {
+                    // Get rowKeys implicitly from props if possible or just increment if we haven't reached end
+                    this.setState((s) => ({
+                        displayLimit: s.displayLimit + 200
+                    }));
+                }
+            }, {
+                rootMargin: '400px',
+                threshold: 0.1
+            });
+            this.observer.observe(this.sentinelRef.current);
         }
 
         override render() {
@@ -311,20 +348,28 @@ function makeRenderer(opts: any = {}) {
                 'div',
                 {
                     className: 'pvtTableContainer',
+                    key: 'pvtTableContainer',
                     style: {
-                        overflow: 'auto',
-                        position: 'relative'
-                    },
-                    onScroll: (e: any) => {
-                        const el = e.target;
-                        if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
-                            if (this.state.displayLimit < rowKeys.length) {
-                                this.setState({ displayLimit: this.state.displayLimit + 50 });
-                            }
-                        }
+                        position: 'relative',
+                        width: '100%',
+                        minHeight: '20px'
                     }
                 },
-                table
+                table,
+                this.state.displayLimit < rowKeys.length && React.createElement('div', {
+                    ref: this.sentinelRef,
+                    style: {
+                        height: '20px',
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#888',
+                        fontSize: '11px',
+                        fontStyle: 'italic',
+                        marginTop: '10px'
+                    }
+                }, 'Loading more rows...')
             );
         }
     }
