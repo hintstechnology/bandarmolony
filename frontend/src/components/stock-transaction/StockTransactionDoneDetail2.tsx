@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Button } from '../ui/button';
-import { Calendar, Search, Loader2, Settings, ChevronDown } from 'lucide-react';
+import { Calendar, Search, Loader2, ChevronDown } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../services/api';
 import { STOCK_LIST, loadStockList, searchStocks } from '../../data/stockList';
@@ -140,7 +140,7 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
       aggregatorName: 'Sum',
       rows: ['SELLER'],
       cols: ['TIME'],
-      vals: ['VALUE']
+      vals: ['VOLUME']
     };
 
     if (!savedPrefs?.pivotState) return defaultState;
@@ -158,7 +158,8 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
       STK_VOLM: 'VOLUME',
       STK_PRIC: 'PRICE',
       VALUE: 'VALUE',
-      TRX_VALU: 'VALUE'
+      TRX_VALU: 'VALUE',
+      TRX_DATE: 'DATE'
     };
 
     const migrate = (arr: string[]) => (arr || []).map(k => mapping[k] || k);
@@ -177,7 +178,6 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
   const [selectedInvType, setSelectedInvType] = useState(savedPrefs?.selectedInvType || 'All');
   const [selectedSession, setSelectedSession] = useState(savedPrefs?.selectedSession || 'All');
   const [selectedBroker, setSelectedBroker] = useState(savedPrefs?.selectedBroker || '');
-  const [brokerInput, setBrokerInput] = useState(savedPrefs?.selectedBroker || '');
 
   // Date picker refs
   const startDateRef = useRef<HTMLInputElement>(null);
@@ -240,14 +240,19 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
           const newData = new Map<string, DoneDetailData[]>();
           Object.entries(result.data.dataByDate).forEach(([date, data]: [string, any]) => {
             if (data?.doneTradeData && Array.isArray(data.doneTradeData)) {
+              const mapFD = (val: string) => {
+                if (val === 'I') return 'DOMESTIC';
+                if (val === 'A') return 'FOREIGN';
+                return val;
+              };
               const processedData = data.doneTradeData.map((item: any) => ({
                 // Display Aliases (These are the fields shown in the Pivot Table)
-                SELLER: String(item.BRK_COD1 || ''),
-                BUYER: String(item.BRK_COD2 || ''),
-                'F/D SELL': String(item.INV_TYP1 || ''),
-                'F/D BUY': String(item.INV_TYP2 || ''),
-                'SO No': parseInt(String(item.TRX_ORD1 || '0')) || 0,
-                'BO No': parseInt(String(item.TRX_ORD2 || '0')) || 0,
+                SELLER: String(item.BRK_COD2 || ''),
+                BUYER: String(item.BRK_COD1 || ''),
+                'F/D SELL': mapFD(String(item.INV_TYP2 || '')),
+                'F/D BUY': mapFD(String(item.INV_TYP1 || '')),
+                'SO No': parseInt(String(item.TRX_ORD2 || '0')) || 0,
+                'BO No': parseInt(String(item.TRX_ORD1 || '0')) || 0,
                 TIME: parseInt(String(item.TRX_TIME || '0')) || 0,
                 VALUE: parseFloat(String(item.VALUE || item.STK_VALU || item.TRX_VALU || (item.STK_VOLM * item.STK_PRIC) || '0')) || 0,
                 VOLUME: parseFloat(String(item.STK_VOLM || '0')) || 0,
@@ -255,9 +260,8 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
 
                 // Other fields
                 STK_CODE: String(item.STK_CODE || selectedStock),
-                TRX_DATE: String(item.TRX_DATE || date),
-                'TRX TYPE': String(item.TRX_TYPE || ''),
-                'HAKA HAKI': parseInt(String(item.HAKA_HAKI || '0')) || 0,
+                DATE: String(item.TRX_DATE || date),
+                'HAKA HAKI': (parseInt(String(item.HAKA_HAKI || '0')) === 1) ? 'HAKA' : 'HAKI',
                 SESSION: parseInt(String(item.TRX_SESS || '0')) || 0,
               }));
               newData.set(date, processedData);
@@ -567,6 +571,15 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
 
               return filtered;
             })()}
+            sorters={{
+              ...pivotState.sorters,
+              'HAKA HAKI': (a: any, b: any) => {
+                if (a === 'HAKI' && b === 'HAKA') return -1;
+                if (a === 'HAKA' && b === 'HAKI') return 1;
+                return 0;
+              },
+              PRICE: (a: any, b: any) => parseFloat(b) - parseFloat(a)
+            }}
             aggregators={aggregators}
             hiddenAttributes={[]}
             hiddenFromDragDrop={['TYP', 'STK_CODE']}
