@@ -33,7 +33,7 @@ interface DoneDetailData {
   TRX_ORD1: number;
   TRX_ORD2: number;
   HAKA_HAKI: number;
-  VALUE: number;
+  STK_VALUES: number;
   [key: string]: any;
 }
 
@@ -133,8 +133,44 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
   const [_error, setError] = useState<string | null>(null);
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
 
-  // Pivot Table State
-  const [pivotState, setPivotState] = useState<any>(savedPrefs?.pivotState || { rendererName: 'Table' });
+  // Pivot Table State Migration & Initialization
+  const initialPivotState = useMemo(() => {
+    const defaultState = {
+      rendererName: 'Table',
+      aggregatorName: 'Sum',
+      rows: ['SELLER'],
+      cols: ['TIME'],
+      vals: ['VALUE']
+    };
+
+    if (!savedPrefs?.pivotState) return defaultState;
+
+    const state = { ...savedPrefs.pivotState };
+    const mapping: Record<string, string> = {
+      BRK_COD1: 'SELLER',
+      BRK_COD2: 'BUYER',
+      INV_TYP1: 'F/D SELL',
+      INV_TYP2: 'F/D BUY',
+      TRX_ORD1: 'SO No',
+      TRX_ORD2: 'BO No',
+      TRX_TIME: 'TIME',
+      STK_VALUES: 'VALUE',
+      STK_VOLM: 'VOLUME',
+      STK_PRIC: 'PRICE',
+      VALUE: 'VALUE',
+      TRX_VALU: 'VALUE'
+    };
+
+    const migrate = (arr: string[]) => (arr || []).map(k => mapping[k] || k);
+
+    if (state.rows) state.rows = migrate(state.rows);
+    if (state.cols) state.cols = migrate(state.cols);
+    if (state.vals) state.vals = migrate(state.vals);
+
+    return state;
+  }, [savedPrefs]);
+
+  const [pivotState, setPivotState] = useState<any>(initialPivotState);
 
   // Global Filters
   const [selectedBoard, setSelectedBoard] = useState(savedPrefs?.selectedBoard || 'All');
@@ -205,27 +241,29 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
           Object.entries(result.data.dataByDate).forEach(([date, data]: [string, any]) => {
             if (data?.doneTradeData && Array.isArray(data.doneTradeData)) {
               const processedData = data.doneTradeData.map((item: any) => ({
+                // Display Aliases (These are the fields shown in the Pivot Table)
+                SELLER: String(item.BRK_COD1 || ''),
+                BUYER: String(item.BRK_COD2 || ''),
+                'F/D SELL': String(item.INV_TYP1 || ''),
+                'F/D BUY': String(item.INV_TYP2 || ''),
+                'SO No': parseInt(String(item.TRX_ORD1 || '0')) || 0,
+                'BO No': parseInt(String(item.TRX_ORD2 || '0')) || 0,
+                TIME: parseInt(String(item.TRX_TIME || '0')) || 0,
+                VALUE: parseFloat(String(item.VALUE || item.STK_VALU || item.TRX_VALU || (item.STK_VOLM * item.STK_PRIC) || '0')) || 0,
+                VOLUME: parseFloat(String(item.STK_VOLM || '0')) || 0,
+                PRICE: parseFloat(String(item.STK_PRIC || '0')) || 0,
+
+                // Other fields
                 STK_CODE: String(item.STK_CODE || selectedStock),
-                BRK_COD1: String(item.BRK_COD1 || ''),
-                BRK_COD2: String(item.BRK_COD2 || ''),
-                STK_VOLM: parseFloat(String(item.STK_VOLM || '0')) || 0,
-                STK_PRIC: parseFloat(String(item.STK_PRIC || '0')) || 0,
                 TRX_DATE: String(item.TRX_DATE || date),
-                TRX_TIME: parseInt(String(item.TRX_TIME || '0')) || 0,
-                INV_TYP1: String(item.INV_TYP1 || ''),
-                INV_TYP2: String(item.INV_TYP2 || ''),
-                TYP: String(item.TRX_TYPE || ''),
-                TRX_CODE: String(item.TRX_CODE || ''),
-                TRX_SESS: parseInt(String(item.TRX_SESS || '0')) || 0,
-                TRX_ORD1: parseInt(String(item.TRX_ORD1 || '0')) || 0,
-                TRX_ORD2: parseInt(String(item.TRX_ORD2 || '0')) || 0,
-                TRX_TYPE: String(item.TRX_TYPE || ''),
-                HAKA_HAKI: parseInt(String(item.HAKA_HAKI || '0')) || 0,
-                VALUE: parseFloat(String(item.VALUE || '0')) || 0,
+                'TRX TYPE': String(item.TRX_TYPE || ''),
+                'HAKA HAKI': parseInt(String(item.HAKA_HAKI || '0')) || 0,
+                SESSION: parseInt(String(item.TRX_SESS || '0')) || 0,
               }));
               newData.set(date, processedData);
             }
           });
+          console.log('Processed data example:', newData.values().next().value?.[0]);
           setDoneDetailData(newData);
         } else {
           setError('Failed to load done detail data');
@@ -592,6 +630,7 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
             margin: 2px !important;
             cursor: move;
             flex-shrink: 0 !important; /* Prevent squeezing in flex containers */
+            position: relative !important; /* Anchor for the absolute filter box */
         }
         .dark-pivot-theme .pvtTriangle {
             color: #94a3b8 !important;
@@ -819,14 +858,12 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
             border-radius: 4px;
             min-height: 48px !important;
             display: flex !important;
-            flex-wrap: nowrap !important;
-            overflow-x: auto !important;
-            overflow-y: hidden !important;
+            flex-wrap: wrap !important; /* Allow fields to wrap vertically */
+            overflow: visible !important; /* Prevent clipping of dropdowns */
             max-width: calc(100vw - ${sidebarOpen ? '256px' : '64px'}) !important; /* Flush against sidebar width (64/16 rem -> 256/64 px) */
             padding: 4px !important;
             align-items: center !important;
-            scrollbar-width: thin;
-            scrollbar-color: #3a4252 #111827;
+            scrollbar-width: none; /* No scrollbar needed if wrapping */
         }
 
         .dark-pivot-theme .pvtUnused::-webkit-scrollbar {
@@ -845,6 +882,7 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
             border: 1px solid #3a4252 !important;
             border-radius: 4px;
             min-height: 45px !important;
+            overflow: visible !important; /* Allow filter box to show outside */
         }
 
         /* Hover states */
@@ -860,6 +898,9 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
             padding: 12px;
             border-radius: 8px;
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4) !important;
+            top: 100% !important; /* Force open below */
+            bottom: auto !important; /* Prevent opening upwards */
+            left: 0 !important;
         }
         .dark-pivot-theme .pvtFilterBox input[type="text"] {
              background: #0a0f20;

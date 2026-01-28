@@ -637,17 +637,6 @@ export function BrokerTransaction() {
     return () => clearTimeout(timeout);
   }, [currentPreferences]);
 
-  // Immediate save for date changes (no debounce) to ensure they're captured
-  useEffect(() => {
-    if (startDate || endDate) {
-      const datePrefs: Partial<UserPreferences> = {
-        ...currentPreferences,
-      };
-      if (startDate) datePrefs.startDate = startDate;
-      if (endDate) datePrefs.endDate = endDate;
-      savePreferences(datePrefs);
-    }
-  }, [startDate, endDate]);
 
   // Save on unmount to capture pending changes (e.g. user navigates away quickly)
   useEffect(() => {
@@ -890,12 +879,14 @@ export function BrokerTransaction() {
         // Sort by date (oldest first) for display
         const sortedDates = [...initialDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
 
-        // Set default to last 3 trading days (skip weekends)
+        // Set default to last 3 trading days ONLY IF no saved preferences exist
         // NO auto-fetch - user must click Show button to fetch data
-        setSelectedDates(sortedDates);
-        if (sortedDates.length > 0) {
-          setStartDate(sortedDates[0]);
-          setEndDate(sortedDates[sortedDates.length - 1]);
+        if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
+          setSelectedDates(sortedDates);
+          if (sortedDates.length > 0) {
+            setStartDate(sortedDates[0]);
+            setEndDate(sortedDates[sortedDates.length - 1]);
+          }
         }
 
       } catch (error) {
@@ -906,15 +897,18 @@ export function BrokerTransaction() {
         const brokers = ['MG', 'CIMB', 'UOB', 'COIN', 'NH', 'TRIM', 'DEWA', 'BNCA', 'PNLF', 'VRNA', 'SD', 'LMGA', 'DEAL', 'ESA', 'SSA', 'AK'];
         setAvailableBrokers(brokers);
 
-        // Default to last 3 trading days (skip weekends)
+        // Default to last 3 trading days ONLY IF no saved preferences exist
         const fallbackDates = getTradingDays(3);
         // Sort by date (oldest first) for display
         const sortedDates = [...fallbackDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-        setSelectedDates(sortedDates);
 
-        if (sortedDates.length > 0) {
-          setStartDate(sortedDates[0]);
-          setEndDate(sortedDates[sortedDates.length - 1]);
+        if (!savedPrefs?.startDate || !savedPrefs?.endDate) {
+          setSelectedDates(sortedDates);
+
+          if (sortedDates.length > 0) {
+            setStartDate(sortedDates[0]);
+            setEndDate(sortedDates[sortedDates.length - 1]);
+          }
         }
       }
     };

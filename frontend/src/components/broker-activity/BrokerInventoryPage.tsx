@@ -59,7 +59,7 @@ const getBrokerColorClass = (brokerCode: string): { color: string; className: st
 const TOP_BUYER_COLORS = ['#FF0000', '#FFFF00', '#00FF00', '#0000FF', '#FFA500'];
 
 // Dynamic color generator based on loaded brokers (for chart colors, not text)
-const generateBrokerColor = (broker: string | undefined | null, allBrokers: string[] = [], topBuyers: string[] = []): string => {
+const generateBrokerColor = (broker: string | undefined | null, allBrokers: string[] = [], topBuyers: string[] = [], topSellers: string[] = []): string => {
   // Handle undefined/null broker
   if (!broker || typeof broker !== 'string') {
     return 'hsl(0, 0%, 50%)'; // Return gray color for invalid broker
@@ -69,6 +69,12 @@ const generateBrokerColor = (broker: string | undefined | null, allBrokers: stri
   const topBuyerIndex = topBuyers.indexOf(broker);
   if (topBuyerIndex !== -1 && topBuyerIndex < TOP_BUYER_COLORS.length) {
     return TOP_BUYER_COLORS[topBuyerIndex];
+  }
+
+  // Check if broker is in Top 5 Sellers - use the same color palette as buyers
+  const topSellerIndex = topSellers.indexOf(broker);
+  if (topSellerIndex !== -1 && topSellerIndex < TOP_BUYER_COLORS.length) {
+    return TOP_BUYER_COLORS[topSellerIndex];
   }
 
   // Get all unique brokers and sort them for consistent color assignment
@@ -172,7 +178,8 @@ const BrokerLegend = ({
   onToggleVisibility,
   onRemoveBroker,
   onRemoveAll,
-  topBuyers = []
+  topBuyers = [],
+  topSellers = []
 }: {
   title: string;
   brokers: string[];
@@ -182,6 +189,7 @@ const BrokerLegend = ({
   onRemoveBroker: (broker: string) => void;
   onRemoveAll?: () => void;
   topBuyers?: string[];
+  topSellers?: string[];
 }) => {
   // Check if all brokers are visible
   const allVisible = brokers.length > 0 && brokers.every(broker => brokerVisibility[broker] !== false);
@@ -261,7 +269,7 @@ const BrokerLegend = ({
                 <div className="flex items-center gap-2">
                   <span
                     className="w-3 h-3 rounded-full border border-border"
-                    style={{ backgroundColor: generateBrokerColor(broker, colorReferenceBrokers, topBuyers) }}
+                    style={{ backgroundColor: generateBrokerColor(broker, colorReferenceBrokers, topBuyers, topSellers) }}
                   />
                   <button
                     type="button"
@@ -292,7 +300,8 @@ const TradingViewChart = ({
   volumeData,
   ticker,
   className,
-  topBuyers
+  topBuyers,
+  topSellers
 }: {
   candlestickData: any[],
   inventoryData: InventoryTimeSeries[],
@@ -302,7 +311,8 @@ const TradingViewChart = ({
   volumeData?: any[],
   ticker?: string,
   className?: string,
-  topBuyers?: string[]
+  topBuyers?: string[],
+  topSellers?: string[]
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -459,7 +469,8 @@ const TradingViewChart = ({
         let firstBrokerSeries: any = null;
 
         brokersToDisplay.forEach(broker => {
-          const brokerColor = generateBrokerColor(broker, selectedBrokers, topBuyers);
+          const brokerColor = generateBrokerColor(broker, selectedBrokers, topBuyers, topSellers);
+          const isTopSeller = topSellers && topSellers.includes(broker);
 
           // Extract Cumulative data from pre-calculated array
           const brokerData = cumulativeInventoryData.map(d => ({
@@ -477,6 +488,7 @@ const TradingViewChart = ({
             const lineSeries = chart.addSeries(LineSeries, {
               color: brokerColor,
               lineWidth: 2,
+              lineStyle: isTopSeller ? 1 : 0, // 1 for Dotted, 0 for Solid
               title: broker,
               priceScaleId: 'right', // Use right price scale (label broker di kanan)
               priceFormat: {
@@ -584,7 +596,7 @@ const TradingViewChart = ({
           if (brokerDataPoint) {
             displayBrokers.forEach(broker => {
               if (brokerDataPoint[broker] !== undefined && brokerDataPoint[broker] !== null) {
-                const brokerColor = generateBrokerColor(broker, selectedBrokers);
+                const brokerColor = generateBrokerColor(broker, selectedBrokers, topBuyers, topSellers);
                 brokerValues.push({
                   broker,
                   value: brokerDataPoint[broker] as number,
@@ -1076,12 +1088,14 @@ const InventoryChart = ({
   displayBrokers,
   className,
   topBuyers,
+  topSellers
 }: {
   inventoryData: InventoryTimeSeries[],
   selectedBrokers: string[],
   displayBrokers?: string[],
   className?: string,
   topBuyers?: string[],
+  topSellers?: string[]
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -1198,7 +1212,8 @@ const InventoryChart = ({
       let firstBrokerSeries: any = null;
 
       brokersToDisplay.forEach(broker => {
-        const brokerColor = generateBrokerColor(broker, selectedBrokers, topBuyers);
+        const brokerColor = generateBrokerColor(broker, selectedBrokers, topBuyers, topSellers);
+        const isTopSeller = topSellers && topSellers.includes(broker);
 
         // Extract Cumulative Inventory data from pre-calculated array
         const brokerData = cumulativeInventoryData
@@ -1257,6 +1272,7 @@ const InventoryChart = ({
           const lineSeries = chart.addSeries(LineSeries, {
             color: brokerColor,
             lineWidth: 2,
+            lineStyle: isTopSeller ? 1 : 0, // 1 for Dotted, 0 for Solid
             title: broker,
             priceScaleId: 'right', // Use right price scale (label broker di kanan)
             priceFormat: {
@@ -3767,7 +3783,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
 
   // Generate unique colors for brokers (dark colors with high contrast for white text)
   // Ensures each broker gets a unique, highly contrasting color
-  const generateUniqueBrokerColor = (broker: string | undefined | null, allBrokers: string[], topBuyers: string[] = []): string => {
+  const generateUniqueBrokerColor = (broker: string | undefined | null, allBrokers: string[], topBuyers: string[] = [], topSellers: string[] = []): string => {
     // Handle undefined/null broker
     if (!broker || typeof broker !== 'string') {
       return 'hsl(0, 0%, 35%)'; // Return dark gray color for invalid broker
@@ -3777,6 +3793,12 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     const topBuyerIndex = topBuyers.indexOf(broker);
     if (topBuyerIndex !== -1 && topBuyerIndex < TOP_BUYER_COLORS.length) {
       return TOP_BUYER_COLORS[topBuyerIndex];
+    }
+
+    // Check if broker is in Top 5 Sellers - use the same color palette as buyers
+    const topSellerIndex = topSellers.indexOf(broker);
+    if (topSellerIndex !== -1 && topSellerIndex < TOP_BUYER_COLORS.length) {
+      return TOP_BUYER_COLORS[topSellerIndex];
     }
 
     const sortedBrokers = [...new Set(allBrokers)].sort();
@@ -3825,15 +3847,16 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const topBrokersData = useMemo(() => {
     if (!brokerSummaryData || brokerSummaryData.length === 0) return [];
 
-    // Get top 5 buy brokers for coloring
+    // Get top 5 buy and top 5 sell brokers for coloring
     const top5BuyBrokers = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
+    const top5SellBrokers = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
 
     // OPTIMIZED: Get all unique brokers once and pre-compute colors
     const allBrokers = [...new Set(brokerSummaryData.map(r => r.broker).filter((b): b is string => Boolean(b) && typeof b === 'string'))];
     const brokerColorCache = new Map<string, string>();
     const getBrokerColor = (broker: string) => {
       if (!brokerColorCache.has(broker)) {
-        brokerColorCache.set(broker, generateUniqueBrokerColor(broker, allBrokers, top5BuyBrokers));
+        brokerColorCache.set(broker, generateUniqueBrokerColor(broker, allBrokers, top5BuyBrokers, top5SellBrokers));
       }
       return brokerColorCache.get(broker)!;
     };
@@ -4971,6 +4994,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                       displayBrokers={visibleBrokers}
                       className="h-[calc(100vh-140px)] min-h-[500px]"
                       topBuyers={top5BuyBrokers}
+                      topSellers={top5SellBrokers}
                     />
                   )}
                   {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
@@ -5008,6 +5032,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                       onToggleVisibility={handleToggleBrokerVisibility}
                       onRemoveBroker={removeBroker}
                       onRemoveAll={removeAllTop5Buy}
+                      topBuyers={top5BuyBrokers}
+                      topSellers={top5SellBrokers}
                     />
                   )}
                   {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
@@ -5019,6 +5045,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                       onToggleVisibility={handleToggleBrokerVisibility}
                       onRemoveBroker={removeBroker}
                       onRemoveAll={removeAllTop5Sell}
+                      topBuyers={top5BuyBrokers}
+                      topSellers={top5SellBrokers}
                     />
                   )}
                   {brokerSelectionMode.top5tektok && top5TekTokBrokers.length > 0 && (
@@ -5030,6 +5058,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                       onToggleVisibility={handleToggleBrokerVisibility}
                       onRemoveBroker={removeBroker}
                       onRemoveAll={removeAllTop5TekTok}
+                      topBuyers={top5BuyBrokers}
+                      topSellers={top5SellBrokers}
                     />
                   )}
                   {brokerSelectionMode.custom && customBrokers.length > 0 && (
@@ -5041,6 +5071,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                       onToggleVisibility={handleToggleBrokerVisibility}
                       onRemoveBroker={removeBroker}
                       onRemoveAll={removeAllCustom}
+                      topBuyers={top5BuyBrokers}
+                      topSellers={top5SellBrokers}
                     />
                   )}
                 </div>
@@ -5138,6 +5170,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         selectedBrokers={selectedBrokers}
                         displayBrokers={visibleBrokers}
                         topBuyers={top5BuyBrokers}
+                        topSellers={top5SellBrokers}
                       />
                     )}
                     {selectedBrokers.length > 0 && !isLoadingData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
@@ -5176,6 +5209,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         onRemoveBroker={removeBroker}
                         onRemoveAll={removeAllTop5Buy}
                         topBuyers={top5BuyBrokers}
+                        topSellers={top5SellBrokers}
                       />
                     )}
                     {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
@@ -5188,6 +5222,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         onRemoveBroker={removeBroker}
                         onRemoveAll={removeAllTop5Sell}
                         topBuyers={top5BuyBrokers}
+                        topSellers={top5SellBrokers}
                       />
                     )}
                     {brokerSelectionMode.top5tektok && top5TekTokBrokers.length > 0 && (
@@ -5200,6 +5235,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         onRemoveBroker={removeBroker}
                         onRemoveAll={removeAllTop5TekTok}
                         topBuyers={top5BuyBrokers}
+                        topSellers={top5SellBrokers}
                       />
                     )}
                     {brokerSelectionMode.custom && customBrokers.length > 0 && (
@@ -5212,6 +5248,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         onRemoveBroker={removeBroker}
                         onRemoveAll={removeAllCustom}
                         topBuyers={top5BuyBrokers}
+                        topSellers={top5SellBrokers}
                       />
                     )}
                   </div>
@@ -5353,6 +5390,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         ticker={displayedTicker}
                         className="h-[calc(100vh-250px)] min-h-[600px] w-full relative"
                         topBuyers={top5BuyBrokers}
+                        topSellers={top5SellBrokers}
                       />
                     )}
                   </div>
@@ -5367,6 +5405,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         onRemoveBroker={removeBroker}
                         onRemoveAll={removeAllTop5Buy}
                         topBuyers={top5BuyBrokers}
+                        topSellers={top5SellBrokers}
                       />
                     )}
                     {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
@@ -5379,6 +5418,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         onRemoveBroker={removeBroker}
                         onRemoveAll={removeAllTop5Sell}
                         topBuyers={top5BuyBrokers}
+                        topSellers={top5SellBrokers}
                       />
                     )}
                     {brokerSelectionMode.top5tektok && top5TekTokBrokers.length > 0 && (
@@ -5391,6 +5431,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         onRemoveBroker={removeBroker}
                         onRemoveAll={removeAllTop5TekTok}
                         topBuyers={top5BuyBrokers}
+                        topSellers={top5SellBrokers}
                       />
                     )}
                     {brokerSelectionMode.custom && customBrokers.length > 0 && (
@@ -5403,6 +5444,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         onRemoveBroker={removeBroker}
                         onRemoveAll={removeAllCustom}
                         topBuyers={top5BuyBrokers}
+                        topSellers={top5SellBrokers}
                       />
                     )}
                   </div>
