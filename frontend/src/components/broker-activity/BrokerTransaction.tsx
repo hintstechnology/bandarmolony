@@ -4754,19 +4754,20 @@ export function BrokerTransaction() {
       const getRankStyle = (code: string, type: 'buy' | 'sell'): React.CSSProperties => {
         if (!code) return {};
 
-        if (type === 'buy') {
-          // USER REQUEST: Net Buy gets Block (Background Color)
-          const rankIndex = topNetBuyItems.indexOf(code);
-          if (rankIndex !== -1) {
-            return { backgroundColor: bgColors[rankIndex], color: 'white' };
-          }
-        } else {
-          // USER REQUEST: Net Sell gets Line (Underline / Border Bottom)
-          const rankIndex = topNetSellItems.indexOf(code);
-          if (rankIndex !== -1) {
-            return { borderBottom: `4px solid ${bgColors[rankIndex]}` };
-          }
+        // Check if it's a Top Net Buyer (from Total) -> Block Style
+        // This style applies regardless of whether the stock/broker appears in Buy or Sell column
+        const buyRankIndex = topNetBuyItems.indexOf(code);
+        if (buyRankIndex !== -1) {
+          return { backgroundColor: bgColors[buyRankIndex], color: 'white' };
         }
+
+        // Check if it's a Top Net Seller (from Total) -> Line Style
+        // This style applies regardless of whether the stock/broker appears in Buy or Sell column
+        const sellRankIndex = topNetSellItems.indexOf(code);
+        if (sellRankIndex !== -1) {
+          return { borderBottom: `4px solid ${bgColors[sellRankIndex]}` };
+        }
+
         return {};
       };
 
