@@ -160,7 +160,7 @@ function DashboardLayout() {
       children: {
         'done-summary': 'Done Summary',
         'done-detail': 'Done Detail',
-        'done-detail-2': 'Done Detail 2',
+        'done-detail-2': 'Done Detail',
       },
     },
     'story': {

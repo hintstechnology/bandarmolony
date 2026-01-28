@@ -166,7 +166,10 @@ export function StockTransactionDoneDetail2({ sidebarOpen }: { sidebarOpen?: boo
 
     if (state.rows) state.rows = migrate(state.rows);
     if (state.cols) state.cols = migrate(state.cols);
-    if (state.vals) state.vals = migrate(state.vals);
+    state.vals = migrate(state.vals);
+    if (!state.vals || state.vals.length === 0) {
+      state.vals = ['VOLUME'];
+    }
 
     return state;
   }, [savedPrefs]);
