@@ -20,6 +20,9 @@ async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: numbe
     return results;
 }
 
+type InvestorType = 'All' | 'D' | 'F';
+type BoardType = 'All' | 'RG' | 'TN' | 'NG';
+
 interface TransactionData {
     STK_CODE: string;
     BRK_COD1: string; // Buyer
@@ -28,7 +31,17 @@ interface TransactionData {
     STK_PRIC: number;
     TRX_ORD1: number;
     TRX_ORD2: number;
+    INV_TYP1: string; // Buyer Type (D/F)
+    INV_TYP2: string; // Seller Type (D/F)
+    TRX_TYPE: string; // Board Type (RG/TN/NG)
     [key: string]: any;
+}
+
+interface EnhancedTransactionData extends TransactionData {
+    isBid: boolean; // Not strictly used in HAKA/HAKI logic below but good for parity
+    buyerInvType: InvestorType;
+    sellerInvType: InvestorType;
+    boardType: BoardType;
 }
 
 // Output Data Interface
@@ -64,7 +77,7 @@ export class HakaHakiAnalysisCalculator {
         return Math.round(num);
     }
 
-    // Find all DT files (limited to recent dates like BrokerBreakdownCalculator)
+    // Find all DT files
     private async findAllDtFiles(): Promise<string[]> {
         console.log("Scanning all DT files in done-summary folder...");
         try {
@@ -77,6 +90,12 @@ export class HakaHakiAnalysisCalculator {
                 return dateB.localeCompare(dateA);
             });
 
+            // Process all files logic or limit as needed
+            // The user wants to process ALL emiten, implies checking all dates? 
+            // Usually we limit history processing to save time, but "Process all available emiten data" 
+            // refers to stocks within a file.
+            // Let's keep the date limit to reasonable recent history or process all if requested.
+            // For now, keeping a reasonable limit (e.g. 7 days or same as Broker Breakdown) is safe.
             const MAX_DATES_TO_PROCESS = 7;
             const limitedFiles = sortedFiles.slice(0, MAX_DATES_TO_PROCESS);
 
@@ -88,14 +107,9 @@ export class HakaHakiAnalysisCalculator {
         }
     }
 
-
-
     private async filterExistingDates(dtFiles: string[]): Promise<string[]> {
         console.log(`🔍 Pre-checking existing HAKA/HAKI outputs...`);
         const filesToProcess: string[] = [];
-
-        // Simple check: if done_summary_haka_haki/{date} exists, we skip? 
-        // Or check coverage? Usually we check if we have ANY data for that date.
 
         for (const file of dtFiles) {
             const pathParts = file.split('/');
@@ -103,6 +117,10 @@ export class HakaHakiAnalysisCalculator {
             const outputPrefix = `done_summary_haka_haki/${dateSuffix}/`;
 
             try {
+                // Check if directory exists/has content. 
+                // Since this is a check per DATE, if partial data exists we might skip?
+                // Safest is to skip if folder has ANY files, assuming it ran before.
+                // Or proceed if we want to ensure completeness.
                 const existingFiles = await listPaths({ prefix: outputPrefix, maxResults: 1 });
                 if (existingFiles.length > 0) {
                     console.log(`⏭️ HAKA/HAKI breakdown already exists for date ${dateSuffix} - skipping`);
@@ -115,7 +133,6 @@ export class HakaHakiAnalysisCalculator {
         }
         return filesToProcess;
     }
-
 
     private parseTransactionData(content: string): TransactionData[] {
         const lines = content.trim().split('\n');
@@ -133,6 +150,10 @@ export class HakaHakiAnalysisCalculator {
         const stkPricIndex = getColumnIndex('STK_PRIC');
         const trxOrd1Index = getColumnIndex('TRX_ORD1');
         const trxOrd2Index = getColumnIndex('TRX_ORD2');
+        // New columns for filtering
+        const invTyp1Index = getColumnIndex('INV_TYP1');
+        const invTyp2Index = getColumnIndex('INV_TYP2');
+        const trxTypeIndex = getColumnIndex('TRX_TYPE');
 
         if (stkCodeIndex === -1 || brkCod1Index === -1 || brkCod2Index === -1 ||
             stkVolmIndex === -1 || stkPricIndex === -1) {
@@ -156,64 +177,39 @@ export class HakaHakiAnalysisCalculator {
                     STK_PRIC: parseFloat(values[stkPricIndex]?.trim() || '0') || 0,
                     TRX_ORD1: parseInt(values[trxOrd1Index]?.trim() || '0') || 0,
                     TRX_ORD2: parseInt(values[trxOrd2Index]?.trim() || '0') || 0,
+                    INV_TYP1: invTyp1Index !== -1 ? (values[invTyp1Index]?.trim() || '') : '',
+                    INV_TYP2: invTyp2Index !== -1 ? (values[invTyp2Index]?.trim() || '') : '',
+                    TRX_TYPE: trxTypeIndex !== -1 ? (values[trxTypeIndex]?.trim() || '') : '',
                 });
             }
         }
         return data;
     }
 
-    // Calculate Metrics for One Broker
-    private calculateMetricsForBroker(data: TransactionData[], brokerCode: string): Map<number, HakaHakiData> {
-        const priceMap = new Map<number, {
-            haki_buyer_vol: number; haki_buyer_freq: number; haki_buyer_ord: Set<number>;
-            haki_seller_vol: number; haki_seller_freq: number; haki_seller_ord: Set<number>;
-            haka_buyer_vol: number; haka_buyer_freq: number; haka_buyer_ord: Set<number>;
-            haka_seller_vol: number; haka_seller_freq: number; haka_seller_ord: Set<number>;
-        }>();
+    private getInvestorType(type: string): InvestorType {
+        if (!type) return 'D'; // Default to Domestic if unknown
+        return type.toUpperCase() === 'F' ? 'F' : 'D';
+    }
 
-        data.forEach(row => {
-            if (row.BRK_COD1 !== brokerCode && row.BRK_COD2 !== brokerCode) return;
-
-            const price = row.STK_PRIC;
-            const volume = row.STK_VOLM;
-
-            if (!priceMap.has(price)) {
-                priceMap.set(price, {
-                    haki_buyer_vol: 0, haki_buyer_freq: 0, haki_buyer_ord: new Set(),
-                    haki_seller_vol: 0, haki_seller_freq: 0, haki_seller_ord: new Set(),
-                    haka_buyer_vol: 0, haka_buyer_freq: 0, haka_buyer_ord: new Set(),
-                    haka_seller_vol: 0, haka_seller_freq: 0, haka_seller_ord: new Set()
-                });
-            }
-
-            const m = priceMap.get(price)!;
-            const isHaka = row.TRX_ORD1 > row.TRX_ORD2;
-            const isHaki = row.TRX_ORD2 > row.TRX_ORD1;
-
-            if (row.BRK_COD1 === brokerCode) { // Buyer
-                if (isHaka) {
-                    m.haka_buyer_vol += volume;
-                    m.haka_buyer_freq++;
-                    m.haka_buyer_ord.add(row.TRX_ORD1);
-                } else if (isHaki) {
-                    m.haki_buyer_vol += volume;
-                    m.haki_buyer_freq++;
-                    m.haki_buyer_ord.add(row.TRX_ORD1);
-                }
-            }
-            if (row.BRK_COD2 === brokerCode) { // Seller
-                if (isHaka) {
-                    m.haka_seller_vol += volume;
-                    m.haka_seller_freq++;
-                    m.haka_seller_ord.add(row.TRX_ORD2);
-                } else if (isHaki) {
-                    m.haki_seller_vol += volume;
-                    m.haki_seller_freq++;
-                    m.haki_seller_ord.add(row.TRX_ORD2);
-                }
-            }
+    private enhanceTransactions(data: TransactionData[]): EnhancedTransactionData[] {
+        return data.map(row => {
+            const isBid = row.TRX_ORD1 > row.TRX_ORD2; // HAKA (Buy Up) -> Buyer Initiated
+            return {
+                ...row,
+                isBid,
+                buyerInvType: this.getInvestorType(row.INV_TYP1),
+                sellerInvType: this.getInvestorType(row.INV_TYP2),
+                boardType: (row.TRX_TYPE as BoardType) || 'RG' // Default to RG if missing
+            };
         });
+    }
 
+
+
+
+
+
+    private processPriceMapToResults(priceMap: Map<number, any>): Map<number, HakaHakiData> {
         const resultMap = new Map<number, HakaHakiData>();
 
         priceMap.forEach((m, price) => {
@@ -236,7 +232,7 @@ export class HakaHakiAnalysisCalculator {
             const val_HAKA_O = val_SOrd !== 0 ? this.round(val_HAKA / val_SOrd) : 0;
 
             const val_TFreq = Math.abs(val_BFreq) + Math.abs(val_SFreq);
-            const val_TLot = Math.abs(val_HAKI) + Math.abs(val_HAKA); // NOTE: Logic says TLot is Sum of ABS HAKI/HAKA values
+            const val_TLot = Math.abs(val_HAKI) + Math.abs(val_HAKA);
             const val_TOr = Math.abs(val_BOrd) + Math.abs(val_SOrd);
 
             const rawTotalVol = m.haki_buyer_vol + m.haki_seller_vol + m.haka_buyer_vol + m.haka_seller_vol;
@@ -260,7 +256,6 @@ export class HakaHakiAnalysisCalculator {
                 });
             }
         });
-
         return resultMap;
     }
 
@@ -281,35 +276,74 @@ export class HakaHakiAnalysisCalculator {
             const pathParts = blobName.split('/');
             const dateSuffix = pathParts[1] || 'unknown';
 
-            const data = this.parseTransactionData(content);
-            if (data.length === 0) return false;
+            // 1. Parse & Enhance
+            const rawData = this.parseTransactionData(content);
+            if (rawData.length === 0) return false;
 
-            // Group by Stock
-            const stockDataMap = new Map<string, TransactionData[]>();
-            data.forEach(d => {
+            const enhancedData = this.enhanceTransactions(rawData);
+
+            // 2. Group by Stock
+            const stockDataMap = new Map<string, EnhancedTransactionData[]>();
+            enhancedData.forEach(d => {
                 if (!stockDataMap.has(d.STK_CODE)) stockDataMap.set(d.STK_CODE, []);
                 stockDataMap.get(d.STK_CODE)!.push(d);
             });
 
-            // Process each stock
+            // 3. Process each stock
             const stockEntries = Array.from(stockDataMap.entries());
             for (const [stock, stockTx] of stockEntries) {
-                // Find Unique Brokers
-                const brokers = new Set<string>();
-                stockTx.forEach(t => {
-                    if (t.BRK_COD1) brokers.add(t.BRK_COD1);
-                    if (t.BRK_COD2) brokers.add(t.BRK_COD2);
-                });
 
-                // For each broker, calculate and save
-                const brokerList = Array.from(brokers);
-                for (const broker of brokerList) {
-                    const metricsMap = this.calculateMetricsForBroker(stockTx, broker);
-                    if (metricsMap.size > 0) {
-                        const metricsList = Array.from(metricsMap.values());
-                        const csv = this.dataToCsv(metricsList);
-                        const outputFilename = `done_summary_haka_haki/${dateSuffix}/${stock}/${broker}.csv`;
-                        await uploadText(outputFilename, csv, 'text/csv');
+                // Define combinations to mirror Broker Breakdown
+                const investorTypes: InvestorType[] = ['All', 'D', 'F'];
+                const boardTypes: BoardType[] = ['All', 'RG', 'TN', 'NG'];
+
+                for (const invType of investorTypes) {
+                    for (const boardType of boardTypes) {
+
+
+
+                        // Correct Filtering Logic:
+                        // 1. Board Type: Strict filter.
+                        const boardFilteredTx = stockTx.filter(t => {
+                            if (boardType !== 'All' && t.boardType !== boardType) return false;
+                            return true;
+                        });
+
+                        if (boardFilteredTx.length === 0) continue;
+
+                        // Identify Suffix
+                        const suffix = (invType === 'All' && boardType === 'All')
+                            ? ''
+                            : `_${invType.toLowerCase()}_${boardType.toLowerCase()}`;
+
+                        // 2. Identify Unique Brokers in these transactions
+                        const brokers = new Set<string>();
+                        boardFilteredTx.forEach(t => {
+                            if (t.BRK_COD1) brokers.add(t.BRK_COD1);
+                            if (t.BRK_COD2) brokers.add(t.BRK_COD2);
+                        });
+
+                        // 3. Process Per Broker
+                        for (const broker of brokers) {
+                            // Calculate metrics with Investor Type filter applied strictly to that broker's side
+                            const metricsMap = this.calculateMetricsForBrokerWithFilter(boardFilteredTx, broker, invType);
+
+                            if (metricsMap.size > 0) {
+                                const metricsList = Array.from(metricsMap.values());
+                                const csv = this.dataToCsv(metricsList);
+                                const outputFilename = `done_summary_haka_haki/${dateSuffix}/${stock}/${broker}${suffix}.csv`;
+                                await uploadText(outputFilename, csv, 'text/csv');
+                            }
+                        }
+
+                        // 4. Process "All" (Aggregate)
+                        const allMetricsMap = this.calculateMetricsForAllWithFilter(boardFilteredTx, invType);
+                        if (allMetricsMap.size > 0) {
+                            const metricsList = Array.from(allMetricsMap.values());
+                            const csv = this.dataToCsv(metricsList);
+                            const outputFilename = `done_summary_haka_haki/${dateSuffix}/${stock}/All${suffix}.csv`;
+                            await uploadText(outputFilename, csv, 'text/csv');
+                        }
                     }
                 }
             }
@@ -321,6 +355,126 @@ export class HakaHakiAnalysisCalculator {
             return false;
         }
     }
+
+    // Updated Calculation with Investor Type Filter
+    private calculateMetricsForBrokerWithFilter(data: EnhancedTransactionData[], brokerCode: string, invType: InvestorType): Map<number, HakaHakiData> {
+        const priceMap = new Map<number, {
+            haki_buyer_vol: number; haki_buyer_freq: number; haki_buyer_ord: Set<number>;
+            haki_seller_vol: number; haki_seller_freq: number; haki_seller_ord: Set<number>;
+            haka_buyer_vol: number; haka_buyer_freq: number; haka_buyer_ord: Set<number>;
+            haka_seller_vol: number; haka_seller_freq: number; haka_seller_ord: Set<number>;
+        }>();
+
+        data.forEach(row => {
+            const price = row.STK_PRIC;
+            const volume = row.STK_VOLM;
+
+            // Ensure PriceMap entry
+            if (!priceMap.has(price)) {
+                priceMap.set(price, {
+                    haki_buyer_vol: 0, haki_buyer_freq: 0, haki_buyer_ord: new Set(),
+                    haki_seller_vol: 0, haki_seller_freq: 0, haki_seller_ord: new Set(),
+                    haka_buyer_vol: 0, haka_buyer_freq: 0, haka_buyer_ord: new Set(),
+                    haka_seller_vol: 0, haka_seller_freq: 0, haka_seller_ord: new Set()
+                });
+            }
+            const m = priceMap.get(price)!;
+            const isHaka = row.TRX_ORD1 > row.TRX_ORD2;
+            const isHaki = row.TRX_ORD2 > row.TRX_ORD1;
+
+            // Apply Investor Type Logic:
+            // If invType is 'All', match always.
+            // If invType is 'D', match only if row.buyerInvType/row.sellerInvType is 'D'.
+
+            // Buyer Side Check
+            if (row.BRK_COD1 === brokerCode) {
+                const matchesInv = invType === 'All' || row.buyerInvType === invType;
+                if (matchesInv) {
+                    if (isHaka) {
+                        m.haka_buyer_vol += volume;
+                        m.haka_buyer_freq++;
+                        m.haka_buyer_ord.add(row.TRX_ORD1);
+                    } else if (isHaki) {
+                        m.haki_buyer_vol += volume;
+                        m.haki_buyer_freq++;
+                        m.haki_buyer_ord.add(row.TRX_ORD1);
+                    }
+                }
+            }
+
+            // Seller Side Check
+            if (row.BRK_COD2 === brokerCode) {
+                const matchesInv = invType === 'All' || row.sellerInvType === invType;
+                if (matchesInv) {
+                    if (isHaka) {
+                        m.haka_seller_vol += volume;
+                        m.haka_seller_freq++;
+                        m.haka_seller_ord.add(row.TRX_ORD2);
+                    } else if (isHaki) {
+                        m.haki_seller_vol += volume;
+                        m.haki_seller_freq++;
+                        m.haki_seller_ord.add(row.TRX_ORD2);
+                    }
+                }
+            }
+        });
+
+        return this.processPriceMapToResults(priceMap);
+    }
+
+    private calculateMetricsForAllWithFilter(data: EnhancedTransactionData[], invType: InvestorType): Map<number, HakaHakiData> {
+        const priceMap = new Map<number, {
+            haki_buyer_vol: number; haki_buyer_freq: number; haki_buyer_ord: Set<number>;
+            haki_seller_vol: number; haki_seller_freq: number; haki_seller_ord: Set<number>;
+            haka_buyer_vol: number; haka_buyer_freq: number; haka_buyer_ord: Set<number>;
+            haka_seller_vol: number; haka_seller_freq: number; haka_seller_ord: Set<number>;
+        }>();
+
+        data.forEach(row => {
+            const price = row.STK_PRIC;
+            const volume = row.STK_VOLM;
+
+            if (!priceMap.has(price)) {
+                priceMap.set(price, {
+                    haki_buyer_vol: 0, haki_buyer_freq: 0, haki_buyer_ord: new Set(),
+                    haki_seller_vol: 0, haki_seller_freq: 0, haki_seller_ord: new Set(),
+                    haka_buyer_vol: 0, haka_buyer_freq: 0, haka_buyer_ord: new Set(),
+                    haka_seller_vol: 0, haka_seller_freq: 0, haka_seller_ord: new Set()
+                });
+            }
+            const m = priceMap.get(price)!;
+            const isHaka = row.TRX_ORD1 > row.TRX_ORD2;
+            const isHaki = row.TRX_ORD2 > row.TRX_ORD1;
+
+            // Buyer Side (BRK_COD1)
+            if (invType === 'All' || row.buyerInvType === invType) {
+                if (isHaka) {
+                    m.haka_buyer_vol += volume;
+                    m.haka_buyer_freq++;
+                    m.haka_buyer_ord.add(row.TRX_ORD1);
+                } else if (isHaki) {
+                    m.haki_buyer_vol += volume;
+                    m.haki_buyer_freq++;
+                    m.haki_buyer_ord.add(row.TRX_ORD1);
+                }
+            }
+
+            // Seller Side (BRK_COD2)
+            if (invType === 'All' || row.sellerInvType === invType) {
+                if (isHaka) {
+                    m.haka_seller_vol += volume;
+                    m.haka_seller_freq++;
+                    m.haka_seller_ord.add(row.TRX_ORD2);
+                } else if (isHaki) {
+                    m.haki_seller_vol += volume;
+                    m.haki_seller_freq++;
+                    m.haki_seller_ord.add(row.TRX_ORD2);
+                }
+            }
+        });
+        return this.processPriceMapToResults(priceMap);
+    }
+
 
     // Public Main Method
     public async generateHakaHakiData(logId?: string | null): Promise<void> {
@@ -338,10 +492,6 @@ export class HakaHakiAnalysisCalculator {
         };
 
         const batchPromises = filesToProcess.map(file => this.processSingleDtFile(file, progressTracker));
-        // Simple sequential or limited processing if needed, but here doing parallel based on method usage in broker_breakdown
-        // However, given the complexity (Broker loop inside Stock loop), we should be careful with concurrency.
-        // Let's use the limitConcurrency helper.
-
         await limitConcurrency(batchPromises.map(p => Promise.resolve(p)), MAX_CONCURRENT_REQUESTS);
 
         console.log("HAKA/HAKI Analysis Generation Complete.");
