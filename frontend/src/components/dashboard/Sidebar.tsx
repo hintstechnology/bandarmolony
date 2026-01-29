@@ -53,8 +53,7 @@ const menuItems = [
     route: "stock-transaction",
     children: [
       { title: "Done Summary", url: "#", route: "stock-transaction/done-summary" },
-      { title: "Done Detail", url: "#", route: "stock-transaction/done-detail" },
-      { title: "Done Detail 2", url: "#", route: "stock-transaction/done-detail-2" },
+      { title: "Done Detail", url: "#", route: "stock-transaction/done-detail-2" },
     ],
   },
   {
